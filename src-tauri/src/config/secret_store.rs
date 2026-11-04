@@ -4,28 +4,31 @@ use aes_gcm::{
     aead::{Aead, OsRng, rand_core::RngCore},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, OnceLock},
+    sync::Arc,
 };
 
 const KEY_SERVICE: &str = "com.voxbridge.secrets";
 const KEY_ACCOUNT: &str = "data-encryption-key";
 
 pub(super) trait KeyBackend: Send + Sync {
-    fn load_or_create(&self) -> AppResult<Vec<u8>>;
+    fn load_or_create(&self, lock_path: &Path) -> AppResult<Vec<u8>>;
 }
 struct OsKeyring;
 impl KeyBackend for OsKeyring {
-    fn load_or_create(&self) -> AppResult<Vec<u8>> {
-        static INIT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        let _guard = INIT_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .map_err(|e| AppError::Internal(e.to_string()))?;
+    fn load_or_create(&self, lock_path: &Path) -> AppResult<Vec<u8>> {
+        let lock = fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(lock_path)
+            .map_err(config_error)?;
+        lock.lock_exclusive().map_err(config_error)?;
         let entry = keyring::Entry::new(KEY_SERVICE, KEY_ACCOUNT).map_err(config_error)?;
         match entry.get_password() {
             Ok(value) => STANDARD.decode(value).map_err(config_error),
@@ -45,7 +48,7 @@ impl KeyBackend for OsKeyring {
 struct MemoryKeyring(std::sync::Mutex<Option<Vec<u8>>>);
 #[cfg(test)]
 impl KeyBackend for MemoryKeyring {
-    fn load_or_create(&self) -> AppResult<Vec<u8>> {
+    fn load_or_create(&self, _lock_path: &Path) -> AppResult<Vec<u8>> {
         let mut stored = self
             .0
             .lock()
@@ -67,6 +70,7 @@ struct EncryptedValue {
 }
 pub struct SecretStore {
     path: PathBuf,
+    lock_path: PathBuf,
     backend: Arc<dyn KeyBackend>,
 }
 impl SecretStore {
@@ -77,6 +81,7 @@ impl SecretStore {
         fs::create_dir_all(data_dir.as_ref()).map_err(config_error)?;
         Ok(Self {
             path: data_dir.as_ref().join("secrets.json"),
+            lock_path: data_dir.as_ref().join("secrets.dek.lock"),
             backend,
         })
     }
@@ -100,15 +105,15 @@ impl SecretStore {
     }
     #[cfg(test)]
     pub(super) fn backend_key_for_tests(&self) -> AppResult<Vec<u8>> {
-        self.backend.load_or_create()
+        self.backend.load_or_create(&self.lock_path)
     }
     pub fn config_path(&self) -> &Path {
         &self.path
     }
     pub fn set(&self, service: &str, key: &str, value: &[u8]) -> AppResult<()> {
         let mut values = self.read_values()?;
-        let cipher =
-            Aes256Gcm::new_from_slice(&self.backend.load_or_create()?).map_err(config_error)?;
+        let cipher = Aes256Gcm::new_from_slice(&self.backend.load_or_create(&self.lock_path)?)
+            .map_err(config_error)?;
         let mut nonce = [0u8; 12];
         OsRng.fill_bytes(&mut nonce);
         let ciphertext = cipher
@@ -138,8 +143,8 @@ impl SecretStore {
             ));
         }
         let ciphertext = STANDARD.decode(&value.ciphertext).map_err(config_error)?;
-        let cipher =
-            Aes256Gcm::new_from_slice(&self.backend.load_or_create()?).map_err(config_error)?;
+        let cipher = Aes256Gcm::new_from_slice(&self.backend.load_or_create(&self.lock_path)?)
+            .map_err(config_error)?;
         cipher
             .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
             .map(Some)

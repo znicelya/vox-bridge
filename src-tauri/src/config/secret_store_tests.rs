@@ -1,4 +1,5 @@
 use super::{ConfigStore, ProviderConfig, SecretStore, TavilyConfig};
+use fs2::FileExt;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -46,6 +47,25 @@ fn concurrent_first_use_shares_one_dek() {
     let a = std::thread::spawn(move || first.backend_key_for_tests());
     let b = std::thread::spawn(move || second.backend_key_for_tests());
     assert_eq!(a.join().unwrap().unwrap(), b.join().unwrap().unwrap());
+}
+
+#[test]
+fn advisory_dek_lock_blocks_second_handle() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("secrets.dek.lock");
+    let first = std::fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    first.lock_exclusive().unwrap();
+    let second = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    assert!(second.try_lock_exclusive().is_err());
 }
 
 #[test]

@@ -10,13 +10,13 @@ Implemented:
 - Typed provider, LLM, embedding, and Tavily configuration models with HTTPS/required-field validation.
 - `ConfigStore` persistence and a `PublicProviderConfig` view that contains no secret bytes.
 - Atomic settings persistence via sibling temp files, flush/sync, rename, and parent-directory sync on Unix.
-- Strict 12-byte nonce validation, structured HTTPS+host validation for provider and Tavily URLs, and serialized OS-keyring DEK initialization.
+- Strict 12-byte nonce validation, structured HTTPS+host validation for provider and Tavily URLs, and serialized OS-keyring DEK initialization using an advisory lock file (`secrets.dek.lock`) that auto-releases on process exit/crash.
 
 Verification:
 
 - `cargo fmt --manifest-path src-tauri/Cargo.toml`
-- `cargo test --manifest-path src-tauri/Cargo.toml secret_store -- --nocapture` (6 passed)
-- `cargo test --manifest-path src-tauri/Cargo.toml` (19 passed)
+- `cargo test --manifest-path src-tauri/Cargo.toml secret_store -- --nocapture` (7 passed)
+- `cargo test --manifest-path src-tauri/Cargo.toml` (20 passed)
 - `cargo check --manifest-path src-tauri/Cargo.toml`
 
-Concerns: the production keyring backend depends on the host keyring implementation being available at runtime; tests use the injectable backend and do not access the host keyring. The DEK initialization mutex synchronizes concurrent initializers within the process.
+Concerns: the production keyring backend depends on the host keyring implementation being available at runtime; tests use the injectable backend and do not access the host keyring.
