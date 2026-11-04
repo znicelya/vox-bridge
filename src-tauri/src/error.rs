@@ -15,3 +15,15 @@ pub enum AppError {
     #[error("internal error: {0}")]
     Internal(String),
 }
+
+impl AppError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::InvalidRequest(_) => "INVALID_REQUEST",
+            Self::Storage(_) => "STORAGE_ERROR",
+            Self::Configuration(_) => "CONFIGURATION_ERROR",
+            Self::SessionNotFound(_) => "SESSION_NOT_FOUND",
+            Self::Internal(_) => "INTERNAL_ERROR",
+        }
+    }
+}

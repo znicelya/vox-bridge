@@ -1,5 +1,6 @@
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, started_at INTEGER NOT NULL, mode TEXT NOT NULL, direction TEXT NOT NULL, source_language TEXT NOT NULL, target_language TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS session_lifecycle (session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE, status TEXT NOT NULL, ended_at INTEGER);
 CREATE TABLE IF NOT EXISTS translation_segments (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, direction TEXT NOT NULL, sequence INTEGER NOT NULL, occurred_at INTEGER NOT NULL, language TEXT NOT NULL, text TEXT NOT NULL, is_final INTEGER NOT NULL CHECK (is_final = 1));
 CREATE UNIQUE INDEX IF NOT EXISTS translation_segments_session_direction_sequence ON translation_segments(session_id, direction, sequence);
 CREATE INDEX IF NOT EXISTS sessions_started_at ON sessions(started_at);

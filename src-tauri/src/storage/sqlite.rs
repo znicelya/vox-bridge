@@ -1,4 +1,6 @@
-use super::models::{SessionSummary, StoredSession, StoredTranscriptSegment, SummaryVersion};
+use super::models::{
+    SessionSummary, StoredSession, StoredSessionLifecycle, StoredTranscriptSegment, SummaryVersion,
+};
 use crate::error::AppResult;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{path::Path, sync::Mutex};
@@ -37,7 +39,40 @@ impl LocalStore {
                 s.target_language
             ],
         )?;
+        c.execute(
+            "INSERT INTO session_lifecycle (session_id,status,ended_at) VALUES (?1,'created',NULL)",
+            params![s.id.to_string()],
+        )?;
         Ok(())
+    }
+
+    pub fn update_session_lifecycle(&self, lifecycle: &StoredSessionLifecycle) -> AppResult<()> {
+        let c = self.connection.lock().unwrap();
+        c.execute(
+            "UPDATE session_lifecycle SET status=?2,ended_at=?3 WHERE session_id=?1",
+            params![
+                lifecycle.session_id.to_string(),
+                lifecycle.status,
+                lifecycle.ended_at
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_session_lifecycle(&self, id: Uuid) -> AppResult<Option<StoredSessionLifecycle>> {
+        let c = self.connection.lock().unwrap();
+        Ok(c.query_row(
+            "SELECT session_id,status,ended_at FROM session_lifecycle WHERE session_id=?1",
+            params![id.to_string()],
+            |r| {
+                Ok(StoredSessionLifecycle {
+                    session_id: Uuid::parse_str(&r.get::<_, String>(0)?).unwrap(),
+                    status: r.get(1)?,
+                    ended_at: r.get(2)?,
+                })
+            },
+        )
+        .optional()?)
     }
     pub fn append_final_segment(&self, s: &StoredTranscriptSegment) -> AppResult<()> {
         if !s.is_final {

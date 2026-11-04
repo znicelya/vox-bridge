@@ -23,6 +23,13 @@ pub struct StoredTranscriptSegment {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredSessionLifecycle {
+    pub session_id: Uuid,
+    pub status: String,
+    pub ended_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionSummary {
     pub id: Uuid,
     pub started_at: i64,

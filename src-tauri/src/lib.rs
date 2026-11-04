@@ -1,25 +1,39 @@
 pub mod app;
+pub mod commands;
 pub mod config;
 pub mod domain;
 pub mod error;
 pub mod events;
+pub mod session;
 pub mod storage;
-
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let data_dir = std::env::current_dir().expect("failed to determine application data directory");
-    let app_state = app::AppState::new(data_dir).expect("failed to initialize application state");
-
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(app_state)
-        .invoke_handler(tauri::generate_handler![greet])
+        .setup(|app| {
+            let data_dir = app.path().app_data_dir().map_err(|error| {
+                Box::<dyn std::error::Error>::from(format!(
+                    "failed to resolve app data directory: {error}"
+                ))
+            })?;
+            let app_state = app::AppState::new(data_dir).map_err(|error| {
+                Box::<dyn std::error::Error>::from(format!(
+                    "failed to initialize application state: {error}"
+                ))
+            })?;
+            app.manage(app_state);
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::create_session,
+            commands::stop_session,
+            commands::list_sessions,
+            commands::get_session,
+            commands::delete_session,
+            commands::subscribe_session
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

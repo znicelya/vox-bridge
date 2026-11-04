@@ -2,8 +2,10 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::session::SessionOrchestrator;
 use crate::storage::LocalStore;
 use crate::{error::AppResult, events::EventBus};
+use std::sync::Arc;
 
 pub use crate::config;
 
@@ -11,16 +13,19 @@ pub use crate::config;
 pub struct AppState {
     data_dir: PathBuf,
     event_bus: EventBus,
-    store: LocalStore,
+    store: Arc<LocalStore>,
+    orchestrator: SessionOrchestrator,
 }
 
 impl AppState {
     pub fn new(data_dir: PathBuf) -> AppResult<Self> {
-        let store = LocalStore::open(&data_dir)?;
+        let store = Arc::new(LocalStore::open(&data_dir)?);
+        let event_bus = EventBus::new();
         Ok(Self {
             data_dir,
-            event_bus: EventBus::new(),
-            store,
+            event_bus: event_bus.clone(),
+            store: store.clone(),
+            orchestrator: SessionOrchestrator::new(Arc::clone(&store), event_bus),
         })
     }
 
@@ -33,6 +38,9 @@ impl AppState {
     }
     pub fn store(&self) -> &LocalStore {
         &self.store
+    }
+    pub fn orchestrator(&self) -> &SessionOrchestrator {
+        &self.orchestrator
     }
 }
 
