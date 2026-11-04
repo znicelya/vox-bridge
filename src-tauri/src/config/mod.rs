@@ -7,6 +7,7 @@ pub use secret_store::SecretStore;
 use crate::error::{AppError, AppResult};
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
 };
 use uuid::Uuid;
@@ -33,7 +34,7 @@ impl ConfigStore {
         configs.push(config);
         let bytes = serde_json::to_vec_pretty(&configs)
             .map_err(|e| AppError::Configuration(e.to_string()))?;
-        fs::write(&self.path, bytes).map_err(|e| AppError::Configuration(e.to_string()))
+        atomic_write(&self.path, &bytes)
     }
 
     pub fn load_provider_config(&self, id: Uuid) -> AppResult<ProviderConfig> {
@@ -52,6 +53,38 @@ impl ConfigStore {
             Err(error) => Err(AppError::Configuration(error.to_string())),
         }
     }
+}
+
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> AppResult<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| AppError::Configuration("configuration path has no parent".into()))?;
+    let temp = parent.join(format!(
+        ".{}.tmp-{}",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("config"),
+        std::process::id()
+    ));
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)
+        .map_err(|e| AppError::Configuration(e.to_string()))?;
+    if let Err(error) = file.write_all(bytes).and_then(|_| file.sync_all()) {
+        let _ = fs::remove_file(&temp);
+        return Err(AppError::Configuration(error.to_string()));
+    }
+    drop(file);
+    if let Err(error) = fs::rename(&temp, path) {
+        let _ = fs::remove_file(&temp);
+        return Err(AppError::Configuration(error.to_string()));
+    }
+    #[cfg(unix)]
+    fs::File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|e| AppError::Configuration(e.to_string()))?;
+    Ok(())
 }
 
 #[cfg(test)]

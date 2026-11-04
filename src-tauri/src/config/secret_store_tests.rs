@@ -1,4 +1,5 @@
-use super::{ConfigStore, ProviderConfig, SecretStore};
+use super::{ConfigStore, ProviderConfig, SecretStore, TavilyConfig};
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[test]
@@ -15,6 +16,36 @@ fn secret_round_trip_uses_encrypted_file_with_injected_key_backend() {
             .unwrap()
             .contains("secret")
     );
+    assert!(!std::fs::read_dir(dir.path()).unwrap().any(|entry| {
+        entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains(".tmp")
+    }));
+}
+
+#[test]
+fn malformed_nonce_is_rejected_without_panicking() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SecretStore::for_tests(dir.path()).unwrap();
+    store.set("service", "key", b"secret").unwrap();
+    let mut json: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(store.config_path()).unwrap()).unwrap();
+    json["service/key"]["nonce"] = serde_json::Value::String("c2hvcnQ=".into());
+    std::fs::write(store.config_path(), serde_json::to_vec(&json).unwrap()).unwrap();
+    assert!(store.get("service", "key").is_err());
+}
+
+#[test]
+fn concurrent_first_use_shares_one_dek() {
+    let dir = tempfile::tempdir().unwrap();
+    let backend = SecretStore::test_backend();
+    let first = SecretStore::with_test_backend(dir.path(), Arc::clone(&backend)).unwrap();
+    let second = SecretStore::with_test_backend(dir.path(), Arc::clone(&backend)).unwrap();
+    let a = std::thread::spawn(move || first.backend_key_for_tests());
+    let b = std::thread::spawn(move || second.backend_key_for_tests());
+    assert_eq!(a.join().unwrap().unwrap(), b.join().unwrap().unwrap());
 }
 
 #[test]
@@ -58,4 +89,37 @@ fn provider_config_rejects_non_https_remote_endpoint() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn provider_config_rejects_invalid_or_hostless_urls() {
+    for endpoint in ["not a url", "file:///tmp/provider"] {
+        assert!(
+            ProviderConfig::new(
+                Uuid::new_v4(),
+                "provider",
+                endpoint,
+                None,
+                None,
+                vec![],
+                None
+            )
+            .is_err()
+        );
+    }
+    let mut config = ProviderConfig::new(
+        Uuid::new_v4(),
+        "provider",
+        "https://api.example.com",
+        None,
+        None,
+        vec![],
+        None,
+    )
+    .unwrap();
+    config.tavily = Some(TavilyConfig {
+        endpoint: "http://search.example.com".into(),
+        search_depth: None,
+    });
+    assert!(config.validate().is_err());
 }

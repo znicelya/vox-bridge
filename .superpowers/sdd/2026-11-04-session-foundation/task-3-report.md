@@ -9,12 +9,14 @@ Implemented:
 - Injectable in-memory key backend for deterministic secret-store tests.
 - Typed provider, LLM, embedding, and Tavily configuration models with HTTPS/required-field validation.
 - `ConfigStore` persistence and a `PublicProviderConfig` view that contains no secret bytes.
+- Atomic settings persistence via sibling temp files, flush/sync, rename, and parent-directory sync on Unix.
+- Strict 12-byte nonce validation, structured HTTPS+host validation for provider and Tavily URLs, and serialized OS-keyring DEK initialization.
 
 Verification:
 
 - `cargo fmt --manifest-path src-tauri/Cargo.toml`
-- `cargo test --manifest-path src-tauri/Cargo.toml secret_store -- --nocapture` (3 passed)
-- `cargo test --manifest-path src-tauri/Cargo.toml` (16 passed)
+- `cargo test --manifest-path src-tauri/Cargo.toml secret_store -- --nocapture` (6 passed)
+- `cargo test --manifest-path src-tauri/Cargo.toml` (19 passed)
 - `cargo check --manifest-path src-tauri/Cargo.toml`
 
-Concerns: the production keyring backend depends on the host keyring implementation being available at runtime; tests use the injectable backend and do not access the host keyring.
+Concerns: the production keyring backend depends on the host keyring implementation being available at runtime; tests use the injectable backend and do not access the host keyring. The DEK initialization mutex synchronizes concurrent initializers within the process.

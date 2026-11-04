@@ -1,5 +1,6 @@
 use crate::error::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
+use url::Url;
 use uuid::Uuid;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -90,11 +91,7 @@ impl ProviderConfig {
         if self.endpoint.trim().is_empty() {
             return Err(AppError::Configuration("endpoint is required".into()));
         }
-        if !self.endpoint.starts_with("https://") || self.endpoint[8..].trim().is_empty() {
-            return Err(AppError::Configuration(
-                "remote endpoint must use HTTPS".into(),
-            ));
-        }
+        validate_remote_url(&self.endpoint)?;
         if self
             .llm
             .as_ref()
@@ -120,8 +117,22 @@ impl ProviderConfig {
                 "Tavily endpoint is required".into(),
             ));
         }
+        if let Some(tavily) = &self.tavily {
+            validate_remote_url(&tavily.endpoint)?;
+        }
         Ok(())
     }
+}
+
+fn validate_remote_url(value: &str) -> AppResult<()> {
+    let url = Url::parse(value)
+        .map_err(|_| AppError::Configuration("remote endpoint must be a valid URL".into()))?;
+    if url.scheme() != "https" || url.host_str().is_none() {
+        return Err(AppError::Configuration(
+            "remote endpoint must use HTTPS and include a host".into(),
+        ));
+    }
+    Ok(())
 }
 
 impl PublicProviderConfig {

@@ -9,18 +9,23 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex, OnceLock},
 };
 
 const KEY_SERVICE: &str = "com.voxbridge.secrets";
 const KEY_ACCOUNT: &str = "data-encryption-key";
 
-trait KeyBackend: Send + Sync {
+pub(super) trait KeyBackend: Send + Sync {
     fn load_or_create(&self) -> AppResult<Vec<u8>>;
 }
 struct OsKeyring;
 impl KeyBackend for OsKeyring {
     fn load_or_create(&self) -> AppResult<Vec<u8>> {
+        static INIT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let _guard = INIT_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .map_err(|e| AppError::Internal(e.to_string()))?;
         let entry = keyring::Entry::new(KEY_SERVICE, KEY_ACCOUNT).map_err(config_error)?;
         match entry.get_password() {
             Ok(value) => STANDARD.decode(value).map_err(config_error),
@@ -82,6 +87,21 @@ impl SecretStore {
             Arc::new(MemoryKeyring(std::sync::Mutex::new(None))),
         )
     }
+    #[cfg(test)]
+    pub(super) fn test_backend() -> Arc<dyn KeyBackend> {
+        Arc::new(MemoryKeyring(std::sync::Mutex::new(None)))
+    }
+    #[cfg(test)]
+    pub(super) fn with_test_backend(
+        data_dir: impl AsRef<Path>,
+        backend: Arc<dyn KeyBackend>,
+    ) -> AppResult<Self> {
+        Self::with_backend(data_dir, backend)
+    }
+    #[cfg(test)]
+    pub(super) fn backend_key_for_tests(&self) -> AppResult<Vec<u8>> {
+        self.backend.load_or_create()
+    }
     pub fn config_path(&self) -> &Path {
         &self.path
     }
@@ -101,11 +121,10 @@ impl SecretStore {
                 ciphertext: STANDARD.encode(ciphertext),
             },
         );
-        fs::write(
+        super::atomic_write(
             &self.path,
-            serde_json::to_vec_pretty(&values).map_err(config_error)?,
+            &serde_json::to_vec_pretty(&values).map_err(config_error)?,
         )
-        .map_err(config_error)
     }
     pub fn get(&self, service: &str, key: &str) -> AppResult<Option<Vec<u8>>> {
         let values = self.read_values()?;
@@ -113,6 +132,11 @@ impl SecretStore {
             return Ok(None);
         };
         let nonce = STANDARD.decode(&value.nonce).map_err(config_error)?;
+        if nonce.len() != 12 {
+            return Err(AppError::Configuration(
+                "encrypted value nonce must be 12 bytes".into(),
+            ));
+        }
         let ciphertext = STANDARD.decode(&value.ciphertext).map_err(config_error)?;
         let cipher =
             Aes256Gcm::new_from_slice(&self.backend.load_or_create()?).map_err(config_error)?;
