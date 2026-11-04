@@ -2,11 +2,11 @@ use uuid::Uuid;
 
 use super::{
     LocalStore,
-    models::{SessionRecord, TranscriptSegment},
+    models::{StoredSession, StoredTranscriptSegment, SummaryVersion},
 };
 
-fn fixture_session() -> SessionRecord {
-    SessionRecord {
+fn fixture_session() -> StoredSession {
+    StoredSession {
         id: Uuid::new_v4(),
         started_at: 1_799_000_000,
         mode: "live".into(),
@@ -16,8 +16,8 @@ fn fixture_session() -> SessionRecord {
     }
 }
 
-fn fixture_segment(session_id: Uuid) -> TranscriptSegment {
-    TranscriptSegment {
+fn fixture_segment(session_id: Uuid) -> StoredTranscriptSegment {
+    StoredTranscriptSegment {
         id: Uuid::new_v4(),
         session_id,
         direction: "source_to_target".into(),
@@ -27,6 +27,53 @@ fn fixture_segment(session_id: Uuid) -> TranscriptSegment {
         text: "Hello".into(),
         is_final: true,
     }
+}
+
+#[test]
+fn tied_session_timestamps_paginate_without_duplicates() {
+    let store = LocalStore::in_memory().unwrap();
+    let mut sessions = Vec::new();
+    for _ in 0..3 {
+        let session = fixture_session();
+        store.create_session(&session).unwrap();
+        sessions.push(session);
+    }
+    let first = store.list_sessions(2, None).unwrap();
+    assert_eq!(first.len(), 2);
+    let second = store
+        .list_sessions(2, Some(first.last().unwrap().cursor()))
+        .unwrap();
+    assert_eq!(second.len(), 1);
+    assert!(first.iter().all(|a| second.iter().all(|b| a.id != b.id)));
+}
+
+#[test]
+fn summary_versions_are_transactionally_persisted_and_listed() {
+    let store = LocalStore::in_memory().unwrap();
+    let session = fixture_session();
+    store.create_session(&session).unwrap();
+    let summary = SummaryVersion {
+        id: Uuid::new_v4(),
+        session_id: session.id,
+        version: 1,
+        created_at: 10,
+        status: "complete".into(),
+        structured_json: r#"{"text":"Hello"}"#.into(),
+    };
+    store.create_summary_version(&summary).unwrap();
+    assert_eq!(
+        store.list_summary_versions(session.id).unwrap(),
+        vec![summary.clone()]
+    );
+    assert!(
+        store
+            .create_summary_version(&SummaryVersion {
+                id: Uuid::new_v4(),
+                version: 1,
+                ..summary
+            })
+            .is_err()
+    );
 }
 
 #[test]

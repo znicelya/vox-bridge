@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS translation_segments (id TEXT PRIMARY KEY, session_id
 CREATE UNIQUE INDEX IF NOT EXISTS translation_segments_session_direction_sequence ON translation_segments(session_id, direction, sequence);
 CREATE INDEX IF NOT EXISTS sessions_started_at ON sessions(started_at);
 CREATE INDEX IF NOT EXISTS translation_segments_session_sequence ON translation_segments(session_id, sequence);
-CREATE TABLE IF NOT EXISTS session_summaries (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, version INTEGER NOT NULL, created_at INTEGER NOT NULL, summary TEXT NOT NULL, UNIQUE(session_id, version));
+CREATE TABLE IF NOT EXISTS session_summaries (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, version INTEGER NOT NULL, created_at INTEGER NOT NULL, status TEXT NOT NULL, structured_json TEXT NOT NULL, UNIQUE(session_id, version));
 CREATE TABLE IF NOT EXISTS research_runs (id TEXT PRIMARY KEY, session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE, created_at INTEGER NOT NULL, status TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS research_sources (id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES research_runs(id) ON DELETE CASCADE, url TEXT NOT NULL, title TEXT);
 CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, uri TEXT NOT NULL, title TEXT, created_at INTEGER NOT NULL);

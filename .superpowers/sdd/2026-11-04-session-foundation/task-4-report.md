@@ -13,3 +13,5 @@ Verification:
 - `git diff --check`: passed
 
 The worktree already contained untracked `pnpm-lock.yaml` and `src-tauri/Cargo.lock`; these were intentionally left untouched.
+
+Review follow-up: session cursors now encode `started_at:uuid` and use deterministic composite ordering, summary versions persist `status` and structured JSON transactionally, and database-shaped inputs are named `StoredSession` and `StoredTranscriptSegment`.
