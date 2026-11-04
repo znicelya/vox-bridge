@@ -1,34 +1,66 @@
 //! Application event delivery boundaries.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+mod bus;
 
-/// The process-wide event bus owned by [`crate::app::AppState`].
-///
-/// The concrete session event stream is added by the session foundation's
-/// event task. Keeping health and ownership here gives callers a stable
-/// boundary while that stream evolves.
-#[derive(Clone, Debug)]
-pub struct EventBus {
-    healthy: Arc<AtomicBool>,
+pub use bus::{EVENT_CAPACITY, EventBus, EventBusError};
+
+use std::time::SystemTime;
+
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SessionEvent {
+    Status {
+        event_id: Uuid,
+        session_id: Uuid,
+        occurred_at: SystemTime,
+        status: String,
+    },
+    InterimTranscript {
+        event_id: Uuid,
+        session_id: Uuid,
+        occurred_at: SystemTime,
+        language: String,
+        text: String,
+    },
+    FinalTranscript {
+        event_id: Uuid,
+        session_id: Uuid,
+        occurred_at: SystemTime,
+        language: String,
+        text: String,
+    },
+    TranslationAudio {
+        event_id: Uuid,
+        session_id: Uuid,
+        occurred_at: SystemTime,
+        language: String,
+        samples: Vec<i16>,
+    },
+    Error {
+        event_id: Uuid,
+        session_id: Uuid,
+        occurred_at: SystemTime,
+        message: String,
+    },
+    Latency {
+        event_id: Uuid,
+        session_id: Uuid,
+        occurred_at: SystemTime,
+        stage: String,
+        millis: u64,
+    },
 }
 
-impl EventBus {
-    pub fn new() -> Self {
-        Self {
-            healthy: Arc::new(AtomicBool::new(true)),
+impl SessionEvent {
+    pub fn status(session_id: Uuid, status: impl Into<String>) -> Self {
+        Self::Status {
+            event_id: Uuid::new_v4(),
+            session_id,
+            occurred_at: SystemTime::now(),
+            status: status.into(),
         }
-    }
-
-    pub fn is_healthy(&self) -> bool {
-        self.healthy.load(Ordering::Acquire)
-    }
-}
-
-impl Default for EventBus {
-    fn default() -> Self {
-        Self::new()
     }
 }
