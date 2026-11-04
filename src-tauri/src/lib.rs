@@ -3,6 +3,7 @@ pub mod config;
 pub mod domain;
 pub mod error;
 pub mod events;
+pub mod storage;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
