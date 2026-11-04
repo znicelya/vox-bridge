@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::error::{AppError, AppResult};
 
@@ -13,12 +13,37 @@ pub enum AudioSource {
     System,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct AudioFrame {
-    pub source: AudioSource,
-    pub sequence: u64,
-    pub captured_at: SystemTime,
-    pub samples: Vec<i16>,
+    source: AudioSource,
+    sequence: u64,
+    captured_at: SystemTime,
+    samples: Vec<i16>,
+}
+
+impl<'de> Deserialize<'de> for AudioFrame {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct RawAudioFrame {
+            source: AudioSource,
+            sequence: u64,
+            captured_at: SystemTime,
+            samples: Vec<i16>,
+        }
+        let raw = RawAudioFrame::deserialize(deserializer)?;
+        if raw.samples.is_empty() {
+            return Err(serde::de::Error::custom("audio frame must contain samples"));
+        }
+        Ok(Self {
+            source: raw.source,
+            sequence: raw.sequence,
+            captured_at: raw.captured_at,
+            samples: raw.samples,
+        })
+    }
 }
 
 impl AudioFrame {
@@ -45,5 +70,18 @@ impl AudioFrame {
             captured_at: SystemTime::now(),
             samples,
         })
+    }
+
+    pub fn source(&self) -> AudioSource {
+        self.source
+    }
+    pub fn sequence(&self) -> u64 {
+        self.sequence
+    }
+    pub fn captured_at(&self) -> SystemTime {
+        self.captured_at
+    }
+    pub fn samples(&self) -> &[i16] {
+        &self.samples
     }
 }

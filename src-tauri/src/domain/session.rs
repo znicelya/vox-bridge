@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::error::{AppError, AppResult};
 
@@ -17,10 +17,25 @@ pub enum SessionDirection {
     Bidirectional,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct LanguagePair {
     source: String,
     target: String,
+}
+
+impl<'de> Deserialize<'de> for LanguagePair {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct RawLanguagePair {
+            source: String,
+            target: String,
+        }
+        let raw = RawLanguagePair::deserialize(deserializer)?;
+        Self::new(raw.source, raw.target).map_err(serde::de::Error::custom)
+    }
 }
 
 impl LanguagePair {
@@ -50,9 +65,18 @@ impl LanguagePair {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct ProviderId(String);
+
+impl<'de> Deserialize<'de> for ProviderId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Self::new(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
 
 impl ProviderId {
     pub fn new(value: impl Into<String>) -> AppResult<Self> {
@@ -70,11 +94,36 @@ impl ProviderId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SessionConfig {
-    pub mode: SessionMode,
-    pub direction: SessionDirection,
-    pub languages: LanguagePair,
+    mode: SessionMode,
+    direction: SessionDirection,
+    languages: LanguagePair,
+}
+
+impl<'de> Deserialize<'de> for SessionConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct RawSessionConfig {
+            mode: SessionMode,
+            direction: SessionDirection,
+            languages: LanguagePair,
+        }
+        let raw = RawSessionConfig::deserialize(deserializer)?;
+        match raw.mode {
+            SessionMode::Live => Self::live(raw.languages, raw.direction),
+            SessionMode::Call if raw.direction == SessionDirection::Bidirectional => {
+                Self::call(raw.languages)
+            }
+            SessionMode::Call => Err(AppError::InvalidRequest(
+                "call sessions require bidirectional direction".to_string(),
+            )),
+        }
+        .map_err(serde::de::Error::custom)
+    }
 }
 
 impl SessionConfig {
@@ -97,5 +146,17 @@ impl SessionConfig {
             direction: SessionDirection::Bidirectional,
             languages,
         })
+    }
+
+    pub fn mode(&self) -> SessionMode {
+        self.mode
+    }
+
+    pub fn direction(&self) -> SessionDirection {
+        self.direction
+    }
+
+    pub fn languages(&self) -> &LanguagePair {
+        &self.languages
     }
 }

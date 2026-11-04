@@ -19,6 +19,8 @@ pub enum EventBusError {
     NoSubscribers,
     #[error("session event subscriber lagged by {0} events")]
     Lagged(u64),
+    #[error("event session ID does not match routing session ID")]
+    SessionMismatch,
 }
 
 impl From<broadcast::error::RecvError> for EventBusError {
@@ -61,6 +63,9 @@ impl EventBus {
     }
 
     pub fn publish(&self, session_id: Uuid, event: SessionEvent) -> Result<usize, EventBusError> {
+        if event.session_id() != session_id {
+            return Err(EventBusError::SessionMismatch);
+        }
         let sender = {
             let mut sessions = self
                 .sessions
@@ -72,6 +77,14 @@ impl EventBus {
                 .clone()
         };
         sender.send(event).map_err(|_| EventBusError::NoSubscribers)
+    }
+
+    pub fn close(&self, session_id: Uuid) -> bool {
+        self.sessions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&session_id)
+            .is_some()
     }
 }
 
@@ -112,5 +125,31 @@ mod tests {
             EventBusError::from(receiver.recv().await.unwrap_err()),
             EventBusError::Lagged(1)
         ));
+    }
+
+    #[tokio::test]
+    async fn close_releases_session_channel_and_closes_receivers() {
+        let bus = EventBus::new();
+        let session_id = Uuid::new_v4();
+        let mut receiver = bus.subscribe(session_id);
+
+        assert!(bus.close(session_id));
+        assert!(matches!(
+            receiver.recv().await,
+            Err(broadcast::error::RecvError::Closed)
+        ));
+        assert!(!bus.close(session_id));
+    }
+
+    #[tokio::test]
+    async fn publish_rejects_mismatched_embedded_session_id() {
+        let bus = EventBus::new();
+        let routing_id = Uuid::new_v4();
+        let event = SessionEvent::status(Uuid::new_v4(), "running");
+
+        assert_eq!(
+            bus.publish(routing_id, event),
+            Err(EventBusError::SessionMismatch)
+        );
     }
 }

@@ -55,6 +55,17 @@ pub enum SessionEvent {
 }
 
 impl SessionEvent {
+    pub fn session_id(&self) -> Uuid {
+        match self {
+            Self::Status { session_id, .. }
+            | Self::InterimTranscript { session_id, .. }
+            | Self::FinalTranscript { session_id, .. }
+            | Self::TranslationAudio { session_id, .. }
+            | Self::Error { session_id, .. }
+            | Self::Latency { session_id, .. } => *session_id,
+        }
+    }
+
     pub fn status(session_id: Uuid, status: impl Into<String>) -> Self {
         Self::Status {
             event_id: Uuid::new_v4(),
