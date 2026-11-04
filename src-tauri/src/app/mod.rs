@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use crate::{error::AppResult, events::EventBus};
 
+pub use crate::config;
+
 #[derive(Debug)]
 pub struct AppState {
     data_dir: PathBuf,
