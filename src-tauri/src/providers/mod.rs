@@ -1,5 +1,6 @@
 pub mod aliyun;
 pub mod disabled;
+pub mod factory;
 pub mod fixture;
 pub mod palabra;
 mod types;

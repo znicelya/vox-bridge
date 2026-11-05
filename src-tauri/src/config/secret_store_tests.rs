@@ -143,3 +143,70 @@ fn provider_config_rejects_invalid_or_hostless_urls() {
     });
     assert!(config.validate().is_err());
 }
+
+#[test]
+fn provider_config_allows_wss_for_translation_but_not_http_model_endpoints() {
+    for provider in ["volcengine", "aliyun", "palabra"] {
+        assert!(
+            ProviderConfig::new(
+                Uuid::new_v4(),
+                provider,
+                "wss://translation.example.com/stream",
+                None,
+                None,
+                vec![],
+                None,
+            )
+            .is_ok()
+        );
+    }
+    for provider in ["llm", "embedding", "tavily"] {
+        assert!(
+            ProviderConfig::new(
+                Uuid::new_v4(),
+                provider,
+                "wss://translation.example.com/stream",
+                None,
+                None,
+                vec![],
+                None,
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn provider_config_rejects_url_credentials_without_echoing_them() {
+    for endpoint in [
+        "https://operator:private-fixture-value@api.example.com",
+        "https://api.example.com/#private-fixture-value",
+        "https://api.example.com/?api_key=private-fixture-value",
+        "https://api.example.com/?access_token=private-fixture-value",
+        "wss://api.example.com/?token=private-fixture-value",
+    ] {
+        let result = ProviderConfig::new(
+            Uuid::new_v4(),
+            "volcengine",
+            endpoint,
+            None,
+            None,
+            vec![],
+            None,
+        );
+        let error = result.expect_err("credentials must not be accepted in endpoint URLs");
+        assert!(!error.to_string().contains("private-fixture-value"));
+    }
+    assert!(
+        ProviderConfig::new(
+            Uuid::new_v4(),
+            "aliyun",
+            "wss://workspace.example.com/realtime?model=qwen-audio",
+            None,
+            None,
+            vec![],
+            None,
+        )
+        .is_ok()
+    );
+}

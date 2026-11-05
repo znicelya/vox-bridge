@@ -21,6 +21,10 @@ pub enum ProviderError {
     Unavailable,
     #[error("unsupported language pair")]
     UnsupportedLanguagePair,
+    #[error("invalid provider configuration")]
+    InvalidConfiguration,
+    #[error("provider does not produce translated speech")]
+    UnsupportedTts,
     #[error("unsupported PCM format")]
     UnsupportedAudioFormat,
     #[error("bidirectional sessions are unsupported")]

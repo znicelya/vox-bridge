@@ -69,6 +69,12 @@ impl ProviderConfig {
     pub fn id(&self) -> Uuid {
         self.id
     }
+    pub fn provider(&self) -> &str {
+        &self.provider
+    }
+    pub fn secret_reference(&self) -> Option<&str> {
+        self.secret_reference.as_deref()
+    }
     pub fn endpoint(&self) -> &str {
         &self.endpoint
     }
@@ -91,7 +97,9 @@ impl ProviderConfig {
         if self.endpoint.trim().is_empty() {
             return Err(AppError::Configuration("endpoint is required".into()));
         }
-        validate_remote_url(&self.endpoint)?;
+        let websocket_provider =
+            matches!(self.provider.as_str(), "volcengine" | "aliyun" | "palabra");
+        validate_remote_url(&self.endpoint, websocket_provider)?;
         if self
             .llm
             .as_ref()
@@ -118,19 +126,41 @@ impl ProviderConfig {
             ));
         }
         if let Some(tavily) = &self.tavily {
-            validate_remote_url(&tavily.endpoint)?;
+            validate_remote_url(&tavily.endpoint, false)?;
         }
         Ok(())
     }
 }
 
-fn validate_remote_url(value: &str) -> AppResult<()> {
+fn validate_remote_url(value: &str, allow_wss: bool) -> AppResult<()> {
     let url = Url::parse(value)
         .map_err(|_| AppError::Configuration("remote endpoint must be a valid URL".into()))?;
-    if url.scheme() != "https" || url.host_str().is_none() {
+    if !(url.scheme() == "https" || (allow_wss && url.scheme() == "wss"))
+        || url.host_str().is_none()
+    {
         return Err(AppError::Configuration(
-            "remote endpoint must use HTTPS and include a host".into(),
+            "remote endpoint must use a supported secure scheme and include a host".into(),
         ));
+    }
+    if !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
+        return Err(AppError::Configuration(
+            "endpoint URLs cannot contain credentials or fragments".into(),
+        ));
+    }
+    for (name, _) in url.query_pairs() {
+        let normalized: String = name
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect();
+        if matches!(
+            normalized.as_str(),
+            "key" | "apikey" | "token" | "accesstoken" | "authorization" | "password" | "secret"
+        ) {
+            return Err(AppError::Configuration(
+                "store endpoint credentials in the encrypted secret store".into(),
+            ));
+        }
     }
     Ok(())
 }
