@@ -68,6 +68,25 @@ fn linux_is_ready_only_when_both_logical_endpoints_exist() {
 }
 
 #[test]
+fn linux_failed_probe_does_not_report_endpoints_from_command_output() {
+    let runner = MockRunner::with_outputs([
+        CommandOutput {
+            status: Some(1),
+            stdout: "VoxBridge_Input VoxBridge_Output".into(),
+            stderr: "not connected".into(),
+        },
+        CommandOutput {
+            status: Some(1),
+            stdout: "VoxBridge_Input".into(),
+            stderr: "not connected".into(),
+        },
+        output("VoxBridge_Output"),
+    ]);
+    let manager = LinuxAudioDriver::new(runner);
+    assert!(matches!(manager.status().unwrap(), DriverStatus::Failed(_)));
+}
+
+#[test]
 fn linux_status_maps_pipewire_and_pulseaudio_endpoint_names() {
     let runner = MockRunner::with_outputs([
         output(""),
@@ -132,4 +151,34 @@ fn linux_install_uses_non_privileged_pactl_commands() {
             .iter()
             .any(|(program, _, _)| program == "pactl")
     );
+    let calls = runner.calls();
+    assert!(calls.iter().any(
+        |(_, args, _)| args.first().is_some_and(|arg| arg == "load-module")
+            && args.iter().any(|arg| arg == "sink_name=VoxBridge_M1")
+    ));
+    assert!(calls.iter().any(
+        |(_, args, _)| args.first().is_some_and(|arg| arg == "load-module")
+            && args.iter().any(|arg| arg == "sink_name=VoxBridge_Output")
+    ));
+}
+
+#[test]
+fn linux_uninstall_uses_module_ids_and_only_removes_voxbridge_modules() {
+    let runner = MockRunner::with_outputs([
+        output(
+            "7 module-null-sink sink_name=VoxBridge_Output\n8 module-remap-source source_name=VoxBridge_Input\n9 module-null-sink sink_name=OtherApp\n",
+        ),
+        output(""),
+        output(""),
+    ]);
+    let manager = LinuxAudioDriver::new(runner.clone());
+    assert_eq!(manager.uninstall().unwrap(), DriverStatus::Ready);
+    let unloads = runner
+        .calls()
+        .into_iter()
+        .filter(|(_, args, _)| args.first().is_some_and(|arg| arg == "unload-module"))
+        .collect::<Vec<_>>();
+    assert_eq!(unloads.len(), 2);
+    assert_eq!(unloads[0].1, ["unload-module", "7"]);
+    assert_eq!(unloads[1].1, ["unload-module", "8"]);
 }

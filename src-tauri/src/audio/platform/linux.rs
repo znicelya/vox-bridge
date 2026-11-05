@@ -23,6 +23,11 @@ impl<R: CommandRunner> LinuxAudioDriver<R> {
     fn probe_pulse(&self) -> AppResult<Vec<AudioEndpoint>> {
         let sources = run_command(&self.runner, "pactl", &["list", "short", "sources"])?;
         let sinks = run_command(&self.runner, "pactl", &["list", "short", "sinks"])?;
+        if command_failed(&sources, "pactl list sources").is_some()
+            || command_failed(&sinks, "pactl list sinks").is_some()
+        {
+            return Ok(Vec::new());
+        }
         let mut endpoints = parse_pulse(&sources.stdout, AudioDirection::Input);
         endpoints.extend(parse_pulse(&sinks.stdout, AudioDirection::Output));
         Ok(endpoints)
@@ -31,8 +36,7 @@ impl<R: CommandRunner> LinuxAudioDriver<R> {
 
 impl<R: CommandRunner> AudioDriverManager for LinuxAudioDriver<R> {
     fn status(&self) -> AppResult<DriverStatus> {
-        let mut endpoints = self.probe_pipewire()?;
-        endpoints.extend(self.probe_pulse()?);
+        let endpoints = self.list_endpoints()?;
         Ok(readiness(&endpoints))
     }
 
@@ -43,11 +47,11 @@ impl<R: CommandRunner> AudioDriverManager for LinuxAudioDriver<R> {
             &[
                 "load-module",
                 "module-null-sink",
-                "sink_name=VoxBridge_Output",
-                "sink_properties=device.description=VoxBridge Output",
+                "sink_name=VoxBridge_M1",
+                "sink_properties=device.description=VoxBridge M1 Backend",
             ],
         )?;
-        if let Some(status) = command_failed(&output, "pactl load-module output") {
+        if let Some(status) = command_failed(&output, "pactl load-module M1 backend") {
             return Ok(status);
         }
         let output = run_command(
@@ -56,12 +60,25 @@ impl<R: CommandRunner> AudioDriverManager for LinuxAudioDriver<R> {
             &[
                 "load-module",
                 "module-remap-source",
-                "master=VoxBridge_Output.monitor",
+                "master=VoxBridge_M1.monitor",
                 "source_name=VoxBridge_Input",
                 "source_properties=device.description=VoxBridge Input",
             ],
         )?;
-        if let Some(status) = command_failed(&output, "pactl load-module input") {
+        if let Some(status) = command_failed(&output, "pactl load-module M1 source") {
+            return Ok(status);
+        }
+        let output = run_command(
+            &self.runner,
+            "pactl",
+            &[
+                "load-module",
+                "module-null-sink",
+                "sink_name=VoxBridge_Output",
+                "sink_properties=device.description=VoxBridge Output",
+            ],
+        )?;
+        if let Some(status) = command_failed(&output, "pactl load-module M2 output") {
             return Ok(status);
         }
         self.status()
@@ -92,6 +109,7 @@ impl<R: CommandRunner> AudioDriverManager for LinuxAudioDriver<R> {
     fn list_endpoints(&self) -> AppResult<Vec<AudioEndpoint>> {
         let mut endpoints = self.probe_pipewire()?;
         endpoints.extend(self.probe_pulse()?);
+        endpoints.dedup_by(|left, right| left.id == right.id && left.direction == right.direction);
         Ok(endpoints)
     }
 }
@@ -159,7 +177,8 @@ fn module_ids(text: &str) -> Vec<String> {
             let id = fields.next()?;
             let name = fields.next()?;
             let args = fields.collect::<Vec<_>>().join(" ");
-            (name == "module-null-sink" && args.contains("VoxBridge_Output")
+            (name == "module-null-sink"
+                && (args.contains("VoxBridge_Output") || args.contains("VoxBridge_M1"))
                 || name == "module-remap-source" && args.contains("VoxBridge_Input"))
             .then(|| id.to_owned())
         })
