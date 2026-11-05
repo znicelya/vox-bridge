@@ -1,7 +1,8 @@
 use std::{
+    cell::UnsafeCell,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering},
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -10,10 +11,6 @@ use std::{
 use cpal::{
     FromSample, Sample, SampleFormat as CpalSampleFormat, Stream, StreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
-};
-use ringbuf::{
-    HeapCons, HeapProd, HeapRb,
-    traits::{Consumer, Producer, Split},
 };
 use tokio::sync::mpsc;
 
@@ -114,14 +111,42 @@ impl AudioPlayback {
         }
         let config: StreamConfig = supported.clone().into();
         let capacity_samples = (sample_rate as usize).saturating_mul(PLAYBACK_BUFFER_SECONDS);
-        let ring = HeapRb::<i16>::new(capacity_samples);
-        let (producer, consumer) = ring.split();
+        let ring = Arc::new(SpscAudioRing::new(capacity_samples));
         let state = Arc::new(AtomicU8::new(STATE_RUNNING));
         let stopped = Arc::new(AtomicBool::new(false));
         let dropped_samples = Arc::new(AtomicU64::new(0));
         let (event_tx, events) = mpsc::channel(EVENT_CAPACITY);
 
-        let worker_buffer = producer;
+        let stream = match supported.sample_format() {
+            CpalSampleFormat::I16 => build_playback_stream::<i16>(
+                &device,
+                &config,
+                ring.clone(),
+                state.clone(),
+                event_tx.clone(),
+            ),
+            CpalSampleFormat::F32 => build_playback_stream::<f32>(
+                &device,
+                &config,
+                ring.clone(),
+                state.clone(),
+                event_tx.clone(),
+            ),
+            CpalSampleFormat::U16 => build_playback_stream::<u16>(
+                &device,
+                &config,
+                ring.clone(),
+                state.clone(),
+                event_tx.clone(),
+            ),
+            format => {
+                return Err(AppError::InvalidRequest(format!(
+                    "unsupported audio playback sample format: {format:?}"
+                )));
+            }
+        }?;
+
+        let worker_buffer = ring;
         let worker_state = state.clone();
         let worker_stopped = stopped.clone();
         let worker_dropped = dropped_samples.clone();
@@ -141,36 +166,11 @@ impl AudioPlayback {
             .map_err(|error| {
                 AppError::Internal(format!("failed to start playback worker: {error}"))
             })?;
-
-        let stream = match supported.sample_format() {
-            CpalSampleFormat::I16 => build_playback_stream::<i16>(
-                &device,
-                &config,
-                consumer,
-                state.clone(),
-                event_tx.clone(),
-            ),
-            CpalSampleFormat::F32 => build_playback_stream::<f32>(
-                &device,
-                &config,
-                consumer,
-                state.clone(),
-                event_tx.clone(),
-            ),
-            CpalSampleFormat::U16 => build_playback_stream::<u16>(
-                &device,
-                &config,
-                consumer,
-                state.clone(),
-                event_tx.clone(),
-            ),
-            format => {
-                return Err(AppError::InvalidRequest(format!(
-                    "unsupported audio playback sample format: {format:?}"
-                )));
-            }
-        }?;
-        stream.play().map_err(device_error)?;
+        if let Err(error) = stream.play().map_err(device_error) {
+            stopped.store(true, Ordering::Release);
+            let _ = worker.join();
+            return Err(error);
+        }
 
         Ok(PlaybackHandle {
             stream: Some(stream),
@@ -186,7 +186,7 @@ impl AudioPlayback {
 fn build_playback_stream<T>(
     device: &cpal::Device,
     config: &StreamConfig,
-    mut consumer: HeapCons<i16>,
+    ring: Arc<SpscAudioRing>,
     state: Arc<AtomicU8>,
     events: mpsc::Sender<PlaybackEvent>,
 ) -> AppResult<Stream>
@@ -206,7 +206,7 @@ where
                 }
                 let mut underflow = false;
                 for frame in output.chunks_mut(channels) {
-                    let sample = consumer.try_pop().unwrap_or_else(|| {
+                    let sample = ring.pop().unwrap_or_else(|| {
                         underflow = true;
                         0
                     });
@@ -252,7 +252,7 @@ fn find_output_device(endpoint: &AudioEndpoint) -> AppResult<cpal::Device> {
 
 fn process_playback_frames(
     mut source: mpsc::Receiver<AudioFrame>,
-    mut producer: HeapProd<i16>,
+    ring: Arc<SpscAudioRing>,
     _capacity_samples: usize,
     device_rate: u32,
     state: Arc<AtomicU8>,
@@ -280,7 +280,7 @@ fn process_playback_frames(
                 };
                 let mut overflow = 0;
                 for sample in samples.iter().copied() {
-                    if producer.try_push(sample).is_err() {
+                    if ring.push_overwrite(sample) {
                         overflow += 1;
                     }
                 }
@@ -294,6 +294,54 @@ fn process_playback_frames(
     }
 }
 
+struct SpscAudioRing {
+    slots: Box<[UnsafeCell<i16>]>,
+    read: AtomicUsize,
+    write: AtomicUsize,
+    capacity: usize,
+}
+
+unsafe impl Send for SpscAudioRing {}
+unsafe impl Sync for SpscAudioRing {}
+
+impl SpscAudioRing {
+    fn new(capacity: usize) -> Self {
+        let capacity = capacity.max(1);
+        let slots = (0..capacity).map(|_| UnsafeCell::new(0)).collect();
+        Self {
+            slots,
+            read: AtomicUsize::new(0),
+            write: AtomicUsize::new(0),
+            capacity,
+        }
+    }
+
+    fn push_overwrite(&self, sample: i16) -> bool {
+        let write = self.write.load(Ordering::Relaxed);
+        let read = self.read.load(Ordering::Acquire);
+        let full = write.wrapping_sub(read) >= self.capacity;
+        if full {
+            self.read.store(read.wrapping_add(1), Ordering::Release);
+        }
+        unsafe {
+            *self.slots[write % self.capacity].get() = sample;
+        }
+        self.write.store(write.wrapping_add(1), Ordering::Release);
+        full
+    }
+
+    fn pop(&self) -> Option<i16> {
+        let read = self.read.load(Ordering::Relaxed);
+        let write = self.write.load(Ordering::Acquire);
+        if read == write {
+            return None;
+        }
+        let sample = unsafe { *self.slots[read % self.capacity].get() };
+        self.read.store(read.wrapping_add(1), Ordering::Release);
+        Some(sample)
+    }
+}
+
 fn device_error(error: impl std::fmt::Display) -> AppError {
     AppError::Internal(format!("audio device error: {error}"))
 }
@@ -304,16 +352,14 @@ mod tests {
 
     #[test]
     fn bounded_playback_ring_discards_oldest_samples() {
-        let ring = HeapRb::<i16>::new(4);
-        let (mut producer, mut consumer) = ring.split();
-        for sample in [1, 2, 3, 4] {
-            producer.try_push(sample).unwrap();
+        let ring = SpscAudioRing::new(4);
+        for sample in [1, 2, 3, 4, 5, 6] {
+            ring.push_overwrite(sample);
         }
-        for sample in [5, 6] {
-            let _ = producer.try_pop();
-            producer.try_push(sample).unwrap();
-        }
-        assert_eq!(consumer.try_pop(), Some(1));
+        assert_eq!(
+            (0..4).filter_map(|_| ring.pop()).collect::<Vec<_>>(),
+            vec![3, 4, 5, 6]
+        );
     }
 
     #[test]
