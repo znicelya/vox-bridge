@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "check:audio-packages": "node scripts/check-audio-package-gate.mjs",
+    "test:audio-packages": "node scripts/check-audio-package-gate.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

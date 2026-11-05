@@ -14,19 +14,35 @@ impl<R> LinuxAudioDriver<R> {
 impl<R: CommandRunner> LinuxAudioDriver<R> {
     fn probe_pipewire(&self) -> AppResult<Vec<AudioEndpoint>> {
         let output = run_command(&self.runner, "pw-cli", &["ls", "Node"])?;
-        if command_failed(&output, "pw-cli").is_some() {
+        if output.unavailable {
             return Ok(Vec::new());
+        }
+        if command_failed(&output, "pw-cli").is_some() {
+            return Err(AppError::Internal(format!(
+                "pw-cli probe failed: {output:?}"
+            )));
         }
         Ok(parse_pipewire(&output.stdout))
     }
 
     fn probe_pulse(&self) -> AppResult<Vec<AudioEndpoint>> {
         let sources = run_command(&self.runner, "pactl", &["list", "short", "sources"])?;
-        let sinks = run_command(&self.runner, "pactl", &["list", "short", "sinks"])?;
-        if command_failed(&sources, "pactl list sources").is_some()
-            || command_failed(&sinks, "pactl list sinks").is_some()
-        {
+        if sources.unavailable {
             return Ok(Vec::new());
+        }
+        let sinks = run_command(&self.runner, "pactl", &["list", "short", "sinks"])?;
+        if sinks.unavailable {
+            return Ok(Vec::new());
+        }
+        if let Some(status) = command_failed(&sources, "pactl list sources") {
+            return Err(AppError::Internal(format!(
+                "pactl sources probe failed: {status:?}"
+            )));
+        }
+        if let Some(status) = command_failed(&sinks, "pactl list sinks") {
+            return Err(AppError::Internal(format!(
+                "pactl sinks probe failed: {status:?}"
+            )));
         }
         let mut endpoints = parse_pulse(&sources.stdout, AudioDirection::Input);
         endpoints.extend(parse_pulse(&sinks.stdout, AudioDirection::Output));
@@ -41,6 +57,29 @@ impl<R: CommandRunner> AudioDriverManager for LinuxAudioDriver<R> {
     }
 
     fn install(&self) -> AppResult<DriverStatus> {
+        let modules = run_command(&self.runner, "pactl", &["list", "short", "modules"])?;
+        if modules.unavailable {
+            return Ok(DriverStatus::Failed(
+                "pactl is unavailable in the current Linux audio session".into(),
+            ));
+        }
+        if let Some(status) = command_failed(&modules, "pactl list modules") {
+            return Ok(status);
+        }
+        let ids = module_ids(&modules.stdout);
+        if has_complete_module_set(&modules.stdout) {
+            return self.status();
+        }
+        for module_id in ids {
+            let output = run_command(
+                &self.runner,
+                "pactl",
+                &["unload-module", module_id.as_str()],
+            )?;
+            if let Some(status) = command_failed(&output, "pactl unload-module") {
+                return Ok(status);
+            }
+        }
         let output = run_command(
             &self.runner,
             "pactl",
@@ -177,10 +216,31 @@ fn module_ids(text: &str) -> Vec<String> {
             let id = fields.next()?;
             let name = fields.next()?;
             let args = fields.collect::<Vec<_>>().join(" ");
-            (name == "module-null-sink"
-                && (args.contains("VoxBridge_Output") || args.contains("VoxBridge_M1"))
-                || name == "module-remap-source" && args.contains("VoxBridge_Input"))
-            .then(|| id.to_owned())
+            is_voxbridge_module(name, &args).then(|| id.to_owned())
         })
         .collect()
+}
+
+fn is_voxbridge_module(name: &str, args: &str) -> bool {
+    (name == "module-null-sink"
+        && (args.contains("sink_name=VoxBridge_M1") || args.contains("sink_name=VoxBridge_Output")))
+        || (name == "module-remap-source" && args.contains("source_name=VoxBridge_Input"))
+}
+
+fn has_complete_module_set(text: &str) -> bool {
+    let mut m1_backend = false;
+    let mut m1_source = false;
+    let mut m2_sink = false;
+    for line in text.lines() {
+        let mut fields = line.split_whitespace();
+        let Some(_id) = fields.next() else { continue };
+        let Some(name) = fields.next() else { continue };
+        let args = fields.collect::<Vec<_>>().join(" ");
+        m1_backend |= name == "module-null-sink" && args.contains("sink_name=VoxBridge_M1");
+        m1_source |= name == "module-remap-source"
+            && args.contains("source_name=VoxBridge_Input")
+            && args.contains("master=VoxBridge_M1.monitor");
+        m2_sink |= name == "module-null-sink" && args.contains("sink_name=VoxBridge_Output");
+    }
+    m1_backend && m1_source && m2_sink
 }

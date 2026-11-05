@@ -47,6 +47,7 @@ pub struct CommandOutput {
     pub status: Option<i32>,
     pub stdout: String,
     pub stderr: String,
+    pub unavailable: bool,
 }
 
 pub trait CommandRunner: Send + Sync {
@@ -63,13 +64,28 @@ impl CommandRunner for SystemCommandRunner {
                 "privileged audio commands require an approved platform helper".into(),
             ));
         }
-        let output = Command::new(program).args(args).output().map_err(|error| {
-            AppError::Internal(format!("failed to run {}: {error}", program.display()))
-        })?;
+        let output = match Command::new(program).args(args).output() {
+            Ok(output) => output,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(CommandOutput {
+                    status: None,
+                    stdout: String::new(),
+                    stderr: error.to_string(),
+                    unavailable: true,
+                });
+            }
+            Err(error) => {
+                return Err(AppError::Internal(format!(
+                    "failed to run {}: {error}",
+                    program.display()
+                )));
+            }
+        };
         Ok(CommandOutput {
             status: output.status.code(),
             stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            unavailable: false,
         })
     }
 }
@@ -83,12 +99,17 @@ pub trait AudioDriverManager {
 }
 
 fn command_failed(output: &CommandOutput, command: &str) -> Option<DriverStatus> {
-    output.status.filter(|status| *status != 0).map(|status| {
-        DriverStatus::Failed(format!(
+    match output.status {
+        Some(0) => None,
+        Some(status) => Some(DriverStatus::Failed(format!(
             "{command} exited with status {status}: {}",
             output.stderr.trim()
-        ))
-    })
+        ))),
+        None => Some(DriverStatus::Failed(format!(
+            "{command} did not exit normally: {}",
+            output.stderr.trim()
+        ))),
+    }
 }
 
 fn command(path: &str, args: &[&str]) -> (PathBuf, Vec<OsString>) {

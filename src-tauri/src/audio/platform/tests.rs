@@ -44,6 +44,16 @@ fn output(stdout: &str) -> CommandOutput {
         status: Some(0),
         stdout: stdout.into(),
         stderr: String::new(),
+        unavailable: false,
+    }
+}
+
+fn unavailable(stderr: &str) -> CommandOutput {
+    CommandOutput {
+        status: None,
+        stdout: String::new(),
+        stderr: stderr.into(),
+        unavailable: true,
     }
 }
 
@@ -74,16 +84,18 @@ fn linux_failed_probe_does_not_report_endpoints_from_command_output() {
             status: Some(1),
             stdout: "VoxBridge_Input VoxBridge_Output".into(),
             stderr: "not connected".into(),
+            unavailable: false,
         },
         CommandOutput {
             status: Some(1),
             stdout: "VoxBridge_Input".into(),
             stderr: "not connected".into(),
+            unavailable: false,
         },
         output("VoxBridge_Output"),
     ]);
     let manager = LinuxAudioDriver::new(runner);
-    assert!(matches!(manager.status().unwrap(), DriverStatus::Failed(_)));
+    assert!(manager.status().is_err());
 }
 
 #[test]
@@ -108,6 +120,50 @@ fn linux_status_maps_pipewire_and_pulseaudio_endpoint_names() {
         endpoints
             .iter()
             .any(|endpoint| endpoint.id == "VoxBridge_Output" && endpoint.ready)
+    );
+}
+
+#[test]
+fn linux_pulseaudio_status_falls_back_when_pw_cli_is_unavailable() {
+    let runner = MockRunner::with_outputs([
+        unavailable("pw-cli not installed"),
+        output("42\tVoxBridge_Input\tmodule-remap-source.c\t\tIDLE\n"),
+        output("43\tVoxBridge_Output\tmodule-null-sink.c\t\tIDLE\n"),
+    ]);
+    assert_eq!(
+        LinuxAudioDriver::new(runner).status().unwrap(),
+        DriverStatus::Ready
+    );
+}
+
+#[test]
+fn linux_pactl_probe_failure_does_not_parse_stdout_as_endpoints() {
+    let runner = MockRunner::with_outputs([
+        unavailable("pw-cli not installed"),
+        CommandOutput {
+            status: Some(1),
+            stdout: "VoxBridge_Input".into(),
+            stderr: "server unavailable".into(),
+            unavailable: false,
+        },
+        output("VoxBridge_Output"),
+    ]);
+    assert!(LinuxAudioDriver::new(runner).status().is_err());
+}
+
+#[test]
+fn command_without_exit_status_is_a_failure() {
+    let failure = command_failed(
+        &CommandOutput {
+            status: None,
+            stdout: String::new(),
+            stderr: "terminated".into(),
+            unavailable: false,
+        },
+        "test",
+    );
+    assert!(
+        matches!(failure, Some(DriverStatus::Failed(message)) if message.contains("terminated"))
     );
 }
 
@@ -160,6 +216,33 @@ fn linux_install_uses_non_privileged_pactl_commands() {
         |(_, args, _)| args.first().is_some_and(|arg| arg == "load-module")
             && args.iter().any(|arg| arg == "sink_name=VoxBridge_Output")
     ));
+}
+
+#[test]
+fn repeated_linux_install_reconciles_existing_modules_without_duplicates() {
+    let existing = "7 module-null-sink sink_name=VoxBridge_M1\n8 module-remap-source source_name=VoxBridge_Input master=VoxBridge_M1.monitor\n9 module-null-sink sink_name=VoxBridge_Output\n";
+    let runner = MockRunner::with_outputs([
+        output(""),
+        output("10"),
+        output("11"),
+        output("12"),
+        unavailable("pw-cli not installed"),
+        output("42\tVoxBridge_Input\tmodule-remap-source.c\t\tIDLE\n"),
+        output("43\tVoxBridge_Output\tmodule-null-sink.c\t\tIDLE\n"),
+        output(existing),
+        unavailable("pw-cli not installed"),
+        output("42\tVoxBridge_Input\tmodule-remap-source.c\t\tIDLE\n"),
+        output("43\tVoxBridge_Output\tmodule-null-sink.c\t\tIDLE\n"),
+    ]);
+    let manager = LinuxAudioDriver::new(runner.clone());
+    assert_eq!(manager.install().unwrap(), DriverStatus::Ready);
+    assert_eq!(manager.install().unwrap(), DriverStatus::Ready);
+    let load_count = runner
+        .calls()
+        .iter()
+        .filter(|(_, args, _)| args.first().is_some_and(|arg| arg == "load-module"))
+        .count();
+    assert_eq!(load_count, 3);
 }
 
 #[test]

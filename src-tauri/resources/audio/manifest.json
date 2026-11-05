@@ -1,7 +1,10 @@
 {
   "manifest_version": 1,
   "release": "0.1.0",
-  "license_gate": "Packaging must fail while any required redistributable package is unavailable or unlicensed.",
+  "license_gate": {
+    "enforced_by": "scripts/check-audio-package-gate.mjs",
+    "policy": "Packaging fails if a required package, matching SHA-256, or redistribution license file is absent."
+  },
   "endpoints": {
     "input": { "name": "VoxBridge Input", "logical_id": "VoxBridge_Input", "role": "M1 virtual microphone" },
     "output": { "name": "VoxBridge Output", "logical_id": "VoxBridge_Output", "role": "M2 virtual speaker" }
@@ -12,6 +15,7 @@
       "package": null,
       "version": null,
       "sha256": null,
+      "license_file": null,
       "license": "Not provided; redistribution authorization is required.",
       "install_command": "install.ps1",
       "uninstall_command": "install.ps1 -Uninstall",
@@ -24,6 +28,7 @@
       "package": null,
       "version": null,
       "sha256": null,
+      "license_file": null,
       "license": "Not provided; redistribution authorization is required.",
       "install_command": "install.sh",
       "uninstall_command": "install.sh --uninstall",
@@ -37,7 +42,7 @@
       "sha256": null,
       "license": "Uses distribution-provided audio server modules; no driver binary is bundled.",
       "install_command": "setup-pipewire.sh or setup-pulseaudio.sh",
-      "uninstall_command": "pactl list short modules, then pactl unload-module <numeric VoxBridge module id>",
+      "uninstall_command": "pactl list short modules, filter exact VoxBridge module arguments, then pactl unload-module <numeric module id>",
       "required_privileges": "user session",
       "requires_restart": false,
       "block_reason": "Audio module availability varies by distribution; scripts are explicit and never change defaults."
