@@ -52,7 +52,7 @@ fn fixture() -> (LocalStore, Uuid) {
             version: 1,
             created_at: 1_799_000_010,
             status: "complete".into(),
-            structured_json: r#"{"title":"Customer discovery","text":"A completed summary.","audio_path":"/private/session.wav","api_key":"secret-value","password":"password-value","passphrase":"passphrase-value","access_key":"access-value","secret_key":"secret-key-value","authorization":"authorization-value","bearer":"bearer-value","openai_api_key":"openai-key-value"}"#
+            structured_json: r#"{"title":"Customer discovery","text":"A completed summary.","audio_path":"/private/session.wav","api_key":"secret-value","password":"password-value","passphrase":"passphrase-value","access_key":"access-value","secret_key":"secret-key-value","authorization":"authorization-value","bearer":"bearer-value","openai_api_key":"openai-key-value","API Key":"spaced-api-key","Access-Key":"mixed-access-key","client.key":"mixed-client-key","Pass Phrase":"spaced-passphrase"}"#
                 .into(),
         })
         .unwrap();
@@ -77,6 +77,10 @@ fn markdown_export_contains_direction_timestamp_and_final_content() {
         "authorization-value",
         "bearer-value",
         "openai-key-value",
+        "spaced-api-key",
+        "mixed-access-key",
+        "mixed-client-key",
+        "spaced-passphrase",
     ] {
         assert!(!output.contains(value), "leaked {value}");
     }
@@ -106,6 +110,10 @@ fn json_export_has_stable_fields_and_only_final_segments() {
         "authorization-value",
         "bearer-value",
         "openai-key-value",
+        "spaced-api-key",
+        "mixed-access-key",
+        "mixed-client-key",
+        "spaced-passphrase",
     ] {
         assert!(!output.contains(value), "leaked {value}");
     }
@@ -128,6 +136,10 @@ fn plain_text_export_uses_timestamped_direction_source_and_translation_lines() {
         "authorization-value",
         "bearer-value",
         "openai-key-value",
+        "spaced-api-key",
+        "mixed-access-key",
+        "mixed-client-key",
+        "spaced-passphrase",
     ] {
         assert!(!output.contains(value), "leaked {value}");
     }

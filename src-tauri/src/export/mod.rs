@@ -162,7 +162,11 @@ pub(crate) fn safe_summary_json(raw: &str) -> Option<serde_json::Value> {
             serde_json::Value::Object(object) => {
                 let mut safe = serde_json::Map::new();
                 for (key, value) in object {
-                    let normalized = key.to_ascii_lowercase().replace(['_', '-', '.'], "");
+                    let normalized: String = key
+                        .chars()
+                        .filter(|character| character.is_ascii_alphanumeric())
+                        .flat_map(char::to_lowercase)
+                        .collect();
                     let sensitive = normalized.contains("secret")
                         || normalized.contains("token")
                         || normalized.contains("password")
