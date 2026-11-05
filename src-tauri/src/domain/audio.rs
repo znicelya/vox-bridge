@@ -5,6 +5,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::error::{AppError, AppResult};
 
 pub const SAMPLE_RATE_HZ: u32 = 16_000;
+pub const PLAYBACK_SAMPLE_RATE_HZ: u32 = 24_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
