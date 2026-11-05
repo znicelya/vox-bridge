@@ -37,7 +37,7 @@
       "sha256": null,
       "license": "Uses distribution-provided audio server modules; no driver binary is bundled.",
       "install_command": "setup-pipewire.sh or setup-pulseaudio.sh",
-      "uninstall_command": "pactl unload-module VoxBridge_Input and VoxBridge_Output",
+      "uninstall_command": "pactl list short modules, then pactl unload-module <numeric VoxBridge module id>",
       "required_privileges": "user session",
       "requires_restart": false,
       "block_reason": "Audio module availability varies by distribution; scripts are explicit and never change defaults."
