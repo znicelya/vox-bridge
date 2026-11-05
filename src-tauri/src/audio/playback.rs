@@ -1,8 +1,7 @@
 use std::{
-    cell::UnsafeCell,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -12,6 +11,7 @@ use cpal::{
     FromSample, Sample, SampleFormat as CpalSampleFormat, Stream, StreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
+use crossbeam_queue::ArrayQueue;
 use tokio::sync::mpsc;
 
 use crate::{
@@ -295,50 +295,27 @@ fn process_playback_frames(
 }
 
 struct SpscAudioRing {
-    slots: Box<[UnsafeCell<i16>]>,
-    read: AtomicUsize,
-    write: AtomicUsize,
-    capacity: usize,
+    queue: ArrayQueue<i16>,
 }
-
-unsafe impl Send for SpscAudioRing {}
-unsafe impl Sync for SpscAudioRing {}
 
 impl SpscAudioRing {
     fn new(capacity: usize) -> Self {
-        let capacity = capacity.max(1);
-        let slots = (0..capacity).map(|_| UnsafeCell::new(0)).collect();
         Self {
-            slots,
-            read: AtomicUsize::new(0),
-            write: AtomicUsize::new(0),
-            capacity,
+            queue: ArrayQueue::new(capacity.max(1)),
         }
     }
 
     fn push_overwrite(&self, sample: i16) -> bool {
-        let write = self.write.load(Ordering::Relaxed);
-        let read = self.read.load(Ordering::Acquire);
-        let full = write.wrapping_sub(read) >= self.capacity;
-        if full {
-            self.read.store(read.wrapping_add(1), Ordering::Release);
+        if self.queue.push(sample).is_ok() {
+            return false;
         }
-        unsafe {
-            *self.slots[write % self.capacity].get() = sample;
-        }
-        self.write.store(write.wrapping_add(1), Ordering::Release);
-        full
+        let _ = self.queue.pop();
+        let _ = self.queue.push(sample);
+        true
     }
 
     fn pop(&self) -> Option<i16> {
-        let read = self.read.load(Ordering::Relaxed);
-        let write = self.write.load(Ordering::Acquire);
-        if read == write {
-            return None;
-        }
-        let sample = unsafe { *self.slots[read % self.capacity].get() };
-        self.read.store(read.wrapping_add(1), Ordering::Release);
-        Some(sample)
+        self.queue.pop()
     }
 }
 
@@ -360,6 +337,33 @@ mod tests {
             (0..4).filter_map(|_| ring.pop()).collect::<Vec<_>>(),
             vec![3, 4, 5, 6]
         );
+    }
+
+    #[test]
+    fn concurrent_overwrite_and_pop_preserves_monotonic_order() {
+        let ring = Arc::new(SpscAudioRing::new(64));
+        let producer_ring = ring.clone();
+        let producer = std::thread::spawn(move || {
+            for sequence in 0..20_000i32 {
+                producer_ring.push_overwrite(sequence as i16);
+            }
+        });
+
+        let mut seen = Vec::new();
+        while !producer.is_finished() {
+            if let Some(sample) = ring.pop() {
+                seen.push(sample);
+            } else {
+                std::thread::yield_now();
+            }
+        }
+        producer.join().unwrap();
+        while let Some(sample) = ring.pop() {
+            seen.push(sample);
+        }
+
+        assert!(!seen.is_empty());
+        assert!(seen.windows(2).all(|pair| pair[0] < pair[1]));
     }
 
     #[test]
