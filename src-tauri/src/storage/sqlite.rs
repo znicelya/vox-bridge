@@ -2,7 +2,13 @@ use super::models::{
     ExportData, SessionSummary, StoredSession, StoredSessionLifecycle, StoredTranscriptSegment,
     SummaryVersion,
 };
-use crate::error::AppResult;
+use crate::{
+    domain::{
+        session::SessionDirection,
+        transcript::{DiagnosticPage, RuntimeDiagnostic, TranscriptPage, TranscriptUpdate},
+    },
+    error::{AppError, AppResult},
+};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{path::Path, sync::Mutex};
 use uuid::Uuid;
@@ -35,9 +41,21 @@ impl LocalStore {
     pub fn in_memory() -> AppResult<Self> {
         Self::initialize(Connection::open_in_memory()?)
     }
-    fn initialize(conn: Connection) -> AppResult<Self> {
+    fn initialize(mut conn: Connection) -> AppResult<Self> {
+        let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        if version > 2 {
+            return Err(AppError::InvalidRequest(
+                "database schema is newer than this application".into(),
+            ));
+        }
         conn.pragma_update(None, "foreign_keys", true)?;
-        conn.execute_batch(include_str!("../../migrations/0001_session_foundation.sql"))?;
+        if version < 2 {
+            let tx = conn.transaction()?;
+            tx.execute_batch(include_str!("../../migrations/0001_session_foundation.sql"))?;
+            tx.execute_batch(include_str!("../../migrations/0002_runtime.sql"))?;
+            tx.pragma_update(None, "user_version", 2)?;
+            tx.commit()?;
+        }
         Ok(Self {
             connection: Mutex::new(conn),
         })
@@ -46,7 +64,7 @@ impl LocalStore {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction()?;
         tx.execute(
-            "INSERT INTO sessions VALUES (?1,?2,?3,?4,?5,?6)",
+            "INSERT INTO sessions (id,started_at,mode,direction,source_language,target_language) VALUES (?1,?2,?3,?4,?5,?6)",
             params![
                 s.id.to_string(),
                 s.started_at,
@@ -97,15 +115,16 @@ impl LocalStore {
         )
         .optional()?)
     }
+    /// Legacy writer: typed provider events must use append_transcript.
     pub fn append_final_segment(&self, s: &StoredTranscriptSegment) -> AppResult<()> {
-        if !s.is_final {
+        if !s.is_final || s.details.is_some() || s.occurred_at_ms.is_some() {
             return Err(crate::error::AppError::InvalidRequest(
-                "only final transcript segments may be persisted".into(),
+                "legacy writer requires final segments without runtime metadata".into(),
             ));
         }
         let c = self.connection.lock().unwrap();
         c.execute(
-            "INSERT INTO translation_segments VALUES (?1,?2,?3,?4,?5,?6,?7,1)",
+            "INSERT INTO translation_segments (id,session_id,direction,sequence,occurred_at,language,text,is_final) VALUES (?1,?2,?3,?4,?5,?6,?7,1)",
             params![
                 s.id.to_string(),
                 s.session_id.to_string(),
@@ -117,6 +136,113 @@ impl LocalStore {
             ],
         )?;
         Ok(())
+    }
+    pub fn append_transcript(&self, update: &TranscriptUpdate) -> AppResult<()> {
+        update.validate()?;
+        if !update.is_final {
+            return Err(AppError::InvalidRequest(
+                "only final transcript events may be persisted".into(),
+            ));
+        }
+        let details = json(update.details.as_ref().expect("validated details"))?;
+        let sequence = i64::try_from(update.sequence)
+            .map_err(|_| crate::domain::transcript::invalid_transcript())?;
+        self.connection.lock().unwrap().execute(
+            "INSERT INTO translation_segments (id,session_id,direction,sequence,occurred_at,language,text,is_final,details_json,occurred_at_ms) VALUES (?1,?2,?3,?4,?5,?6,?7,1,?8,?9)",
+            params![update.id.to_string(), update.session_id.to_string(), direction_name(update.direction), sequence, update.occurred_at_ms.div_euclid(1000), update.language, update.text, details, update.occurred_at_ms],
+        )?;
+        Ok(())
+    }
+    pub fn transcript_page(
+        &self,
+        session_id: Uuid,
+        after: Option<i64>,
+        limit: u32,
+    ) -> AppResult<TranscriptPage> {
+        validate_page(after, limit)?;
+        let c = self.connection.lock().unwrap();
+        let mut query = c.prepare("SELECT rowid,id,session_id,direction,sequence,occurred_at,language,text,is_final,details_json,occurred_at_ms FROM translation_segments WHERE session_id=?1 AND rowid>?2 ORDER BY rowid LIMIT ?3")?;
+        let mut rows = query.query(params![
+            session_id.to_string(),
+            after.unwrap_or(0),
+            limit + 1
+        ])?;
+        let mut found = Vec::new();
+        while let Some(row) = rows.next()? {
+            let rowid: i64 = row.get(0)?;
+            let segment = read_segment_at(row, 1)?;
+            let occurred_at_ms = segment.occurred_at_ms.map(Ok).unwrap_or_else(|| {
+                segment.occurred_at.checked_mul(1000).ok_or_else(|| {
+                    AppError::Internal("legacy transcript timestamp out of range".into())
+                })
+            })?;
+            let update = TranscriptUpdate {
+                id: segment.id,
+                session_id: segment.session_id,
+                direction: parse_direction(&segment.direction)?,
+                sequence: u64::try_from(segment.sequence).map_err(|_| {
+                    AppError::Internal("legacy transcript sequence out of range".into())
+                })?,
+                occurred_at_ms,
+                language: segment.language,
+                text: segment.text,
+                is_final: segment.is_final,
+                details: segment.details,
+            };
+            found.push((rowid, update));
+        }
+        let next_cursor = page_cursor(&mut found, limit);
+        Ok(TranscriptPage {
+            rows: found.into_iter().map(|(_, row)| row).collect(),
+            next_cursor,
+        })
+    }
+    pub fn next_transcript_sequence(
+        &self,
+        session_id: Uuid,
+        direction: SessionDirection,
+    ) -> AppResult<u64> {
+        if direction == SessionDirection::Bidirectional {
+            return Err(crate::domain::transcript::invalid_transcript());
+        }
+        let max: Option<i64> = self.connection.lock().unwrap().query_row(
+            "SELECT MAX(sequence) FROM translation_segments WHERE session_id=?1 AND direction=?2",
+            params![session_id.to_string(), direction_name(direction)],
+            |r| r.get(0),
+        )?;
+        max.map(|value| {
+            value
+                .checked_add(1)
+                .and_then(|n| u64::try_from(n).ok())
+                .ok_or_else(crate::domain::transcript::invalid_transcript)
+        })
+        .unwrap_or(Ok(0))
+    }
+    pub fn append_diagnostic(&self, diagnostic: &RuntimeDiagnostic) -> AppResult<()> {
+        diagnostic.validate()?;
+        self.connection.lock().unwrap().execute("INSERT INTO session_diagnostics (id,session_id,occurred_at_ms,payload_json) VALUES (?1,?2,?3,?4)", params![diagnostic.id.to_string(), diagnostic.session_id.to_string(), diagnostic.occurred_at_ms, json(diagnostic)?])?;
+        Ok(())
+    }
+    pub fn diagnostic_page(
+        &self,
+        session_id: Uuid,
+        after: Option<i64>,
+        limit: u32,
+    ) -> AppResult<DiagnosticPage> {
+        validate_page(after, limit)?;
+        let c = self.connection.lock().unwrap();
+        let mut query = c.prepare("SELECT rowid,payload_json FROM session_diagnostics WHERE session_id=?1 AND rowid>?2 ORDER BY rowid LIMIT ?3")?;
+        let mut found = query
+            .query_map(
+                params![session_id.to_string(), after.unwrap_or(0), limit + 1],
+                |r| Ok((r.get::<_, i64>(0)?, read_json::<RuntimeDiagnostic>(r, 1)?)),
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        let next_cursor = page_cursor(&mut found, limit);
+        Ok(DiagnosticPage {
+            rows: found.into_iter().map(|(_, row)| row).collect(),
+            next_cursor,
+        })
     }
     pub fn list_sessions(
         &self,
@@ -149,7 +275,7 @@ impl LocalStore {
     pub fn get_session(&self, id: Uuid) -> AppResult<Option<StoredSession>> {
         let c = self.connection.lock().unwrap();
         Ok(c.query_row(
-            "SELECT * FROM sessions WHERE id=?1",
+            "SELECT id,started_at,mode,direction,source_language,target_language FROM sessions WHERE id=?1",
             params![id.to_string()],
             |r| {
                 Ok(StoredSession {
@@ -184,7 +310,7 @@ impl LocalStore {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction()?;
         tx.execute(
-            "INSERT INTO session_summaries VALUES (?1,?2,?3,?4,?5,?6)",
+            "INSERT INTO session_summaries (id,session_id,version,created_at,status,structured_json) VALUES (?1,?2,?3,?4,?5,?6)",
             params![
                 s.id.to_string(),
                 s.session_id.to_string(),
@@ -200,7 +326,7 @@ impl LocalStore {
     pub fn list_summary_versions(&self, id: Uuid) -> AppResult<Vec<SummaryVersion>> {
         let c = self.connection.lock().unwrap();
         let mut q =
-            c.prepare("SELECT * FROM session_summaries WHERE session_id=?1 ORDER BY version")?;
+            c.prepare("SELECT id,session_id,version,created_at,status,structured_json FROM session_summaries WHERE session_id=?1 ORDER BY version")?;
         let rows = q.query_map(params![id.to_string()], |r| {
             Ok(SummaryVersion {
                 id: Uuid::parse_str(&r.get::<_, String>(0)?).unwrap(),
@@ -223,23 +349,26 @@ impl LocalStore {
         })?;
         let c = self.connection.lock().unwrap();
         let mut q = c.prepare(
-            "SELECT id,session_id,direction,sequence,occurred_at,language,text,is_final
+            "SELECT id,session_id,direction,sequence,occurred_at,language,text,is_final,details_json,occurred_at_ms
              FROM translation_segments WHERE session_id=?1 AND is_final=1
-             ORDER BY occurred_at, sequence, id",
+             ORDER BY COALESCE(occurred_at_ms, occurred_at * 1000), sequence, id",
         )?;
-        let rows = q.query_map(params![id.to_string()], |r| {
-            Ok(StoredTranscriptSegment {
-                id: Uuid::parse_str(&r.get::<_, String>(0)?).unwrap(),
-                session_id: Uuid::parse_str(&r.get::<_, String>(1)?).unwrap(),
-                direction: r.get(2)?,
-                sequence: r.get(3)?,
-                occurred_at: r.get(4)?,
-                language: r.get(5)?,
-                text: r.get(6)?,
-                is_final: r.get::<_, i64>(7)? == 1,
-            })
-        })?;
+        let rows = q.query_map(params![id.to_string()], read_segment)?;
         let segments = rows.collect::<Result<Vec<_>, _>>()?;
+        drop(q);
+        let mut q = c.prepare(
+            "SELECT payload_json FROM session_diagnostics WHERE session_id=?1 ORDER BY rowid",
+        )?;
+        let diagnostics = q
+            .query_map([id.to_string()], |r| read_json(r, 0))?
+            .collect::<Result<Vec<RuntimeDiagnostic>, _>>()?;
+        let context = c
+            .query_row(
+                "SELECT context_json FROM session_runtime_context WHERE session_id=?1",
+                [id.to_string()],
+                |r| read_json(r, 0),
+            )
+            .optional()?;
         drop(q);
         drop(c);
         Ok(Some(ExportData {
@@ -247,6 +376,8 @@ impl LocalStore {
             lifecycle,
             segments,
             summaries: self.list_summary_versions(id)?,
+            diagnostics,
+            context,
         }))
     }
 }
@@ -260,4 +391,80 @@ fn parse_cursor(v: &str) -> AppResult<(i64, String)> {
     Uuid::parse_str(id)
         .map_err(|_| crate::error::AppError::InvalidRequest("invalid session cursor".into()))?;
     Ok((s, id.into()))
+}
+
+fn read_segment(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredTranscriptSegment> {
+    read_segment_at(row, 0)
+}
+fn read_segment_at(
+    row: &rusqlite::Row<'_>,
+    offset: usize,
+) -> rusqlite::Result<StoredTranscriptSegment> {
+    let details: Option<String> = row.get(offset + 8)?;
+    Ok(StoredTranscriptSegment {
+        id: read_uuid(row, offset)?,
+        session_id: read_uuid(row, offset + 1)?,
+        direction: row.get(offset + 2)?,
+        sequence: row.get(offset + 3)?,
+        occurred_at: row.get(offset + 4)?,
+        language: row.get(offset + 5)?,
+        text: row.get(offset + 6)?,
+        is_final: row.get::<_, i64>(offset + 7)? == 1,
+        details: details
+            .map(|value| serde_json::from_str(&value).map_err(|e| conversion_error(offset + 8, e)))
+            .transpose()?,
+        occurred_at_ms: row.get(offset + 9)?,
+    })
+}
+fn read_uuid(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<Uuid> {
+    Uuid::parse_str(&row.get::<_, String>(index)?).map_err(|e| conversion_error(index, e))
+}
+fn read_json<T: serde::de::DeserializeOwned>(
+    row: &rusqlite::Row<'_>,
+    index: usize,
+) -> rusqlite::Result<T> {
+    serde_json::from_str(&row.get::<_, String>(index)?).map_err(|e| conversion_error(index, e))
+}
+fn conversion_error(
+    index: usize,
+    error: impl std::error::Error + Send + Sync + 'static,
+) -> rusqlite::Error {
+    rusqlite::Error::FromSqlConversionFailure(index, rusqlite::types::Type::Text, Box::new(error))
+}
+fn json(value: &impl serde::Serialize) -> AppResult<String> {
+    serde_json::to_string(value)
+        .map_err(|_| AppError::Internal("cannot encode runtime data".into()))
+}
+fn direction_name(direction: SessionDirection) -> &'static str {
+    match direction {
+        SessionDirection::SourceToTarget => "source_to_target",
+        SessionDirection::TargetToSource => "target_to_source",
+        SessionDirection::Bidirectional => "bidirectional",
+    }
+}
+fn parse_direction(value: &str) -> AppResult<SessionDirection> {
+    match value {
+        "source_to_target" => Ok(SessionDirection::SourceToTarget),
+        "target_to_source" => Ok(SessionDirection::TargetToSource),
+        "bidirectional" => Ok(SessionDirection::Bidirectional),
+        _ => Err(AppError::Internal(
+            "unknown stored transcript direction".into(),
+        )),
+    }
+}
+fn validate_page(after: Option<i64>, limit: u32) -> AppResult<()> {
+    if !(1..=200).contains(&limit) || after.is_some_and(|cursor| cursor < 0) {
+        return Err(AppError::InvalidRequest(
+            "page size must be 1–200 and cursor nonnegative".into(),
+        ));
+    }
+    Ok(())
+}
+fn page_cursor<T>(rows: &mut Vec<(i64, T)>, limit: u32) -> Option<i64> {
+    if rows.len() > limit as usize {
+        rows.pop();
+        rows.last().map(|(rowid, _)| *rowid)
+    } else {
+        None
+    }
 }

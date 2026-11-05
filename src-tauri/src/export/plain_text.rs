@@ -9,7 +9,7 @@ pub fn render_plain_text(data: &ExportData) -> String {
                 "[{}] [{}] {} ({}): {}\n",
                 timestamp(segment.occurred_at),
                 segment.direction,
-                segment_role(data, &segment.language),
+                segment_role(data, segment),
                 segment.language,
                 segment.text
             ));

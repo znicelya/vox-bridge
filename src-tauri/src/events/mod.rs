@@ -24,39 +24,15 @@ pub enum SessionEvent {
         occurred_at: SystemTime,
         state: AudioSessionState,
     },
-    InterimTranscript {
-        event_id: Uuid,
-        session_id: Uuid,
-        occurred_at: SystemTime,
-        language: String,
-        text: String,
+    Transcript {
+        update: crate::domain::transcript::TranscriptUpdate,
     },
-    FinalTranscript {
-        event_id: Uuid,
-        session_id: Uuid,
-        occurred_at: SystemTime,
-        language: String,
-        text: String,
+    Diagnostic {
+        diagnostic: crate::domain::transcript::RuntimeDiagnostic,
     },
-    TranslationAudio {
-        event_id: Uuid,
+    ResyncNeeded {
         session_id: Uuid,
-        occurred_at: SystemTime,
-        language: String,
-        samples: Vec<i16>,
-    },
-    Error {
-        event_id: Uuid,
-        session_id: Uuid,
-        occurred_at: SystemTime,
-        message: String,
-    },
-    Latency {
-        event_id: Uuid,
-        session_id: Uuid,
-        occurred_at: SystemTime,
-        stage: String,
-        millis: u64,
+        missed_events: u64,
     },
 }
 
@@ -65,11 +41,9 @@ impl SessionEvent {
         match self {
             Self::Status { session_id, .. }
             | Self::AudioState { session_id, .. }
-            | Self::InterimTranscript { session_id, .. }
-            | Self::FinalTranscript { session_id, .. }
-            | Self::TranslationAudio { session_id, .. }
-            | Self::Error { session_id, .. }
-            | Self::Latency { session_id, .. } => *session_id,
+            | Self::ResyncNeeded { session_id, .. } => *session_id,
+            Self::Transcript { update } => update.session_id,
+            Self::Diagnostic { diagnostic } => diagnostic.session_id,
         }
     }
 

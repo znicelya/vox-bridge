@@ -31,6 +31,8 @@ fn fixture() -> (LocalStore, Uuid) {
             language: "en".into(),
             text: "Hello there".into(),
             is_final: true,
+            details: None,
+            occurred_at_ms: None,
         })
         .unwrap();
     store
@@ -43,6 +45,8 @@ fn fixture() -> (LocalStore, Uuid) {
             language: "fr".into(),
             text: "Bonjour".into(),
             is_final: true,
+            details: None,
+            occurred_at_ms: None,
         })
         .unwrap();
     store
@@ -206,4 +210,48 @@ fn export_rejects_missing_sessions() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn legacy_role_mapping_uses_each_rows_direction_and_marks_ambiguity() {
+    let (store, id) = fixture();
+    let mut data = store.get_export_data(id).unwrap().unwrap();
+    data.segments[0].direction = "target_to_source".into();
+    data.segments[1].direction = "target_to_source".into();
+    assert_eq!(super::segment_role(&data, &data.segments[0]), "translation");
+    assert_eq!(super::segment_role(&data, &data.segments[1]), "source");
+    data.segments[0].direction = "bidirectional".into();
+    assert_eq!(super::segment_role(&data, &data.segments[0]), "unknown");
+    data.session.target_language = data.session.source_language.clone();
+    assert_eq!(super::segment_role(&data, &data.segments[1]), "unknown");
+}
+#[test]
+fn json_export_identifies_legacy_rows_and_includes_diagnostics_and_context() {
+    use crate::domain::transcript::*;
+    let (store, id) = fixture();
+    store
+        .append_diagnostic(&RuntimeDiagnostic {
+            id: Uuid::new_v4(),
+            session_id: id,
+            direction: None,
+            stream_epoch: None,
+            occurred_at_ms: 10,
+            payload: DiagnosticPayload::Latency {
+                capture_to_send_ms: Some(80),
+                response_to_enqueue_ms: None,
+                enqueue_to_callback_ms: None,
+                provider_processing_ms: None,
+            },
+        })
+        .unwrap();
+    let mut data = store.get_export_data(id).unwrap().unwrap();
+    data.context = Some(serde_json::json!({"provider_name":"Saved profile"}));
+    let value: serde_json::Value = serde_json::from_str(&render_json(&data).unwrap()).unwrap();
+    assert_eq!(value["segments"][0]["origin"], "legacy");
+    assert!(value["segments"][0]["details"].is_null());
+    assert_eq!(
+        value["diagnostics"][0]["payload"]["latency"]["capture_to_send_ms"],
+        80
+    );
+    assert_eq!(value["context"]["provider_name"], "Saved profile");
 }

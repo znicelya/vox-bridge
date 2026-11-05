@@ -8,6 +8,8 @@ struct JsonExport<'a> {
     session: JsonSession<'a>,
     segments: Vec<JsonSegment<'a>>,
     summaries: Vec<JsonSummary<'a>>,
+    diagnostics: &'a [crate::domain::transcript::RuntimeDiagnostic],
+    context: &'a Option<serde_json::Value>,
 }
 #[derive(Serialize)]
 struct JsonSession<'a> {
@@ -30,6 +32,10 @@ struct JsonSegment<'a> {
     language: &'a str,
     text: &'a str,
     final_segment: bool,
+    role: &'static str,
+    origin: &'static str,
+    details: &'a Option<crate::domain::transcript::TranscriptDetails>,
+    occurred_at_ms: Option<i64>,
 }
 #[derive(Serialize)]
 struct JsonSummary<'a> {
@@ -65,6 +71,14 @@ pub fn render_json(data: &ExportData) -> AppResult<String> {
                 language: &s.language,
                 text: &s.text,
                 final_segment: true,
+                role: super::segment_role(data, s),
+                origin: if s.details.is_some() {
+                    "provider"
+                } else {
+                    "legacy"
+                },
+                details: &s.details,
+                occurred_at_ms: s.occurred_at_ms,
             })
             .collect(),
         summaries: data
@@ -78,6 +92,8 @@ pub fn render_json(data: &ExportData) -> AppResult<String> {
                 structured_json: super::safe_summary_json(&s.structured_json),
             })
             .collect(),
+        diagnostics: &data.diagnostics,
+        context: &data.context,
     };
     Ok(serde_json::to_string_pretty(&value)
         .map_err(|e| crate::error::AppError::Internal(e.to_string()))?)

@@ -148,11 +148,30 @@ pub(crate) fn timestamp(seconds: i64) -> String {
     )
 }
 
-pub(crate) fn segment_role(data: &ExportData, language: &str) -> &'static str {
-    if language == data.session.target_language {
+pub(crate) fn segment_role(
+    data: &ExportData,
+    segment: &crate::storage::StoredTranscriptSegment,
+) -> &'static str {
+    use crate::domain::transcript::TranscriptKind;
+    if let Some(details) = &segment.details {
+        return match details.kind {
+            TranscriptKind::Source => "source",
+            TranscriptKind::Translation => "translation",
+        };
+    }
+    let (source, target) = match segment.direction.as_str() {
+        "source_to_target" => (&data.session.source_language, &data.session.target_language),
+        "target_to_source" => (&data.session.target_language, &data.session.source_language),
+        _ => return "unknown",
+    };
+    if source == target {
+        "unknown"
+    } else if &segment.language == source {
+        "source"
+    } else if &segment.language == target {
         "translation"
     } else {
-        "source"
+        "unknown"
     }
 }
 

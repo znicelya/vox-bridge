@@ -10,7 +10,10 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::{
-    domain::session::{SessionConfig, SessionDirection, SessionMode},
+    domain::{
+        session::{SessionConfig, SessionDirection, SessionMode},
+        transcript::RuntimeFailureCode,
+    },
     error::{AppError, AppResult},
     events::{EventBus, SessionEvent},
     storage::{LocalStore, StoredSession, StoredSessionLifecycle},
@@ -240,8 +243,7 @@ impl SessionOrchestrator {
         config: SessionConfig,
         startup_done: Arc<tokio::sync::Notify>,
     ) {
-        if let Err(error) = self.startup.start(&config).await {
-            let message = error.to_string();
+        if self.startup.start(&config).await.is_err() {
             let failed = self
                 .store
                 .update_session_lifecycle(&StoredSessionLifecycle {
@@ -249,38 +251,28 @@ impl SessionOrchestrator {
                     status: SessionStatus::Failed.as_str().into(),
                     ended_at: Some(now_seconds()),
                 });
-            if let Err(storage_error) = failed {
-                self.emit_startup_error(
-                    id,
-                    format!("{message}; failed to persist failed status: {storage_error}"),
-                );
+            if failed.is_err() {
+                self.emit_startup_error(id, RuntimeFailureCode::Storage);
                 self.active.write().await.remove(&id);
                 startup_done.notify_one();
                 return;
             }
             self.active.write().await.remove(&id);
-            self.emit_startup_error(id, message.clone());
+            self.emit_startup_error(id, RuntimeFailureCode::Provider);
             startup_done.notify_one();
             return;
         }
 
-        if let Err(error) = self
+        if self
             .store
             .update_session_lifecycle(&StoredSessionLifecycle {
                 session_id: id,
                 status: SessionStatus::Running.as_str().into(),
                 ended_at: None,
             })
+            .is_err()
         {
-            let rollback = self.startup.rollback(&config).await;
-            let failure_message = match rollback {
-                Ok(()) => format!(
-                    "failed to persist running status: {error}; startup resources rolled back"
-                ),
-                Err(rollback_error) => format!(
-                    "failed to persist running status: {error}; startup rollback failed: {rollback_error}"
-                ),
-            };
+            let _ = self.startup.rollback(&config).await;
             let ended_at = Some(now_seconds());
             let failed = self
                 .store
@@ -289,17 +281,14 @@ impl SessionOrchestrator {
                     status: SessionStatus::Failed.as_str().into(),
                     ended_at,
                 });
-            if let Err(storage_error) = failed {
-                self.emit_startup_error(
-                    id,
-                    format!("{failure_message}; failed to persist failed status: {storage_error}"),
-                );
+            if failed.is_err() {
+                self.emit_startup_error(id, RuntimeFailureCode::Storage);
                 self.active.write().await.remove(&id);
                 startup_done.notify_one();
                 return;
             }
             self.active.write().await.remove(&id);
-            self.emit_startup_error(id, failure_message.clone());
+            self.emit_startup_error(id, RuntimeFailureCode::Storage);
             startup_done.notify_one();
             return;
         }
@@ -312,16 +301,9 @@ impl SessionOrchestrator {
         startup_done.notify_one();
     }
 
-    fn emit_startup_error(&self, id: Uuid, message: String) {
-        self.event_bus.close_with_final(
-            id,
-            SessionEvent::Error {
-                event_id: Uuid::new_v4(),
-                session_id: id,
-                occurred_at: SystemTime::now(),
-                message,
-            },
-        );
+    fn emit_startup_error(&self, id: Uuid, code: RuntimeFailureCode) {
+        self.event_bus
+            .close_with_final(id, runtime_failure_event(id, code));
     }
 
     pub async fn get(&self, id: Uuid) -> AppResult<Option<SessionRecord>> {
@@ -366,7 +348,7 @@ impl SessionOrchestrator {
                 ended_at: None,
             })
         {
-            self.emit_storage_error(id, &error);
+            self.emit_storage_error(id);
             return Err(error);
         }
         session.record = record.clone();
@@ -380,7 +362,7 @@ impl SessionOrchestrator {
                 ended_at: record.ended_at,
             })
         {
-            self.emit_storage_error(id, &error);
+            self.emit_storage_error(id);
             return Err(error);
         }
         active.remove(&id);
@@ -428,16 +410,10 @@ impl SessionOrchestrator {
         ))
     }
 
-    fn emit_storage_error(&self, id: Uuid, error: &AppError) {
-        let _ = self.event_bus.publish(
-            id,
-            SessionEvent::Error {
-                event_id: Uuid::new_v4(),
-                session_id: id,
-                occurred_at: SystemTime::now(),
-                message: format!("session persistence failed: {error}"),
-            },
-        );
+    fn emit_storage_error(&self, id: Uuid) {
+        let _ = self
+            .event_bus
+            .publish(id, runtime_failure_event(id, RuntimeFailureCode::Storage));
     }
 }
 
@@ -459,4 +435,26 @@ fn now_seconds() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
+}
+
+fn runtime_failure_event(id: Uuid, code: RuntimeFailureCode) -> SessionEvent {
+    use crate::domain::transcript::{DiagnosticPayload, RuntimeDiagnostic};
+    SessionEvent::Diagnostic {
+        diagnostic: RuntimeDiagnostic {
+            id: Uuid::new_v4(),
+            session_id: id,
+            direction: None,
+            stream_epoch: None,
+            occurred_at_ms: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .ok()
+                .and_then(|duration| i64::try_from(duration.as_millis()).ok())
+                .unwrap_or(0),
+            payload: DiagnosticPayload::Failure {
+                code,
+                provider_code: None,
+                log_id: None,
+            },
+        },
+    }
 }

@@ -138,7 +138,7 @@ async fn startup_failure_error_is_replayable_after_create_returns() {
     let mut receiver = orchestrator.subscribe(id).await.unwrap();
     assert!(matches!(
         receiver.recv().await.unwrap(),
-        crate::events::SessionEvent::Error { .. }
+        crate::events::SessionEvent::Diagnostic { diagnostic } if matches!(diagnostic.payload, crate::domain::transcript::DiagnosticPayload::Failure { code: crate::domain::transcript::RuntimeFailureCode::Provider, .. })
     ));
 }
 
@@ -166,6 +166,13 @@ async fn running_persistence_failure_rolls_back_startup_and_persists_failed() {
         tokio::task::yield_now().await;
     }
     assert!(rolled_back.load(Ordering::SeqCst));
+    let mut receiver = orchestrator.subscribe(handle.id()).await.unwrap();
+    assert!(matches!(receiver.recv().await.unwrap(),
+        crate::events::SessionEvent::Diagnostic { diagnostic }
+        if matches!(diagnostic.payload, crate::domain::transcript::DiagnosticPayload::Failure {
+            code: crate::domain::transcript::RuntimeFailureCode::Storage, ..
+        })
+    ));
     assert_eq!(
         orchestrator.get(handle.id()).await.unwrap().unwrap().status,
         super::orchestrator::SessionStatus::Failed

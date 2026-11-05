@@ -1,3 +1,4 @@
+use crate::domain::transcript::{RuntimeDiagnostic, TranscriptDetails};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -20,6 +21,8 @@ pub struct StoredTranscriptSegment {
     pub language: String,
     pub text: String,
     pub is_final: bool,
+    pub details: Option<TranscriptDetails>,
+    pub occurred_at_ms: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,4 +64,6 @@ pub struct ExportData {
     pub lifecycle: StoredSessionLifecycle,
     pub segments: Vec<StoredTranscriptSegment>,
     pub summaries: Vec<SummaryVersion>,
+    pub diagnostics: Vec<RuntimeDiagnostic>,
+    pub context: Option<serde_json::Value>,
 }
