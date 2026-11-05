@@ -215,32 +215,50 @@ fn module_ids(text: &str) -> Vec<String> {
             let mut fields = line.split_whitespace();
             let id = fields.next()?;
             let name = fields.next()?;
-            let args = fields.collect::<Vec<_>>().join(" ");
-            is_voxbridge_module(name, &args).then(|| id.to_owned())
+            let args = fields.collect::<Vec<_>>();
+            (id.bytes().all(|byte| byte.is_ascii_digit())
+                && !id.is_empty()
+                && is_voxbridge_module(name, &args))
+            .then(|| id.to_owned())
         })
         .collect()
 }
 
-fn is_voxbridge_module(name: &str, args: &str) -> bool {
+fn is_voxbridge_module(name: &str, args: &[&str]) -> bool {
     (name == "module-null-sink"
-        && (args.contains("sink_name=VoxBridge_M1") || args.contains("sink_name=VoxBridge_Output")))
-        || (name == "module-remap-source" && args.contains("source_name=VoxBridge_Input"))
+        && (args.contains(&"sink_name=VoxBridge_M1")
+            || args.contains(&"sink_name=VoxBridge_Output")))
+        || (name == "module-remap-source" && args.contains(&"source_name=VoxBridge_Input"))
 }
 
 fn has_complete_module_set(text: &str) -> bool {
-    let mut m1_backend = false;
-    let mut m1_source = false;
-    let mut m2_sink = false;
+    let mut m1_backend = 0;
+    let mut m1_source = 0;
+    let mut m2_sink = 0;
+    let mut voxbridge_modules = 0;
     for line in text.lines() {
         let mut fields = line.split_whitespace();
-        let Some(_id) = fields.next() else { continue };
+        let Some(id) = fields.next() else { continue };
         let Some(name) = fields.next() else { continue };
-        let args = fields.collect::<Vec<_>>().join(" ");
-        m1_backend |= name == "module-null-sink" && args.contains("sink_name=VoxBridge_M1");
-        m1_source |= name == "module-remap-source"
-            && args.contains("source_name=VoxBridge_Input")
-            && args.contains("master=VoxBridge_M1.monitor");
-        m2_sink |= name == "module-null-sink" && args.contains("sink_name=VoxBridge_Output");
+        let args = fields.collect::<Vec<_>>();
+        if id.is_empty() || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+            continue;
+        }
+        if is_voxbridge_module(name, &args) {
+            voxbridge_modules += 1;
+        }
+        if name == "module-null-sink" && args.contains(&"sink_name=VoxBridge_M1") {
+            m1_backend += 1;
+        }
+        if name == "module-remap-source"
+            && args.contains(&"source_name=VoxBridge_Input")
+            && args.contains(&"master=VoxBridge_M1.monitor")
+        {
+            m1_source += 1;
+        }
+        if name == "module-null-sink" && args.contains(&"sink_name=VoxBridge_Output") {
+            m2_sink += 1;
+        }
     }
-    m1_backend && m1_source && m2_sink
+    m1_backend == 1 && m1_source == 1 && m2_sink == 1 && voxbridge_modules == 3
 }

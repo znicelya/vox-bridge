@@ -246,6 +246,60 @@ fn repeated_linux_install_reconciles_existing_modules_without_duplicates() {
 }
 
 #[test]
+fn duplicate_exact_modules_are_reconciled_but_similarly_named_modules_are_kept() {
+    let existing = "7 module-null-sink sink_name=VoxBridge_M1\n8 module-null-sink sink_name=VoxBridge_M1\n9 module-remap-source source_name=VoxBridge_Input master=VoxBridge_M1.monitor\n10 module-null-sink sink_name=VoxBridge_Output\n11 module-null-sink sink_name=VoxBridge_Output_Backup\n";
+    let runner = MockRunner::with_outputs([
+        output(existing),
+        output(""),
+        output(""),
+        output(""),
+        output(""),
+        output("10"),
+        output("11"),
+        output("12"),
+        unavailable("pw-cli not installed"),
+        output("42\tVoxBridge_Input\tmodule-remap-source.c\t\tIDLE\n"),
+        output("43\tVoxBridge_Output\tmodule-null-sink.c\t\tIDLE\n"),
+    ]);
+    let manager = LinuxAudioDriver::new(runner.clone());
+    assert_eq!(manager.install().unwrap(), DriverStatus::Ready);
+    let unloads = runner
+        .calls()
+        .into_iter()
+        .filter(|(_, args, _)| args.first().is_some_and(|arg| arg == "unload-module"))
+        .collect::<Vec<_>>();
+    assert_eq!(unloads.len(), 4);
+    assert_eq!(
+        unloads
+            .iter()
+            .map(|(_, args, _)| args[1].as_str())
+            .collect::<Vec<_>>(),
+        ["7", "8", "9", "10"]
+    );
+}
+
+#[test]
+fn invalid_module_ids_are_never_passed_to_unload_module() {
+    let runner = MockRunner::with_outputs([
+        output(
+            "oops module-null-sink sink_name=VoxBridge_Output\n8 module-remap-source source_name=VoxBridge_Input\n",
+        ),
+        output(""),
+    ]);
+    assert_eq!(
+        LinuxAudioDriver::new(runner.clone()).uninstall().unwrap(),
+        DriverStatus::Ready
+    );
+    let unloads = runner
+        .calls()
+        .into_iter()
+        .filter(|(_, args, _)| args.first().is_some_and(|arg| arg == "unload-module"))
+        .collect::<Vec<_>>();
+    assert_eq!(unloads.len(), 1);
+    assert_eq!(unloads[0].1, ["unload-module", "8"]);
+}
+
+#[test]
 fn linux_uninstall_uses_module_ids_and_only_removes_voxbridge_modules() {
     let runner = MockRunner::with_outputs([
         output(
