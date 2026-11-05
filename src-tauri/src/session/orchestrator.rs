@@ -208,6 +208,7 @@ impl SessionOrchestrator {
                 ended_at: None,
             })?;
         let startup_done = Arc::new(tokio::sync::Notify::new());
+        self.event_bus.open_session(id);
         self.active.write().await.insert(
             id,
             ActiveSession {
@@ -409,8 +410,7 @@ impl SessionOrchestrator {
     ) -> AppResult<tokio::sync::broadcast::Receiver<SessionEvent>> {
         let active = self.active.read().await;
         if let Some(session) = active.get(&id) {
-            if let Some(mut receiver) = self.event_bus.try_subscribe(id) {
-                while receiver.try_recv().is_ok() {}
+            if let Some(receiver) = self.event_bus.try_subscribe(id) {
                 let _ = self
                     .event_bus
                     .publish(id, SessionEvent::status(id, session.record.status.as_str()));

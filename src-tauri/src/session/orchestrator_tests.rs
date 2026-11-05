@@ -214,7 +214,13 @@ async fn subscribe_receives_current_status_and_terminal_stream_is_rejected() {
     let id = handle.id();
     let mut receiver = orchestrator.subscribe(id).await.unwrap();
     let event = receiver.recv().await.unwrap();
-    assert!(matches!(event, crate::events::SessionEvent::Status { .. }));
+    assert!(
+        matches!(event, crate::events::SessionEvent::Status { status, .. } if status == "starting")
+    );
+    assert!(matches!(
+        receiver.recv().await.unwrap(),
+        crate::events::SessionEvent::Status { status, .. } if status == "running"
+    ));
     handle.stop().await.unwrap();
     let mut terminal = orchestrator.subscribe(id).await.unwrap();
     assert!(matches!(

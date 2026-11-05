@@ -37,3 +37,10 @@ Follow-up verification: `cargo check`, `cargo test` (29 passed), `cargo fmt --ch
 - Terminal error/completion events are retained for replay, so a client subscribing after `create_session` still observes the final typed event.
 - `SessionStartup::rollback` is required and runs when the `running` persistence transition fails; the lifecycle is then persisted as `failed` and an error event is retained.
 - Added tests for replayable startup errors, in-progress `starting`, and rollback after running persistence failure.
+
+## Reviewer follow-up round 3
+
+- EventBus live and terminal state now share one lock. Publish cannot recreate a channel after terminal close, and terminal close sends/stores the final event atomically.
+- Terminal replay is bounded to 256 session events and removes entries on explicit close/delete.
+- Subscription no longer drains queued events; the intentional current-status snapshot is appended while retaining previously queued lifecycle events.
+- Added concurrency/regression coverage for closed-channel publication, bounded replay, queued terminal delivery, and starting/running event ordering.

@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    collections::VecDeque,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -12,6 +13,7 @@ use uuid::Uuid;
 use super::SessionEvent;
 
 pub const EVENT_CAPACITY: usize = 512;
+pub const TERMINAL_REPLAY_CAPACITY: usize = 256;
 
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
 pub enum EventBusError {
@@ -36,16 +38,21 @@ impl From<broadcast::error::RecvError> for EventBusError {
 #[derive(Clone, Debug)]
 pub struct EventBus {
     healthy: Arc<AtomicBool>,
-    sessions: Arc<Mutex<HashMap<Uuid, broadcast::Sender<SessionEvent>>>>,
-    terminal_events: Arc<Mutex<HashMap<Uuid, SessionEvent>>>,
+    state: Arc<Mutex<BusState>>,
+}
+
+#[derive(Debug, Default)]
+struct BusState {
+    sessions: HashMap<Uuid, broadcast::Sender<SessionEvent>>,
+    terminal_events: HashMap<Uuid, SessionEvent>,
+    terminal_order: VecDeque<Uuid>,
 }
 
 impl EventBus {
     pub fn new() -> Self {
         Self {
             healthy: Arc::new(AtomicBool::new(true)),
-            sessions: Arc::new(Mutex::new(HashMap::new())),
-            terminal_events: Arc::new(Mutex::new(HashMap::new())),
+            state: Arc::new(Mutex::new(BusState::default())),
         }
     }
 
@@ -54,22 +61,31 @@ impl EventBus {
     }
 
     pub fn subscribe(&self, session_id: Uuid) -> broadcast::Receiver<SessionEvent> {
-        let mut sessions = self
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        state
             .sessions
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        sessions
             .entry(session_id)
             .or_insert_with(|| broadcast::channel(EVENT_CAPACITY).0)
             .subscribe()
     }
 
+    pub fn open_session(&self, session_id: Uuid) {
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        state
+            .sessions
+            .entry(session_id)
+            .or_insert_with(|| broadcast::channel(EVENT_CAPACITY).0);
+        state.terminal_events.remove(&session_id);
+        state.terminal_order.retain(|id| *id != session_id);
+    }
+
     /// Subscribe only when a live channel already exists. This never creates a
     /// new channel for a session whose stream has been closed.
     pub fn try_subscribe(&self, session_id: Uuid) -> Option<broadcast::Receiver<SessionEvent>> {
-        self.sessions
+        self.state
             .lock()
             .unwrap_or_else(|error| error.into_inner())
+            .sessions
             .get(&session_id)
             .map(broadcast::Sender::subscribe)
     }
@@ -80,15 +96,11 @@ impl EventBus {
         &self,
         session_id: Uuid,
     ) -> Option<broadcast::Receiver<SessionEvent>> {
-        if let Some(receiver) = self.try_subscribe(session_id) {
-            return Some(receiver);
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some(sender) = state.sessions.get(&session_id) {
+            return Some(sender.subscribe());
         }
-        let event = self
-            .terminal_events
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .get(&session_id)
-            .cloned()?;
+        let event = state.terminal_events.get(&session_id).cloned()?;
         let (sender, receiver) = broadcast::channel(1);
         let _ = sender.send(event);
         Some(receiver)
@@ -98,47 +110,45 @@ impl EventBus {
         if event.session_id() != session_id {
             return;
         }
-        let sender = self
-            .sessions
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .remove(&session_id);
-        if let Some(sender) = sender {
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some(sender) = state.sessions.remove(&session_id) {
             let _ = sender.send(event.clone());
         }
-        self.terminal_events
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .insert(session_id, event);
+        if state.terminal_events.insert(session_id, event).is_none() {
+            state.terminal_order.push_back(session_id);
+        }
+        while state.terminal_order.len() > TERMINAL_REPLAY_CAPACITY {
+            if let Some(expired) = state.terminal_order.pop_front() {
+                state.terminal_events.remove(&expired);
+            }
+        }
     }
 
     pub fn publish(&self, session_id: Uuid, event: SessionEvent) -> Result<usize, EventBusError> {
         if event.session_id() != session_id {
             return Err(EventBusError::SessionMismatch);
         }
-        let sender = {
-            let mut sessions = self
-                .sessions
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            sessions
-                .entry(session_id)
-                .or_insert_with(|| broadcast::channel(EVENT_CAPACITY).0)
-                .clone()
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        let Some(sender) = state.sessions.get(&session_id) else {
+            return Err(EventBusError::NoSubscribers);
         };
         sender.send(event).map_err(|_| EventBusError::NoSubscribers)
     }
 
     pub fn close(&self, session_id: Uuid) -> bool {
-        self.terminal_events
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        state.terminal_events.remove(&session_id);
+        state.terminal_order.retain(|id| *id != session_id);
+        state.sessions.remove(&session_id).is_some()
+    }
+
+    #[cfg(test)]
+    fn terminal_replay_len(&self) -> usize {
+        self.state
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .remove(&session_id);
-        self.sessions
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .remove(&session_id)
-            .is_some()
+            .terminal_events
+            .len()
     }
 }
 
@@ -204,6 +214,43 @@ mod tests {
         assert_eq!(
             bus.publish(routing_id, event),
             Err(EventBusError::SessionMismatch)
+        );
+    }
+
+    #[test]
+    fn publishing_after_close_does_not_recreate_a_live_channel() {
+        let bus = EventBus::new();
+        let session_id = Uuid::new_v4();
+        let _receiver = bus.subscribe(session_id);
+        assert!(bus.close(session_id));
+        assert_eq!(
+            bus.publish(session_id, SessionEvent::status(session_id, "running")),
+            Err(EventBusError::NoSubscribers)
+        );
+        assert!(bus.try_subscribe(session_id).is_none());
+    }
+
+    #[test]
+    fn terminal_replay_is_bounded() {
+        let bus = EventBus::new();
+        for _ in 0..(TERMINAL_REPLAY_CAPACITY + 10) {
+            let session_id = Uuid::new_v4();
+            bus.close_with_final(session_id, SessionEvent::status(session_id, "completed"));
+        }
+        assert_eq!(bus.terminal_replay_len(), TERMINAL_REPLAY_CAPACITY);
+    }
+
+    #[tokio::test]
+    async fn replay_subscriber_receives_queued_terminal_event() {
+        let bus = EventBus::new();
+        let session_id = Uuid::new_v4();
+        let mut receiver = bus.subscribe(session_id);
+        let queued = SessionEvent::status(session_id, "starting");
+        bus.publish(session_id, queued.clone()).unwrap();
+        bus.close_with_final(session_id, SessionEvent::status(session_id, "completed"));
+        assert_eq!(receiver.recv().await.unwrap(), queued);
+        assert!(
+            matches!(receiver.recv().await.unwrap(), SessionEvent::Status { status, .. } if status == "completed")
         );
     }
 }
