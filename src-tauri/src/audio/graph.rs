@@ -12,7 +12,7 @@ pub struct AudioGraph {
 }
 
 #[derive(Clone, Debug)]
-struct Route {
+pub(crate) struct Route {
     direction: Direction,
     source: AudioEndpoint,
     destination: AudioEndpoint,
