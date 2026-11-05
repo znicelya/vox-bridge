@@ -10,6 +10,24 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-04-live-translation-workbench-design.md`
 
+## Implementation status — 2026-11-05
+
+All five implementation tasks and their independent reviews are complete on `codex/vox-bridge-implementation`. Real service and OS/audio acceptance remain pending.
+
+| Task | Implementation / reviewed fixes |
+| --- | --- |
+| Contract and fixture | `9483f41` |
+| Official AST protobuf | `8484225` |
+| Volcengine WebSocket and event mapping | `ebdbea6`, TLS fix `e7937e7` |
+| Disabled Aliyun / Palabra adapters | `b10fedd` |
+| Factory, native credentials and integration gate | `44d46d1`, deadline-wrapper fix `294a553` |
+
+Verification: complete Cargo run passed 171 library tests plus main/doc targets; the live test was compiled and ignored. After its test-only deadline fix, the integration target passed two default offline wrapper regressions and kept the paid test ignored. `pnpm build` passed; Vite emitted a build-timing advisory. Native keyring feature resolution was checked for Linux/Windows/macOS; this is not a native cross-platform acceptance result.
+
+Implementation rulings supersede the illustrative snippets below: preserve the official imported proto files; Volcengine native 24 kHz output is float32 and is converted to internal PCM16; TTS boundaries include events 350/351/352 with trailing audio on 351; use the actual stateful event mapper and `VolcengineProvider::new(Arc<SecretStore>)`. The TLS connector explicitly selects Ring with ordinary certificate validation. Provider credentials use the stable configuration UUID entry in SecretStore.
+
+The factory performs full-direction preflight before connection and does not imply a completed handshake. Actual capture→provider→router→playback→durable-text composition is the next [runtime plan](2026-11-05-runtime-composition.md); the existing Noop startup is not a working translation session. Follow the [integration-test instructions](../../../tests/provider-integration/README.md) for an explicit paid acceptance run and the [release gates](release-gates.md) for OS/device evidence.
+
 ## Global Constraints
 
 - Only Volcengine is a real provider requirement for the first release.
@@ -37,7 +55,7 @@
 - `ProviderResult<T> = Result<T, ProviderError>`; `ProviderSessionConfig` contains session ID, mode, language pair, target audio spec, and provider config ID.
 - `ProviderCapabilities` contains supported language pairs, input/output `PcmSpec`, native chunk duration, `supports_tts`, `supports_bidirectional`, `ready`, and `unavailable_reason`.
 
-- [ ] **Step 1: Write provider contract tests against a fixture stream.**
+- [x] **Step 1: Write provider contract tests against a fixture stream.**
 
 ```rust
 #[tokio::test]
@@ -50,15 +68,15 @@ async fn provider_contract_waits_for_started_before_audio() {
 }
 ```
 
-- [ ] **Step 2: Implement capability and event types.**
+- [x] **Step 2: Implement capability and event types.**
 
 Include input/output PCM specs, supported language pairs, `supports_tts`, `supports_bidirectional`, native chunk duration, and a `ready`/`unavailable_reason` field. Normalize provider timestamps to `Duration` and attach `provider_event_type`.
 
-- [ ] **Step 3: Implement the bounded fixture provider.**
+- [x] **Step 3: Implement the bounded fixture provider.**
 
 Use Tokio channels with explicit capacity 64; make fixture scripts emit handshake, interim, final, audio, error, and disconnect events deterministically.
 
-- [ ] **Step 4: Run and commit.**
+- [x] **Step 4: Run and commit.**
 
 Run: `cargo test --manifest-path src-tauri/Cargo.toml providers::contract`
 
@@ -79,11 +97,11 @@ git commit -m "feat: define translation provider contract"
 - Create: `src-tauri/src/providers/volc/mod.rs`
 - Test: `src-tauri/src/providers/volc/protocol_tests.rs`
 
-- [ ] **Step 1: Add the official AST protobuf definitions.**
+- [x] **Step 1: Add the official AST protobuf definitions.**
 
 Extract the protobuf files from the official archive linked in `docs/同声传译/火山引擎/doc.md`; commit only the `.proto` definitions needed for StartSession, TaskRequest, FinishSession, SessionStarted, subtitle, TTS, usage, muted, finished, and failed events. `build.rs` must compile them with `prost-build` and fail the build if a required message is absent.
 
-- [ ] **Step 2: Write event encoding/decoding tests from the documented event values.**
+- [x] **Step 2: Write event encoding/decoding tests from the documented event values.**
 
 ```rust
 #[test]
@@ -95,11 +113,11 @@ fn volc_start_session_uses_event_100_and_audio_contract() {
 }
 ```
 
-- [ ] **Step 3: Implement protobuf helpers.**
+- [x] **Step 3: Implement protobuf helpers.**
 
 Build StartSession with UUID session ID, `mode: s2s`, source/target language, source raw PCM 16 kHz/16-bit/mono, target PCM 24 kHz/mono, and optional speaker/corpus fields. Build TaskRequest with only audio bytes and FinishSession without audio.
 
-- [ ] **Step 4: Run and commit.**
+- [x] **Step 4: Run and commit.**
 
 Run: `cargo test --manifest-path src-tauri/Cargo.toml providers::volc::protocol`
 
@@ -123,7 +141,7 @@ git commit -m "feat: compile and encode Volcengine AST protobuf"
 - `VolcengineProvider::connect(config) -> ProviderResult<ProviderStream>`.
 - `map_volc_event(bytes: &[u8]) -> ProviderResult<Vec<ProviderEvent>>`.
 
-- [ ] **Step 1: Write lifecycle tests.**
+- [x] **Step 1: Write lifecycle tests.**
 
 ```rust
 #[tokio::test]
@@ -138,19 +156,19 @@ async fn client_does_not_send_audio_before_session_started() {
 }
 ```
 
-- [ ] **Step 2: Implement authenticated connection and handshake.**
+- [x] **Step 2: Implement authenticated connection and handshake.**
 
 Read `X-Api-Key` from `SecretStore`; set `X-Api-Resource-Id: volc.service_type.10053`; capture `X-Tt-Logid`; send StartSession only after WebSocket upgrade; gate TaskRequest on event 150.
 
-- [ ] **Step 3: Implement event mapping and TTS pairing.**
+- [x] **Step 3: Implement event mapping and TTS pairing.**
 
 Map 651/652 to source interim/final, 654/655 to translation interim/final, 352 to audio with sentence ID, 250 to muted, 152 to finished, and 153 to typed failure. Reject malformed protobuf and oversized audio with bounded errors.
 
-- [ ] **Step 4: Add reconnect and finish behavior.**
+- [x] **Step 4: Add reconnect and finish behavior.**
 
 Use exponential backoff capped at 5 seconds for three attempts; emit a gap marker on reconnect; do not replay audio after a provider has acknowledged it; send FinishSession once, then wait up to 10 seconds for event 152 before closing.
 
-- [ ] **Step 5: Run and commit.**
+- [x] **Step 5: Run and commit.**
 
 Run: `cargo test --manifest-path src-tauri/Cargo.toml providers::volc`
 
@@ -169,7 +187,7 @@ git commit -m "feat: stream Volcengine AST translations"
 - Create: `src-tauri/src/providers/disabled.rs`
 - Test: `src-tauri/src/providers/secondary_provider_tests.rs`
 
-- [ ] **Step 1: Write capability tests.**
+- [x] **Step 1: Write capability tests.**
 
 ```rust
 #[test]
@@ -181,15 +199,15 @@ fn palabra_declares_24khz_input_and_320ms_chunks() {
 }
 ```
 
-- [ ] **Step 2: Implement disabled adapters with real schemas.**
+- [x] **Step 2: Implement disabled adapters with real schemas.**
 
 Store endpoint/auth field definitions and native audio requirements from the checked-in docs; `connect` returns `ProviderUnavailable { reason: "real integration not enabled in first release" }` while `capabilities` remains accurate.
 
-- [ ] **Step 3: Add protocol fixture parsers.**
+- [x] **Step 3: Add protocol fixture parsers.**
 
 Implement JSON event parsing and Base64 PCM decoding behind fixture-only code paths so contract regressions are caught before real credentials are added.
 
-- [ ] **Step 4: Run and commit.**
+- [x] **Step 4: Run and commit.**
 
 Run: `cargo test --manifest-path src-tauri/Cargo.toml providers::secondary_provider_tests`
 
@@ -208,19 +226,19 @@ git commit -m "feat: declare secondary provider capabilities"
 - Create: `tests/provider-integration/README.md`
 - Modify: `src-tauri/src/session/orchestrator.rs`
 
-- [ ] **Step 1: Implement the provider factory.**
+- [x] **Step 1: Implement the provider factory.**
 
 Resolve provider ID to Volcengine, Aliyun, Palabra, or Disabled; validate capability against the requested language pair and audio route before opening a session.
 
-- [ ] **Step 2: Add an opt-in real Volcengine test.**
+- [x] **Step 2: Add an opt-in real Volcengine test.**
 
 Read `VOX_VOLC_API_KEY` from the environment; send a 2-second deterministic PCM fixture; assert at least one final source event, one final translation event, and one TTS audio event; redact the key and transcript from test output.
 
-- [ ] **Step 3: Document the credential command and cost boundary.**
+- [x] **Step 3: Document the credential command and cost boundary.**
 
 Run: `VOX_VOLC_API_KEY=... cargo test --test volcengine -- --ignored --nocapture`. Mark the test ignored by default and require an explicit operator invocation.
 
-- [ ] **Step 4: Run and commit.**
+- [x] **Step 4: Run and commit.**
 
 Run: `cargo test --manifest-path src-tauri/Cargo.toml` and the fixture suite; run the ignored test only when a real key is available.
 
