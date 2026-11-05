@@ -37,6 +37,7 @@ impl From<broadcast::error::RecvError> for EventBusError {
 pub struct EventBus {
     healthy: Arc<AtomicBool>,
     sessions: Arc<Mutex<HashMap<Uuid, broadcast::Sender<SessionEvent>>>>,
+    terminal_events: Arc<Mutex<HashMap<Uuid, SessionEvent>>>,
 }
 
 impl EventBus {
@@ -44,6 +45,7 @@ impl EventBus {
         Self {
             healthy: Arc::new(AtomicBool::new(true)),
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            terminal_events: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -72,6 +74,44 @@ impl EventBus {
             .map(broadcast::Sender::subscribe)
     }
 
+    /// Subscribe to a live stream, or receive its terminal event once when the
+    /// stream has already closed. Does not create a persistent channel.
+    pub fn subscribe_or_replay(
+        &self,
+        session_id: Uuid,
+    ) -> Option<broadcast::Receiver<SessionEvent>> {
+        if let Some(receiver) = self.try_subscribe(session_id) {
+            return Some(receiver);
+        }
+        let event = self
+            .terminal_events
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(&session_id)
+            .cloned()?;
+        let (sender, receiver) = broadcast::channel(1);
+        let _ = sender.send(event);
+        Some(receiver)
+    }
+
+    pub fn close_with_final(&self, session_id: Uuid, event: SessionEvent) {
+        if event.session_id() != session_id {
+            return;
+        }
+        let sender = self
+            .sessions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&session_id);
+        if let Some(sender) = sender {
+            let _ = sender.send(event.clone());
+        }
+        self.terminal_events
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(session_id, event);
+    }
+
     pub fn publish(&self, session_id: Uuid, event: SessionEvent) -> Result<usize, EventBusError> {
         if event.session_id() != session_id {
             return Err(EventBusError::SessionMismatch);
@@ -90,6 +130,10 @@ impl EventBus {
     }
 
     pub fn close(&self, session_id: Uuid) -> bool {
+        self.terminal_events
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&session_id);
         self.sessions
             .lock()
             .unwrap_or_else(|error| error.into_inner())

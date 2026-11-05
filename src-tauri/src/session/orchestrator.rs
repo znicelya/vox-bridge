@@ -120,11 +120,13 @@ impl SessionRecord {
 #[derive(Clone, Debug)]
 struct ActiveSession {
     record: SessionRecord,
+    startup_done: Arc<tokio::sync::Notify>,
 }
 
 #[async_trait]
 pub trait SessionStartup: Send + Sync {
     async fn start(&self, config: &SessionConfig) -> AppResult<()>;
+    async fn rollback(&self, config: &SessionConfig) -> AppResult<()>;
 }
 
 #[derive(Debug, Default)]
@@ -133,6 +135,10 @@ pub struct NoopSessionStartup;
 #[async_trait]
 impl SessionStartup for NoopSessionStartup {
     async fn start(&self, _config: &SessionConfig) -> AppResult<()> {
+        Ok(())
+    }
+
+    async fn rollback(&self, _config: &SessionConfig) -> AppResult<()> {
         Ok(())
     }
 }
@@ -184,7 +190,7 @@ impl SessionOrchestrator {
     pub async fn start(&self, config: SessionConfig) -> AppResult<SessionHandle> {
         let id = Uuid::new_v4();
         let now = now_seconds();
-        let mut record = SessionRecord {
+        let record = SessionRecord {
             id,
             started_at: now,
             ended_at: None,
@@ -201,7 +207,38 @@ impl SessionOrchestrator {
                 status: SessionStatus::Starting.as_str().into(),
                 ended_at: None,
             })?;
+        let startup_done = Arc::new(tokio::sync::Notify::new());
+        self.active.write().await.insert(
+            id,
+            ActiveSession {
+                record: record.clone(),
+                startup_done: startup_done.clone(),
+            },
+        );
+        let _ = self
+            .event_bus
+            .publish(id, SessionEvent::status(id, "starting"));
 
+        let startup_orchestrator = self.clone();
+        let startup_config = config.clone();
+        tokio::spawn(async move {
+            startup_orchestrator
+                .finish_startup(id, startup_config, startup_done)
+                .await;
+        });
+
+        Ok(SessionHandle {
+            id,
+            orchestrator: self.clone(),
+        })
+    }
+
+    async fn finish_startup(
+        &self,
+        id: Uuid,
+        config: SessionConfig,
+        startup_done: Arc<tokio::sync::Notify>,
+    ) {
         if let Err(error) = self.startup.start(&config).await {
             let message = error.to_string();
             let failed = self
@@ -212,41 +249,78 @@ impl SessionOrchestrator {
                     ended_at: Some(now_seconds()),
                 });
             if let Err(storage_error) = failed {
-                return Err(storage_error);
+                self.emit_startup_error(
+                    id,
+                    format!("{message}; failed to persist failed status: {storage_error}"),
+                );
+                self.active.write().await.remove(&id);
+                startup_done.notify_one();
+                return;
             }
-            let _ = self.event_bus.publish(
-                id,
-                SessionEvent::Error {
-                    event_id: Uuid::new_v4(),
-                    session_id: id,
-                    occurred_at: SystemTime::now(),
-                    message,
-                },
-            );
-            self.event_bus.close(id);
-            return Err(error);
+            self.active.write().await.remove(&id);
+            self.emit_startup_error(id, message.clone());
+            startup_done.notify_one();
+            return;
         }
 
-        record.status = SessionStatus::Running;
-        self.store
+        if let Err(error) = self
+            .store
             .update_session_lifecycle(&StoredSessionLifecycle {
                 session_id: id,
                 status: SessionStatus::Running.as_str().into(),
                 ended_at: None,
-            })?;
-        self.active.write().await.insert(
-            id,
-            ActiveSession {
-                record: record.clone(),
-            },
-        );
+            })
+        {
+            let rollback = self.startup.rollback(&config).await;
+            let failure_message = match rollback {
+                Ok(()) => format!(
+                    "failed to persist running status: {error}; startup resources rolled back"
+                ),
+                Err(rollback_error) => format!(
+                    "failed to persist running status: {error}; startup rollback failed: {rollback_error}"
+                ),
+            };
+            let ended_at = Some(now_seconds());
+            let failed = self
+                .store
+                .update_session_lifecycle(&StoredSessionLifecycle {
+                    session_id: id,
+                    status: SessionStatus::Failed.as_str().into(),
+                    ended_at,
+                });
+            if let Err(storage_error) = failed {
+                self.emit_startup_error(
+                    id,
+                    format!("{failure_message}; failed to persist failed status: {storage_error}"),
+                );
+                self.active.write().await.remove(&id);
+                startup_done.notify_one();
+                return;
+            }
+            self.active.write().await.remove(&id);
+            self.emit_startup_error(id, failure_message.clone());
+            startup_done.notify_one();
+            return;
+        }
+        if let Some(active) = self.active.write().await.get_mut(&id) {
+            active.record.status = SessionStatus::Running;
+        }
         let _ = self
             .event_bus
             .publish(id, SessionEvent::status(id, "running"));
-        Ok(SessionHandle {
+        startup_done.notify_one();
+    }
+
+    fn emit_startup_error(&self, id: Uuid, message: String) {
+        self.event_bus.close_with_final(
             id,
-            orchestrator: self.clone(),
-        })
+            SessionEvent::Error {
+                event_id: Uuid::new_v4(),
+                session_id: id,
+                occurred_at: SystemTime::now(),
+                message,
+            },
+        );
     }
 
     pub async fn get(&self, id: Uuid) -> AppResult<Option<SessionRecord>> {
@@ -272,6 +346,14 @@ impl SessionOrchestrator {
     }
     pub async fn stop_session(&self, id: Uuid) -> AppResult<SessionRecord> {
         let mut active = self.active.write().await;
+        if let Some(session) = active.get(&id)
+            && session.record.status == SessionStatus::Starting
+        {
+            let startup_done = session.startup_done.clone();
+            drop(active);
+            startup_done.notified().await;
+            return Box::pin(self.stop_session(id)).await;
+        }
         let session = active.get_mut(&id).ok_or(AppError::SessionNotFound(id))?;
         let mut record = session.record.clone();
         record.status = SessionStatus::Stopping;
@@ -301,10 +383,8 @@ impl SessionOrchestrator {
             return Err(error);
         }
         active.remove(&id);
-        let _ = self
-            .event_bus
-            .publish(id, SessionEvent::status(id, "completed"));
-        self.event_bus.close(id);
+        self.event_bus
+            .close_with_final(id, SessionEvent::status(id, "completed"));
         Ok(record)
     }
 
@@ -328,23 +408,24 @@ impl SessionOrchestrator {
         id: Uuid,
     ) -> AppResult<tokio::sync::broadcast::Receiver<SessionEvent>> {
         let active = self.active.read().await;
-        let session = active.get(&id).ok_or(AppError::SessionNotFound(id))?;
-        if matches!(
-            session.record.status,
-            SessionStatus::Completed | SessionStatus::Failed
-        ) {
-            return Err(AppError::InvalidRequest(
-                "cannot subscribe to a terminal session".into(),
-            ));
+        if let Some(session) = active.get(&id) {
+            if let Some(mut receiver) = self.event_bus.try_subscribe(id) {
+                while receiver.try_recv().is_ok() {}
+                let _ = self
+                    .event_bus
+                    .publish(id, SessionEvent::status(id, session.record.status.as_str()));
+                return Ok(receiver);
+            }
         }
-        let receiver = self
-            .event_bus
-            .try_subscribe(id)
-            .ok_or_else(|| AppError::Internal("session event stream is closed".into()))?;
-        let _ = self
-            .event_bus
-            .publish(id, SessionEvent::status(id, session.record.status.as_str()));
-        Ok(receiver)
+        if self.store.get_session(id)?.is_none() {
+            return Err(AppError::SessionNotFound(id));
+        }
+        if let Some(receiver) = self.event_bus.subscribe_or_replay(id) {
+            return Ok(receiver);
+        }
+        Err(AppError::InvalidRequest(
+            "session event stream is unavailable".into(),
+        ))
     }
 
     fn emit_storage_error(&self, id: Uuid, error: &AppError) {

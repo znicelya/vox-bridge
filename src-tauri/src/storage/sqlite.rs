@@ -11,6 +11,21 @@ pub struct LocalStore {
     connection: Mutex<Connection>,
 }
 impl LocalStore {
+    #[cfg(test)]
+    pub(crate) fn fail_lifecycle_status_for_tests(&self, status: &str) -> AppResult<()> {
+        if !matches!(
+            status,
+            "running" | "failed" | "starting" | "stopping" | "completed"
+        ) {
+            return Err(crate::error::AppError::InvalidRequest(
+                "unsupported test lifecycle status".into(),
+            ));
+        }
+        self.connection.lock().unwrap().execute_batch(&format!(
+            "CREATE TRIGGER fail_{status} BEFORE UPDATE ON session_lifecycle WHEN NEW.status = '{status}' BEGIN SELECT RAISE(ABORT, 'injected lifecycle failure'); END;"
+        ))?;
+        Ok(())
+    }
     pub fn open(data_dir: &Path) -> AppResult<Self> {
         std::fs::create_dir_all(data_dir)
             .map_err(|e| crate::error::AppError::Internal(e.to_string()))?;

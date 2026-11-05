@@ -30,3 +30,10 @@
 - Subscription is serialized with the active state, receives a current status snapshot, and rejects terminal sessions instead of creating hanging channels. Completion and failure close channels after their final event.
 
 Follow-up verification: `cargo check`, `cargo test` (29 passed), `cargo fmt --check`, and `pnpm build` all passed.
+
+## Reviewer follow-up round 2
+
+- Startup now publishes `starting` before asynchronous startup work and keeps the active session visible while that work runs.
+- Terminal error/completion events are retained for replay, so a client subscribing after `create_session` still observes the final typed event.
+- `SessionStartup::rollback` is required and runs when the `running` persistence transition fails; the lifecycle is then persisted as `failed` and an error event is retained.
+- Added tests for replayable startup errors, in-progress `starting`, and rollback after running persistence failure.
