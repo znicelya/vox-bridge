@@ -69,6 +69,8 @@ impl FixtureScript {
             provider_event_type: None,
             timestamp: None,
             sentence_id: None,
+            local_correlation_id: None,
+            log_id: None,
         };
         Self::new([
             FixtureStep::Emit(ProviderEvent::SessionStarted {
@@ -97,7 +99,8 @@ fn validate_event_size(event: &ProviderEvent) -> ProviderResult<()> {
         .provider_event_type
         .as_ref()
         .map_or(0, String::len)
-        .saturating_add(metadata.sentence_id.as_ref().map_or(0, String::len));
+        .saturating_add(metadata.sentence_id.as_ref().map_or(0, String::len))
+        .saturating_add(metadata.log_id.as_ref().map_or(0, String::len));
     match event {
         ProviderEvent::SourceInterim { text, .. }
         | ProviderEvent::SourceFinal { text, .. }
@@ -277,6 +280,8 @@ fn local_metadata(config: &ProviderSessionConfig) -> ProviderEventMetadata {
         provider_event_type: None,
         timestamp: None,
         sentence_id: None,
+        local_correlation_id: None,
+        log_id: None,
     }
 }
 

@@ -43,6 +43,8 @@ fn metadata(native: &str) -> ProviderEventMetadata {
         provider_event_type: Some(native.into()),
         timestamp: Some(Duration::from_millis(80)),
         sentence_id: None,
+        local_correlation_id: None,
+        log_id: None,
     }
 }
 
@@ -161,6 +163,7 @@ async fn provider_contract_output_backpressure_does_not_block_finish_or_cancel()
         FixtureStep::Emit(started()),
         FixtureStep::EmitRepeated {
             event: ProviderEvent::Muted {
+                duration: None,
                 metadata: metadata("250"),
             },
             count: 65,
@@ -217,6 +220,7 @@ async fn provider_contract_finish_preserves_final_events_and_is_idempotent() {
         FixtureStep::Emit(started()),
         FixtureStep::WaitForFinish,
         FixtureStep::Emit(ProviderEvent::Muted {
+            duration: None,
             metadata: metadata("250"),
         }),
         FixtureStep::Emit(ProviderEvent::Finished {
@@ -283,6 +287,7 @@ async fn provider_contract_failure_and_disconnect_are_single_terminal_events() {
 async fn provider_contract_rejects_data_before_handshake_and_duplicate_handshakes() {
     for steps in [
         vec![FixtureStep::Emit(ProviderEvent::Muted {
+            duration: None,
             metadata: metadata("250"),
         })],
         vec![FixtureStep::Emit(started()), FixtureStep::Emit(started())],
@@ -309,6 +314,7 @@ async fn provider_contract_call_directions_have_independent_queues_and_lifecycle
         FixtureStep::Emit(started()),
         FixtureStep::ReceiveAudio { count: 1 },
         FixtureStep::Emit(ProviderEvent::Muted {
+            duration: None,
             metadata: metadata("250"),
         }),
         FixtureStep::WaitForFinish,
@@ -498,6 +504,7 @@ async fn provider_contract_cancelled_receive_does_not_consume_the_next_event() {
         FixtureStep::Emit(started()),
         FixtureStep::ReceiveAudio { count: 1 },
         FixtureStep::Emit(ProviderEvent::Muted {
+            duration: None,
             metadata: metadata("250"),
         }),
     ])
@@ -528,4 +535,16 @@ async fn provider_contract_script_exhaustion_requires_a_completed_handshake() {
         })
     ));
     assert_eq!(event(&*stream).await, None);
+}
+
+#[test]
+fn provider_contract_fixture_bounds_new_diagnostic_metadata() {
+    let mut metadata = metadata("150");
+    metadata.log_id = Some("x".repeat(65_537));
+    assert!(matches!(
+        FixtureScript::new([FixtureStep::Emit(ProviderEvent::SessionStarted {
+            metadata
+        })]),
+        Err(ProviderError::InvalidScript)
+    ));
 }

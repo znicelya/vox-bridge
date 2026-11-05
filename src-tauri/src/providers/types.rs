@@ -45,6 +45,10 @@ pub enum ProviderError {
     InvalidScript,
     #[error("audio frame exceeds the native chunk size")]
     InvalidAudioFrame,
+    #[error("provider operation timed out")]
+    Timeout,
+    #[error("provider failure code {code}")]
+    RemoteFailure { code: i32 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -104,6 +108,10 @@ pub struct ProviderEventMetadata {
     pub timestamp: Option<Duration>,
     /// Only a sentence ID actually present on the wire; never a local ID.
     pub sentence_id: Option<String>,
+    /// Client-generated correlation scoped to this stream, never a native ID.
+    pub local_correlation_id: Option<u64>,
+    /// Bounded, validated transport diagnostic ID; never arbitrary remote text.
+    pub log_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -133,6 +141,11 @@ pub enum ProviderEvent {
     },
     Muted {
         metadata: ProviderEventMetadata,
+        duration: Option<Duration>,
+    },
+    /// Audio continuity was lost; sent or pending input is never replayed.
+    Gap {
+        metadata: ProviderEventMetadata,
     },
     Finished {
         metadata: ProviderEventMetadata,
@@ -160,7 +173,8 @@ impl ProviderEvent {
             | Self::TranslationInterim { metadata, .. }
             | Self::TranslationFinal { metadata, .. }
             | Self::Audio { metadata, .. }
-            | Self::Muted { metadata }
+            | Self::Muted { metadata, .. }
+            | Self::Gap { metadata }
             | Self::Finished { metadata }
             | Self::Failed { metadata, .. } => metadata,
         }
@@ -174,7 +188,8 @@ impl ProviderEvent {
             | Self::TranslationInterim { metadata, .. }
             | Self::TranslationFinal { metadata, .. }
             | Self::Audio { metadata, .. }
-            | Self::Muted { metadata }
+            | Self::Muted { metadata, .. }
+            | Self::Gap { metadata }
             | Self::Finished { metadata }
             | Self::Failed { metadata, .. } => metadata,
         }
