@@ -115,7 +115,27 @@ impl TranscriptSink {
                 Correlation::Unassociated
             },
         };
-        let active_index = self.active.iter().position(|entry| entry.key == key);
+        // An adapter can discover correlation after its first interim. Reuse
+        // that pending caption only when it is the sole same-kind candidate.
+        // This selects an identity; promotion happens only after validation,
+        // duplicate suppression and (for finals) successful persistence.
+        let active_index = self
+            .active
+            .iter()
+            .position(|entry| entry.key == key)
+            .or_else(|| {
+                if key.correlation == Correlation::Unassociated {
+                    return None;
+                }
+                let mut same_kind = self
+                    .active
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, entry)| entry.key.kind == key.kind);
+                let (index, entry) = same_kind.next()?;
+                (entry.key.correlation == Correlation::Unassociated && same_kind.next().is_none())
+                    .then_some(index)
+            });
         let (id, sequence) = active_index
             .map(|i| (self.active[i].id, self.active[i].sequence))
             .unwrap_or_else(|| (Uuid::new_v4(), self.next_sequence));
@@ -179,7 +199,9 @@ impl TranscriptSink {
                 }
                 self.finalized.push_back(key);
             }
-        } else if active_index.is_none() {
+        } else if let Some(index) = active_index {
+            self.active[index].key = key;
+        } else {
             if self.active.len() == IDENTITY_CAPACITY {
                 self.active.pop_front();
                 self.dropped_interims = self.dropped_interims.saturating_add(1);

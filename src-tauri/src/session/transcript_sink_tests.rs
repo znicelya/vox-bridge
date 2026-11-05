@@ -454,3 +454,246 @@ fn finalized_identity_window_expires_without_suppressing_later_unassociated_fina
     assert_ne!(later.id, first.id);
     assert_eq!(later.sequence, 65);
 }
+
+#[test]
+fn correlation_promotion_preserves_interim_identity_for_local_and_native_updates() {
+    for (native, identified_interim) in [(false, false), (true, false), (false, true), (true, true)]
+    {
+        let (store, bus, mut sink, mut metadata) = fixture();
+        let mut rx = bus.subscribe(metadata.session_id);
+        let original = sink
+            .accept(&ProviderEvent::SourceInterim {
+                metadata: metadata.clone(),
+                text: text("zh"),
+            })
+            .unwrap()
+            .unwrap();
+        // A different kind does not make source attribution ambiguous.
+        let translation = sink
+            .accept(&ProviderEvent::TranslationInterim {
+                metadata: metadata.clone(),
+                text: text("en"),
+            })
+            .unwrap()
+            .unwrap();
+        if native {
+            metadata.sentence_id = Some("native-final".into());
+        } else {
+            metadata.local_correlation_id = Some(42);
+        }
+        if identified_interim {
+            let promoted = sink
+                .accept(&ProviderEvent::SourceInterim {
+                    metadata: metadata.clone(),
+                    text: text("zh"),
+                })
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                (promoted.id, promoted.sequence),
+                (original.id, original.sequence)
+            );
+        }
+        let final_row = sink
+            .accept(&ProviderEvent::SourceFinal {
+                metadata: metadata.clone(),
+                text: text("zh"),
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (final_row.id, final_row.sequence),
+            (original.id, original.sequence)
+        );
+        assert_ne!(final_row.id, translation.id);
+        let details = final_row.details.as_ref().unwrap();
+        assert_eq!(details.sentence_id, metadata.sentence_id);
+        assert_eq!(details.local_correlation_id, metadata.local_correlation_id);
+        assert_eq!(
+            store
+                .transcript_page(metadata.session_id, None, 20)
+                .unwrap()
+                .rows,
+            vec![final_row.clone()]
+        );
+        let published: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+        assert!(
+            matches!(published.last(), Some(SessionEvent::Transcript { update }) if update == &final_row)
+        );
+        let fresh = sink
+            .accept(&ProviderEvent::SourceInterim {
+                metadata: ProviderEventMetadata {
+                    sentence_id: None,
+                    local_correlation_id: None,
+                    ..metadata
+                },
+                text: text("zh"),
+            })
+            .unwrap()
+            .unwrap();
+        assert_ne!(fresh.id, original.id);
+    }
+}
+
+#[test]
+fn correlation_promotion_refuses_competing_identities_and_prefers_exact_match() {
+    let (_, _, mut sink, metadata) = fixture();
+    let identified_metadata = ProviderEventMetadata {
+        local_correlation_id: Some(1),
+        ..metadata.clone()
+    };
+    let identified = sink
+        .accept(&ProviderEvent::SourceInterim {
+            metadata: identified_metadata.clone(),
+            text: text("zh"),
+        })
+        .unwrap()
+        .unwrap();
+    let unassociated = sink
+        .accept(&ProviderEvent::SourceInterim {
+            metadata: metadata.clone(),
+            text: text("zh"),
+        })
+        .unwrap()
+        .unwrap();
+    let new_final = sink
+        .accept(&ProviderEvent::SourceFinal {
+            metadata: ProviderEventMetadata {
+                local_correlation_id: Some(2),
+                ..metadata.clone()
+            },
+            text: text("zh"),
+        })
+        .unwrap()
+        .unwrap();
+    assert_ne!(new_final.id, identified.id);
+    assert_ne!(new_final.id, unassociated.id);
+    let exact = sink
+        .accept(&ProviderEvent::SourceFinal {
+            metadata: identified_metadata,
+            text: text("zh"),
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (exact.id, exact.sequence),
+        (identified.id, identified.sequence)
+    );
+    let original = sink
+        .accept(&ProviderEvent::SourceFinal {
+            metadata,
+            text: text("zh"),
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (original.id, original.sequence),
+        (unassociated.id, unassociated.sequence)
+    );
+}
+
+#[test]
+fn duplicate_identified_final_does_not_promote_a_new_unassociated_interim() {
+    let (store, _, mut sink, metadata) = fixture();
+    let final_event = ProviderEvent::SourceFinal {
+        metadata: ProviderEventMetadata {
+            local_correlation_id: Some(9),
+            ..metadata.clone()
+        },
+        text: text("zh"),
+    };
+    sink.accept(&final_event).unwrap().unwrap();
+    let pending = sink
+        .accept(&ProviderEvent::SourceInterim {
+            metadata: metadata.clone(),
+            text: text("zh"),
+        })
+        .unwrap()
+        .unwrap();
+    assert!(sink.accept(&final_event).unwrap().is_none());
+    let promoted = sink
+        .accept(&ProviderEvent::SourceFinal {
+            metadata: ProviderEventMetadata {
+                local_correlation_id: Some(10),
+                ..metadata.clone()
+            },
+            text: text("zh"),
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (promoted.id, promoted.sequence),
+        (pending.id, pending.sequence)
+    );
+    assert_eq!(store.count_segments(metadata.session_id).unwrap(), 2);
+}
+
+#[test]
+fn failed_promoted_final_keeps_unassociated_identity_until_successful_retry() {
+    let dir = tempfile::tempdir().unwrap();
+    let (fixture_store, bus, _, metadata) = fixture();
+    let store = Arc::new(LocalStore::open(dir.path()).unwrap());
+    store
+        .create_session(
+            &fixture_store
+                .get_session(metadata.session_id)
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+    let mut sink = TranscriptSink::new(
+        store.clone(),
+        bus.clone(),
+        ProviderSessionConfig {
+            session_id: metadata.session_id,
+            direction: metadata.direction,
+            mode: SessionMode::Call,
+            languages: LanguagePair::new("zh", "en").unwrap(),
+            target_audio: PcmSpec::pcm16_mono(24_000),
+            provider_config_id: Uuid::new_v4(),
+        },
+        ProviderId::new("fixture").unwrap(),
+    )
+    .unwrap();
+    let mut rx = bus.subscribe(metadata.session_id);
+    let original_event = ProviderEvent::SourceInterim {
+        metadata: metadata.clone(),
+        text: text("zh"),
+    };
+    let original = sink.accept(&original_event).unwrap().unwrap();
+    rx.try_recv().unwrap();
+    let connection = rusqlite::Connection::open(dir.path().join("vox-bridge.sqlite")).unwrap();
+    connection.execute_batch("CREATE TRIGGER fail_promoted_final BEFORE INSERT ON translation_segments BEGIN SELECT RAISE(ABORT, 'injected'); END;").unwrap();
+    let final_event = ProviderEvent::SourceFinal {
+        metadata: ProviderEventMetadata {
+            sentence_id: Some("late-native".into()),
+            ..metadata.clone()
+        },
+        text: text("zh"),
+    };
+    assert!(sink.accept(&final_event).is_err());
+    assert!(rx.try_recv().is_err());
+    assert_eq!(store.count_segments(metadata.session_id).unwrap(), 0);
+    let still_unassociated = sink.accept(&original_event).unwrap().unwrap();
+    assert_eq!(
+        (still_unassociated.id, still_unassociated.sequence),
+        (original.id, original.sequence)
+    );
+    assert!(still_unassociated.details.unwrap().sentence_id.is_none());
+    connection
+        .execute_batch("DROP TRIGGER fail_promoted_final;")
+        .unwrap();
+    let final_row = sink.accept(&final_event).unwrap().unwrap();
+    assert_eq!(
+        (final_row.id, final_row.sequence),
+        (original.id, original.sequence)
+    );
+    assert_eq!(
+        store
+            .transcript_page(metadata.session_id, None, 20)
+            .unwrap()
+            .rows,
+        vec![final_row]
+    );
+    assert!(sink.accept(&final_event).unwrap().is_none());
+}
