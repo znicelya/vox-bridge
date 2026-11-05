@@ -62,6 +62,16 @@ impl EventBus {
             .subscribe()
     }
 
+    /// Subscribe only when a live channel already exists. This never creates a
+    /// new channel for a session whose stream has been closed.
+    pub fn try_subscribe(&self, session_id: Uuid) -> Option<broadcast::Receiver<SessionEvent>> {
+        self.sessions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(&session_id)
+            .map(broadcast::Sender::subscribe)
+    }
+
     pub fn publish(&self, session_id: Uuid, event: SessionEvent) -> Result<usize, EventBusError> {
         if event.session_id() != session_id {
             return Err(EventBusError::SessionMismatch);

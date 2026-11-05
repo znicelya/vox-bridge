@@ -67,8 +67,9 @@ pub async fn get_session(
 #[tauri::command]
 pub async fn delete_session(state: State<'_, AppState>, session_id: Uuid) -> Result<(), String> {
     state
-        .store()
+        .orchestrator()
         .delete_session(session_id)
+        .await
         .map_err(command_error)
 }
 
@@ -78,14 +79,12 @@ pub async fn subscribe_session(
     state: State<'_, AppState>,
     session_id: Uuid,
 ) -> Result<String, String> {
-    state
-        .orchestrator()
-        .get(session_id)
-        .await
-        .map_err(command_error)?
-        .ok_or_else(|| command_error(AppError::SessionNotFound(session_id)))?;
     let event_name = format!("voxbridge://session/{session_id}");
-    let mut receiver = state.event_bus().subscribe(session_id);
+    let mut receiver = state
+        .orchestrator()
+        .subscribe(session_id)
+        .await
+        .map_err(command_error)?;
     let app = app.clone();
     let name = event_name.clone();
     tauri::async_runtime::spawn(async move {

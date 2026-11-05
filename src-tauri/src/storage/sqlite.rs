@@ -27,8 +27,9 @@ impl LocalStore {
         })
     }
     pub fn create_session(&self, s: &StoredSession) -> AppResult<()> {
-        let c = self.connection.lock().unwrap();
-        c.execute(
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction()?;
+        tx.execute(
             "INSERT INTO sessions VALUES (?1,?2,?3,?4,?5,?6)",
             params![
                 s.id.to_string(),
@@ -39,16 +40,17 @@ impl LocalStore {
                 s.target_language
             ],
         )?;
-        c.execute(
+        tx.execute(
             "INSERT INTO session_lifecycle (session_id,status,ended_at) VALUES (?1,'created',NULL)",
             params![s.id.to_string()],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
     pub fn update_session_lifecycle(&self, lifecycle: &StoredSessionLifecycle) -> AppResult<()> {
         let c = self.connection.lock().unwrap();
-        c.execute(
+        let changed = c.execute(
             "UPDATE session_lifecycle SET status=?2,ended_at=?3 WHERE session_id=?1",
             params![
                 lifecycle.session_id.to_string(),
@@ -56,6 +58,11 @@ impl LocalStore {
                 lifecycle.ended_at
             ],
         )?;
+        if changed == 0 {
+            return Err(crate::error::AppError::SessionNotFound(
+                lifecycle.session_id,
+            ));
+        }
         Ok(())
     }
 

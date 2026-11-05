@@ -4,6 +4,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -121,11 +122,35 @@ struct ActiveSession {
     record: SessionRecord,
 }
 
-#[derive(Clone, Debug)]
+#[async_trait]
+pub trait SessionStartup: Send + Sync {
+    async fn start(&self, config: &SessionConfig) -> AppResult<()>;
+}
+
+#[derive(Debug, Default)]
+pub struct NoopSessionStartup;
+
+#[async_trait]
+impl SessionStartup for NoopSessionStartup {
+    async fn start(&self, _config: &SessionConfig) -> AppResult<()> {
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
 pub struct SessionOrchestrator {
     store: Arc<LocalStore>,
     event_bus: EventBus,
     active: Arc<RwLock<HashMap<Uuid, ActiveSession>>>,
+    startup: Arc<dyn SessionStartup>,
+}
+
+impl std::fmt::Debug for SessionOrchestrator {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SessionOrchestrator")
+            .finish_non_exhaustive()
+    }
 }
 
 impl SessionOrchestrator {
@@ -134,6 +159,19 @@ impl SessionOrchestrator {
             store,
             event_bus,
             active: Arc::new(RwLock::new(HashMap::new())),
+            startup: Arc::new(NoopSessionStartup),
+        }
+    }
+    pub fn with_startup(
+        store: Arc<LocalStore>,
+        event_bus: EventBus,
+        startup: Arc<dyn SessionStartup>,
+    ) -> Self {
+        Self {
+            store,
+            event_bus,
+            active: Arc::new(RwLock::new(HashMap::new())),
+            startup,
         }
     }
     pub fn store(&self) -> &Arc<LocalStore> {
@@ -163,6 +201,32 @@ impl SessionOrchestrator {
                 status: SessionStatus::Starting.as_str().into(),
                 ended_at: None,
             })?;
+
+        if let Err(error) = self.startup.start(&config).await {
+            let message = error.to_string();
+            let failed = self
+                .store
+                .update_session_lifecycle(&StoredSessionLifecycle {
+                    session_id: id,
+                    status: SessionStatus::Failed.as_str().into(),
+                    ended_at: Some(now_seconds()),
+                });
+            if let Err(storage_error) = failed {
+                return Err(storage_error);
+            }
+            let _ = self.event_bus.publish(
+                id,
+                SessionEvent::Error {
+                    event_id: Uuid::new_v4(),
+                    session_id: id,
+                    occurred_at: SystemTime::now(),
+                    message,
+                },
+            );
+            self.event_bus.close(id);
+            return Err(error);
+        }
+
         record.status = SessionStatus::Running;
         self.store
             .update_session_lifecycle(&StoredSessionLifecycle {
@@ -208,27 +272,91 @@ impl SessionOrchestrator {
     }
     pub async fn stop_session(&self, id: Uuid) -> AppResult<SessionRecord> {
         let mut active = self.active.write().await;
-        let session = active.remove(&id).ok_or(AppError::SessionNotFound(id))?;
-        let mut record = session.record;
+        let session = active.get_mut(&id).ok_or(AppError::SessionNotFound(id))?;
+        let mut record = session.record.clone();
         record.status = SessionStatus::Stopping;
-        self.store
+        if let Err(error) = self
+            .store
             .update_session_lifecycle(&StoredSessionLifecycle {
                 session_id: id,
                 status: SessionStatus::Stopping.as_str().into(),
                 ended_at: None,
-            })?;
+            })
+        {
+            self.emit_storage_error(id, &error);
+            return Err(error);
+        }
+        session.record = record.clone();
         record.status = SessionStatus::Completed;
         record.ended_at = Some(now_seconds());
-        self.store
+        if let Err(error) = self
+            .store
             .update_session_lifecycle(&StoredSessionLifecycle {
                 session_id: id,
                 status: SessionStatus::Completed.as_str().into(),
                 ended_at: record.ended_at,
-            })?;
+            })
+        {
+            self.emit_storage_error(id, &error);
+            return Err(error);
+        }
+        active.remove(&id);
         let _ = self
             .event_bus
             .publish(id, SessionEvent::status(id, "completed"));
+        self.event_bus.close(id);
         Ok(record)
+    }
+
+    pub async fn delete_session(&self, id: Uuid) -> AppResult<()> {
+        let active = self.active.read().await;
+        if active.contains_key(&id) {
+            return Err(AppError::InvalidRequest(
+                "cannot delete an active session; stop it first".into(),
+            ));
+        }
+        if self.store.get_session(id)?.is_none() {
+            return Err(AppError::SessionNotFound(id));
+        }
+        self.store.delete_session(id)?;
+        self.event_bus.close(id);
+        Ok(())
+    }
+
+    pub async fn subscribe(
+        &self,
+        id: Uuid,
+    ) -> AppResult<tokio::sync::broadcast::Receiver<SessionEvent>> {
+        let active = self.active.read().await;
+        let session = active.get(&id).ok_or(AppError::SessionNotFound(id))?;
+        if matches!(
+            session.record.status,
+            SessionStatus::Completed | SessionStatus::Failed
+        ) {
+            return Err(AppError::InvalidRequest(
+                "cannot subscribe to a terminal session".into(),
+            ));
+        }
+        let receiver = self
+            .event_bus
+            .try_subscribe(id)
+            .ok_or_else(|| AppError::Internal("session event stream is closed".into()))?;
+        let _ = self
+            .event_bus
+            .publish(id, SessionEvent::status(id, session.record.status.as_str()));
+        Ok(receiver)
+    }
+
+    fn emit_storage_error(&self, id: Uuid, error: &AppError) {
+        let _ = self.event_bus.publish(
+            id,
+            SessionEvent::Error {
+                event_id: Uuid::new_v4(),
+                session_id: id,
+                occurred_at: SystemTime::now(),
+                message: format!("session persistence failed: {error}"),
+            },
+        );
     }
 }
 
