@@ -44,3 +44,7 @@ Follow-up verification: `cargo check`, `cargo test` (29 passed), `cargo fmt --ch
 - Terminal replay is bounded to 256 session events and removes entries on explicit close/delete.
 - Subscription no longer drains queued events; the intentional current-status snapshot is appended while retaining previously queued lifecycle events.
 - Added concurrency/regression coverage for closed-channel publication, bounded replay, queued terminal delivery, and starting/running event ordering.
+
+## Reviewer follow-up round 4
+
+- Public `EventBus::subscribe` now returns an ephemeral receiver containing the cached terminal event instead of recreating an empty live channel. A subsequent `subscribe_or_replay` still receives the same terminal event, and no live sender is inserted.

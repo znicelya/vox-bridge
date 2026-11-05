@@ -62,6 +62,11 @@ impl EventBus {
 
     pub fn subscribe(&self, session_id: Uuid) -> broadcast::Receiver<SessionEvent> {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some(event) = state.terminal_events.get(&session_id).cloned() {
+            let (sender, receiver) = broadcast::channel(1);
+            let _ = sender.send(event);
+            return receiver;
+        }
         state
             .sessions
             .entry(session_id)
@@ -252,5 +257,20 @@ mod tests {
         assert!(
             matches!(receiver.recv().await.unwrap(), SessionEvent::Status { status, .. } if status == "completed")
         );
+    }
+
+    #[tokio::test]
+    async fn subscribe_after_terminal_replays_without_masking_terminal_state() {
+        let bus = EventBus::new();
+        let session_id = Uuid::new_v4();
+        let final_event = SessionEvent::status(session_id, "failed");
+        bus.close_with_final(session_id, final_event.clone());
+
+        let mut receiver = bus.subscribe(session_id);
+        assert_eq!(receiver.recv().await.unwrap(), final_event);
+        assert!(bus.try_subscribe(session_id).is_none());
+
+        let mut replay = bus.subscribe_or_replay(session_id).unwrap();
+        assert_eq!(replay.recv().await.unwrap(), final_event);
     }
 }
