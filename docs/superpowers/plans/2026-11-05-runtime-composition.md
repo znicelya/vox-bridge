@@ -372,7 +372,7 @@ Commit Task 2 paths: feat: preserve bounded audio continuity per direction.
 
 ### Task 3: Real audio ports and exact platform mappings
 
-**Files:** Create audio/{runtime,runtime_tests}.rs and audio/platform/{inventory,native_io,pulse_io,process_io}.rs with focused tests. Modify audio/{mod,capture,playback}.rs, audio/platform/mod.rs, Cargo.toml/Cargo.lock and tests/platform-audio/README.md.
+**Files:** Create audio/{runtime,runtime_tests}.rs and audio/platform/{inventory,native_io,pulse_io,process_io}.rs with focused tests. Modify audio/{mod,capture,playback}.rs, audio/platform/mod.rs, domain/transcript.rs (additive audio-free accounting types), Cargo.toml/Cargo.lock and tests/platform-audio/README.md.
 
 **Consumes:** Task 2 queue/frames, existing AudioDriverManager/status and capture/playback DSP. Extend existing lifecycle code rather than duplicating resampling/callback code.
 
@@ -405,11 +405,12 @@ pub struct AudioOpenRequest {
 pub enum AudioHealth { Ready, Lost, NeedsRestart }
 pub struct PlaybackReport {
     pub boundary: PlaybackBoundary,
-    pub accepted_samples: u64,
-    pub discarded_samples: u64,
+    pub statistics: PlaybackStatistics,
 }
 #[async_trait]
 pub trait AudioControl: Send + Sync {
+    fn suppress_now(&self);
+    fn statistics(&self) -> AudioStatistics;
     async fn stop_capture(&self) -> AppResult<()>;
     async fn discard_pending(&self) -> AppResult<()>;
     async fn drain_playback(&self) -> AppResult<PlaybackReport>;
@@ -433,14 +434,62 @@ impl PlatformAudioBackend {
 
 PlatformAudioBackend implements AudioBackend and privately owns current inventory/locators, endpoint leases and quarantined owners. new performs no OS call. AudioHealth/PlaybackReport are Clone/Debug/PartialEq/Eq; ports are Send channel handles, never CPAL handles. Claim both endpoint leases atomically; at most two pairs for the desktop's one active session. Reject stale/unknown IDs and duplicate leases. Inventory refresh alone never resumes lost audio.
 
+**Outside-owner suppression and measured counters:** Define these audio-free values in domain/transcript.rs with Clone/Debug/PartialEq/Eq/serde; AudioControl::statistics reads them synchronously without an owner lock or acknowledgement. Keep the existing DiagnosticPayload::Playback representation readable and add PlaybackAccounting { boundary: Option<PlaybackBoundary>, statistics: PlaybackStatistics } and CaptureAccounting { statistics: CaptureStatistics }. New runtime diagnostics use the explicit accounting variants; no SQLite migration is needed.
+
+~~~rust
+pub struct CaptureStatistics {
+    pub dropped_native_blocks: u64,
+    pub dropped_normalized_frames: u64,
+    pub finalized: bool,
+}
+pub struct NativePlaybackStatistics {
+    pub sample_rate_hz: u32,
+    pub generated_mono_samples: u64,
+    pub callback_consumed_mono_samples: u64,
+    pub discarded_mono_samples: u64,
+}
+pub struct PlaybackStatistics {
+    pub input_sample_rate_hz: u32,
+    pub accepted_for_processing_samples: u64,
+    pub discarded_before_conversion_samples: u64,
+    pub native: Option<NativePlaybackStatistics>,
+    pub finalized: bool,
+    pub tail_disposition_known: bool,
+}
+pub struct AudioStatistics {
+    pub capture: CaptureStatistics,
+    pub playback: PlaybackStatistics,
+}
+// Internal, in audio/runtime.rs; allocated before opening any owner/resources.
+#[derive(Clone)]
+pub(crate) struct AudioShared {
+    pub gates: Arc<AudioGates>,
+    pub counters: Arc<AudioCounters>,
+    pub changed: Arc<tokio::sync::Notify>,
+}
+pub(crate) struct AudioGates {
+    pub capture_suppressed: AtomicBool,
+    pub playback_suppressed: AtomicBool,
+    pub abort_pending: AtomicBool,
+}
+~~~
+
+AudioCounters contains fixed atomics for the above counters/rate/finalization flags, no native handles or PCM. Counters saturate. A finalization Release flag is published only after all relevant writers/callbacks acknowledge; snapshots load with Acquire. Live counters can be slightly skewed, so never infer a conservation equation. Define input_sample_rate_hz=24_000. accepted_for_processing_samples counts validated frames dequeued by the backend, not raw mpsc/router enqueue. discarded_before_conversion_samples counts exact accepted input samples discarded before conversion. Native counters are actual negotiated-rate mono time samples before channel duplication; never divide native drops into an invented exact24k loss. Pulse native=None; pipe writes are not callback consumption. Tail disposition remains unknown after an unacknowledged owner or killed Pulse process with a possible server tail. Failure diagnostics use boundary=None, finalized=false where still unacknowledged, never a fabricated successful drain.
+
+Capture drops count native callback blocks separately from normalized AudioFrame evictions; neither implies1,280 samples. Queue dropped_frames supplies normalized evictions. A raw capture drop must clear obsolete conversion carry/resampler state before admitting newer blocks: carry a bounded discontinuity generation through callback blocks, or equivalent ordered marker, and test the actual conversion path. Runtime checks loss counters when admitting capture as well as during periodic diagnostics; coalescing must not delay continuity handling.
+
+suppress_now is bounded/infallible: set both suppression gates and abort_pending with Release, then notify workers. It never awaits/joins/calls OS or locks owner state. stop_capture sets only capture_suppressed before requesting owner cleanup and drains accepted capture; an emergency abort sets abort_pending and discards stale data. Playback callbacks observe their gate with Acquire and fill silence before ring pops; workers observe abort/gates before publishing, and Pulse writes select cancellation. Gates are one-way until fresh ports. An in-flight OS buffer cannot be recalled; this is next-observation suppression, not an acoustic stop guarantee. Capture worker exit must not depend exclusively on Stream::drop disconnect: bounded receive plus shared stop allows it to finish even if driver drop blocks.
+
+Count actual ring drops: after initial Full, increment only for a successful producer discard-pop and/or a rejected replacement push. A callback can consume between these operations; Full alone is not a drop. Count explicit clear pops, not a racy len snapshot. Add a synthetic interleaving test, a24k/48k unit-serialization test, a blocked-owner test proving statistics/suppression still respond with silent callback output, graceful-capture-stop preserving playback, and legacy/new diagnostic round trips. Release injected blocked-owner latches at test end.
+
 The existing AudioDriverManager trait has no Send/Sync bound. Construct/call concrete managers inside their owner boundary and pass plain status data back; do not place a non-Send manager inside AudioBackend or add an unsafe marker. Linux runtime inventory reuses the driver's naming/readiness policy through the bounded process boundary, not its synchronous unbounded SystemCommandRunner.
 
 - [ ] **1. Add a non-Send owner boundary and failing drain tests.** In native_io.rs:
 
 ~~~rust
-pub trait NativeOwnerFactory: Send + Sync {
+pub(crate) trait NativeOwnerFactory: Send + Sync {
     fn open_on_owner_thread(&self, request: &AudioOpenRequest,
-        capture: BoundedAudioQueue, playback: mpsc::Receiver<AudioFrame>)
+        capture: BoundedAudioQueue, playback: mpsc::Receiver<AudioFrame>, shared: AudioShared)
         -> AppResult<Box<dyn NativeOwner>>;
 }
 pub trait NativeOwner {
@@ -497,7 +546,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib audio::platform
 
 Retain callback pool8×8192 and emit normalized capture from the conversion worker into a 50-frame drop-oldest queue. Use AudioOpenRequest.source, not a display-name guess. Capture callbacks perform no heap growth, blocking lock or async operation.
 
-Playback validates 24k mono PCM16 and <=24,000 samples before buffering. Its mpsc ingress has 50 slots; conversion writes chunks <=1,920 input samples into the existing ring capped to five seconds of negotiated device samples. Track ingress sealed, conversion worker done, accepted/dropped/consumed counts and ring occupancy. drain_playback closes ingress, finishes accepted conversion and succeeds only when worker_done AND ring_empty; an empty ring while conversion is running does not mean complete. Bound drain to5 s. Timeout discards tail and returns failure with counters available to diagnostics. discard_pending suppresses further output, clears ingress/ring and leaves the port unusable until close/reopen, preventing a stale frame from winning a clear race.
+Playback validates 24k mono PCM16 and <=24,000 samples before buffering. Its mpsc ingress has 50 slots; conversion writes chunks <=1,920 input samples into the existing ring capped to five seconds of negotiated device samples. Track ingress sealed, conversion worker done, accepted/dropped/consumed counts and ring occupancy. drain_playback closes ingress, finishes accepted conversion and succeeds only when worker_done AND ring_empty; an empty ring while conversion is running does not mean complete. Bound drain to5 s. Timeout first suppresses output, attempts bounded discard, and returns failure with statistics available even if cleanup cannot acknowledge. Unknown tail remains explicit. discard_pending suppresses further output, clears ingress/ring and leaves the port unusable until close/reopen, preventing a stale frame from winning a clear race.
 
 Never block a Tokio executor joining an unresponsive driver. Suppress callbacks before cleanup; retain one quarantined owner/lease per failed route on timeout, return NeedsRestart and reject replacements. A native thread's unacknowledged exit must not be reported as success.
 
@@ -722,6 +771,8 @@ Route Audio only to that direction's AudioRouter target; require24k bus format. 
 On provider Gap disable admission, clear capture/carry and stale playback, advance epoch once and mark Reconnecting. The adapter already bounds reconnect. Task3 discard_pending permanently disables a port, so after a Gap close that direction's old ports and reopen its same selected route before resuming at the next SessionStarted; do not call explicit-resume or open a second provider stream for an adapter-owned reconnect. If reopening fails, pause the direction and cancel that stream. On provider Failed/EOF, invalid event, storage failure or device loss, cancel only that direction, stop capture and discard output. Peer continues.
 
 Explicit resume accepts one pending request per direction, rejects nonmembers/Bidirectional/running/stopping, revalidates fresh inventory and full provider capabilities, then calls connect_direction for only that side. Open fresh ports, require handshake, advance epoch once with ManualResume and retain the sink's sequence. Restored device presence alone does nothing. Retain session/provider/language/device snapshot; changed selection requires a new session.
+
+Use AudioControl::statistics on capture admission to detect raw-block/normalized-frame loss promptly, and once per second plus after drain/close for diagnostic snapshots. Call suppress_now before forced abort/timeout cleanup; persist the failure and available accounting even if the owner never acknowledges. New playback diagnostics use PlaybackAccounting with boundary=None on uncertain failure, and CaptureAccounting keeps raw blocks separate from normalized frames.
 
 Own bounded per-direction diagnostic accumulators: coalesce latency and repeated gap/drop/TranscriptOverflow counters to at most one row per second per category, using take_dropped_interims after subtitle acceptance, and flush pending values at stop. Persist every distinct failure transition once before publishing its safe diagnostic; a persistence failure pauses the direction and emits a local Storage diagnostic without recursively storing the failure. Add deterministic-clock tests for coalescing, stop flush and storage failure.
 
