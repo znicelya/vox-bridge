@@ -52,7 +52,7 @@ fn fixture() -> (LocalStore, Uuid) {
             version: 1,
             created_at: 1_799_000_010,
             status: "complete".into(),
-            structured_json: r#"{"title":"Customer discovery","text":"A completed summary.","audio_path":"/private/session.wav","api_key":"secret-value"}"#
+            structured_json: r#"{"title":"Customer discovery","text":"A completed summary.","audio_path":"/private/session.wav","api_key":"secret-value","password":"password-value","passphrase":"passphrase-value","access_key":"access-value","secret_key":"secret-key-value","authorization":"authorization-value","bearer":"bearer-value","openai_api_key":"openai-key-value"}"#
                 .into(),
         })
         .unwrap();
@@ -69,6 +69,17 @@ fn markdown_export_contains_direction_timestamp_and_final_content() {
     assert!(output.contains("Hello there"));
     assert!(!output.contains("audio_path"));
     assert!(!output.contains("secret-value"));
+    for value in [
+        "password-value",
+        "passphrase-value",
+        "access-value",
+        "secret-key-value",
+        "authorization-value",
+        "bearer-value",
+        "openai-key-value",
+    ] {
+        assert!(!output.contains(value), "leaked {value}");
+    }
     assert!(!output.contains("interim"));
 }
 
@@ -87,6 +98,17 @@ fn json_export_has_stable_fields_and_only_final_segments() {
     assert!(value.get("secret").is_none());
     assert!(!output.contains("audio_path"));
     assert!(!output.contains("secret-value"));
+    for value in [
+        "password-value",
+        "passphrase-value",
+        "access-value",
+        "secret-key-value",
+        "authorization-value",
+        "bearer-value",
+        "openai-key-value",
+    ] {
+        assert!(!output.contains(value), "leaked {value}");
+    }
     assert!(output.find("\"session\"").unwrap() < output.find("\"segments\"").unwrap());
 }
 
@@ -98,6 +120,17 @@ fn plain_text_export_uses_timestamped_direction_source_and_translation_lines() {
     assert!(output.contains("[14:33:28] [source_to_target] translation (fr): Bonjour"));
     assert!(!output.contains("audio_path"));
     assert!(!output.contains("secret-value"));
+    for value in [
+        "password-value",
+        "passphrase-value",
+        "access-value",
+        "secret-key-value",
+        "authorization-value",
+        "bearer-value",
+        "openai-key-value",
+    ] {
+        assert!(!output.contains(value), "leaked {value}");
+    }
 }
 
 #[test]
@@ -121,6 +154,20 @@ fn export_writes_complete_output_to_destination() {
     let output = std::fs::read_to_string(&destination).unwrap();
     assert!(output.contains("Hello there"));
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn export_can_replace_an_existing_destination() {
+    let (store, id) = fixture();
+    let dir = tempfile::tempdir().unwrap();
+    let destination = dir.path().join("session.json");
+    export_session(&store, id, ExportFormat::Json, &destination).unwrap();
+    export_session(&store, id, ExportFormat::Json, &destination).unwrap();
+    assert!(
+        std::fs::read_to_string(destination)
+            .unwrap()
+            .contains("Hello there")
+    );
 }
 
 #[test]
