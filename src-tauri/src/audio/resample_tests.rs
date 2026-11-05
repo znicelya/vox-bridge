@@ -69,6 +69,35 @@ fn streaming_resampler_keeps_a_non_silent_signal_continuous_across_chunks() {
 }
 
 #[test]
+fn exact_block_flush_drains_filter_delay_without_a_zero_tail() {
+    assert_stream_flush_tail(1024);
+}
+
+#[test]
+fn partial_block_flush_drains_filter_delay_without_a_zero_tail() {
+    assert_stream_flush_tail(777);
+}
+
+fn assert_stream_flush_tail(input_len: usize) {
+    let from = PcmSpec::pcm16_mono(48_000);
+    let to = PcmSpec::pcm16_mono(16_000);
+    let input: Vec<i16> = (0..input_len)
+        .map(|index| 8_000 + ((index as f64 * 0.03).sin() * 1_000.0) as i16)
+        .collect();
+    let mut resampler = Resampler::new(from, to).unwrap();
+    let mut output = resampler.process(&input).unwrap();
+    output.extend(resampler.flush().unwrap());
+
+    assert_eq!(output.len(), (input_len + 1) / 3);
+    assert!(
+        output.last().unwrap().abs() > 5_000,
+        "unexpected tail: {:?}",
+        &output[output.len() - 4..]
+    );
+    assert_eq!(output, Resampler::convert(&input, from, to).unwrap());
+}
+
+#[test]
 fn resampling_preserves_silence() {
     let input = vec![0i16; 1_600];
     let output = Resampler::convert(

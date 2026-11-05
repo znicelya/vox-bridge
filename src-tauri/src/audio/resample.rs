@@ -19,8 +19,11 @@ pub struct Resampler {
     to: PcmSpec,
     inner: SincFixedIn<f32>,
     pending: Vec<i16>,
+    converted: Vec<i16>,
     total_input: usize,
     emitted: usize,
+    delay: usize,
+    last_input: i16,
 }
 
 impl Resampler {
@@ -41,20 +44,27 @@ impl Resampler {
             1,
         )
         .map_err(|error| AppError::Internal(format!("failed to configure resampler: {error}")))?;
+        let delay = inner.output_delay();
         Ok(Self {
             from,
             to,
             inner,
             pending: Vec::with_capacity(INPUT_CHUNK * 2),
+            converted: Vec::with_capacity(INPUT_CHUNK * 2),
             total_input: 0,
             emitted: 0,
+            delay,
+            last_input: 0,
         })
     }
 
     pub fn process(&mut self, input: &[i16]) -> AppResult<Vec<i16>> {
         self.pending.extend_from_slice(input);
+        if let Some(last) = input.last() {
+            self.last_input = *last;
+        }
         self.total_input += input.len();
-        let mut output = Vec::new();
+        let mut converted_output = Vec::new();
         while self.pending.len() >= INPUT_CHUNK {
             let block: Vec<f32> = self
                 .pending
@@ -64,45 +74,49 @@ impl Resampler {
             let converted = self.inner.process(&[block], None).map_err(|error| {
                 AppError::Internal(format!("failed to resample audio: {error}"))
             })?;
-            append_channel(&mut output, converted.first())?;
+            append_channel(&mut converted_output, converted.first())?;
         }
-        self.emitted += output.len();
-        Ok(output)
+        self.converted.extend(converted_output);
+        Ok(self.take_safe_output())
     }
 
     pub fn flush(&mut self) -> AppResult<Vec<i16>> {
         if self.total_input == 0 {
             return Ok(Vec::new());
         }
-        let mut output = Vec::new();
-        if !self.pending.is_empty() {
-            let partial: Vec<f32> = self
+        let endpoint = self.pending.last().copied().unwrap_or(self.last_input);
+        let needed = INPUT_CHUNK * 2;
+        while self.pending.len() < needed || !self.pending.len().is_multiple_of(INPUT_CHUNK) {
+            self.pending.push(endpoint);
+        }
+        let mut converted_output = Vec::new();
+        while self.pending.len() >= INPUT_CHUNK {
+            let block: Vec<f32> = self
                 .pending
-                .iter()
-                .map(|sample| *sample as f32 / 32768.0)
+                .drain(..INPUT_CHUNK)
+                .map(|sample| sample as f32 / 32768.0)
                 .collect();
-            let converted =
-                self.inner
-                    .process_partial(Some(&[partial]), None)
-                    .map_err(|error| {
-                        AppError::Internal(format!("failed to flush resampler: {error}"))
-                    })?;
-            append_channel(&mut output, converted.first())?;
-            self.pending.clear();
+            let converted = self.inner.process(&[block], None).map_err(|error| {
+                AppError::Internal(format!("failed to drain resampler: {error}"))
+            })?;
+            append_channel(&mut converted_output, converted.first())?;
         }
+        self.converted.extend(converted_output);
         let expected = expected_len(self.total_input, self.from, self.to);
-        output.truncate(expected.saturating_sub(self.emitted));
-        let remaining = expected.saturating_sub(self.emitted + output.len());
-        if remaining > 0 {
-            let fill = output
-                .last()
-                .copied()
-                .or_else(|| self.pending.last().copied())
-                .unwrap_or(0);
-            output.resize(output.len() + remaining, fill);
-        }
+        let remaining = expected.saturating_sub(self.emitted);
+        self.converted.truncate(remaining);
+        let output = self.converted.drain(..).collect::<Vec<_>>();
         self.emitted += output.len();
         Ok(output)
+    }
+
+    fn take_safe_output(&mut self) -> Vec<i16> {
+        let expected = expected_len(self.total_input, self.from, self.to);
+        let safe_len = self.converted.len().saturating_sub(self.delay);
+        let take = safe_len.min(expected.saturating_sub(self.emitted));
+        let output = self.converted.drain(..take).collect::<Vec<_>>();
+        self.emitted += output.len();
+        output
     }
 
     pub fn convert(input: &[i16], from: PcmSpec, to: PcmSpec) -> AppResult<Vec<i16>> {
