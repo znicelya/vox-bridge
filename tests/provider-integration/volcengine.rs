@@ -1,4 +1,4 @@
-//! Explicitly opted-in service acceptance; never run by the default test suite.
+//! Opt-in paid acceptance with default, offline deadline-wrapper regressions.
 use std::{
     sync::{Arc, mpsc},
     time::Duration,
@@ -41,20 +41,42 @@ fn real_volcengine_translates_two_seconds_of_speech() {
             std::process::exit(124);
         }
     });
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .expect("create acceptance runtime");
-    let result = runtime.block_on(timeout(Duration::from_secs(45), accept_speech()));
-    // Drop runtime before disarming watchdog: a stalled blocking native keyring
-    // operation must not leave this process running forever during shutdown.
-    drop(runtime);
+    let result = run_with_deadline(Duration::from_secs(45), accept_speech());
+    // The wrapper drops its runtime before this watchdog is disarmed.
     drop(deadline);
     match result {
         Ok(Ok(())) => {}
         Ok(Err(stage)) => panic!("Volcengine acceptance failed: {stage}"),
         Err(_) => panic!("Volcengine acceptance timed out"),
     }
+}
+
+fn run_with_deadline<F: std::future::Future>(
+    limit: Duration,
+    work: F,
+) -> Result<F::Output, tokio::time::error::Elapsed> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("create acceptance runtime");
+    let result = runtime.block_on(async { timeout(limit, work).await });
+    // Native blocking work must finish before the caller disarms its process
+    // watchdog; runtime teardown is intentionally included in that deadline.
+    drop(runtime);
+    result
+}
+
+#[test]
+fn deadline_wrapper_runs_harmless_work_inside_the_runtime() {
+    assert_eq!(
+        run_with_deadline(Duration::from_secs(1), async { 42 }).unwrap(),
+        42
+    );
+}
+
+#[test]
+fn deadline_wrapper_times_out_pending_work_without_paid_io() {
+    assert!(run_with_deadline(Duration::from_millis(10), std::future::pending::<()>()).is_err());
 }
 
 async fn accept_speech() -> Result<(), &'static str> {

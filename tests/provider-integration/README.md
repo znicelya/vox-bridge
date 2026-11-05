@@ -1,6 +1,6 @@
 # Volcengine service acceptance
 
-This test sends one synthetic English phrase to the real paid Volcengine AST service. It never captures a microphone or plays audio. It is ignored by default; normal Cargo tests do not read a service key, open the native keyring or contact the service.
+This test sends one synthetic English phrase to the real paid Volcengine AST service. It never captures a microphone or plays audio. The paid test is ignored by default. Two default tests exercise its shared runtime/deadline wrapper with harmless and pending futures; normal Cargo tests do not read a service key, open the native keyring or contact the service.
 
 An operator must have a key authorized for `volc.service_type.10053`, Internet access to the official WSS endpoint, and an unlocked native credential store. Read the service's current pricing and account limits before invoking it. Each invocation sends exactly two seconds of audio; automatic transport retries may create additional sessions.
 
