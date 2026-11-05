@@ -14,11 +14,34 @@ pub enum SampleFormat {
     F32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct PcmSpec {
-    pub sample_rate: u32,
-    pub channels: u16,
-    pub sample_format: SampleFormat,
+    sample_rate: u32,
+    channels: u16,
+    sample_format: SampleFormat,
+}
+
+impl<'de> Deserialize<'de> for PcmSpec {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct RawPcmSpec {
+            sample_rate: u32,
+            channels: u16,
+            sample_format: SampleFormat,
+        }
+
+        let raw = RawPcmSpec::deserialize(deserializer)?;
+        let spec = Self {
+            sample_rate: raw.sample_rate,
+            channels: raw.channels,
+            sample_format: raw.sample_format,
+        };
+        spec.validate().map_err(serde::de::Error::custom)?;
+        Ok(spec)
+    }
 }
 
 impl PcmSpec {
@@ -28,6 +51,28 @@ impl PcmSpec {
             channels: 1,
             sample_format: SampleFormat::I16,
         }
+    }
+
+    pub fn new(sample_rate: u32, channels: u16, sample_format: SampleFormat) -> AppResult<Self> {
+        let spec = Self {
+            sample_rate,
+            channels,
+            sample_format,
+        };
+        spec.validate()?;
+        Ok(spec)
+    }
+
+    pub fn sample_rate(self) -> u32 {
+        self.sample_rate
+    }
+
+    pub fn channels(self) -> u16 {
+        self.channels
+    }
+
+    pub fn sample_format(self) -> SampleFormat {
+        self.sample_format
     }
 
     pub fn validate(self) -> AppResult<()> {
@@ -52,11 +97,11 @@ impl PcmSpec {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct AudioFrame {
-    pub source: AudioSource,
-    pub sequence: u64,
-    pub captured_at: SystemTime,
-    pub spec: PcmSpec,
-    pub samples: Vec<i16>,
+    source: AudioSource,
+    sequence: u64,
+    captured_at: SystemTime,
+    spec: PcmSpec,
+    samples: Vec<i16>,
 }
 
 impl<'de> Deserialize<'de> for AudioFrame {

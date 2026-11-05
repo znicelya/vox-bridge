@@ -1,5 +1,4 @@
 use super::{PcmSpec, Resampler};
-use crate::audio::SampleFormat;
 
 #[test]
 fn converts_24khz_output_to_a_48khz_device_without_changing_duration() {
@@ -28,6 +27,31 @@ fn converts_48khz_capture_to_canonical_16khz_without_changing_duration() {
 }
 
 #[test]
+fn streaming_resampler_keeps_a_non_silent_signal_continuous_across_chunks() {
+    let from = PcmSpec::pcm16_mono(16_000);
+    let to = PcmSpec::pcm16_mono(24_000);
+    let input: Vec<i16> = (0..1_600)
+        .map(|index| ((index as f64 * 0.04).sin() * 12_000.0) as i16)
+        .collect();
+
+    let mut streaming = Resampler::new(from, to).unwrap();
+    let mut output = Vec::new();
+    output.extend(streaming.process(&input[..400]).unwrap());
+    output.extend(streaming.process(&input[400..1_000]).unwrap());
+    output.extend(streaming.process(&input[1_000..]).unwrap());
+    output.extend(streaming.flush().unwrap());
+
+    assert_eq!(output.len(), 2_400);
+    assert!(output.iter().any(|sample| sample.abs() > 1_000));
+    assert!(
+        output
+            .windows(2)
+            .all(|pair| (pair[1] as i32 - pair[0] as i32).abs() < 2_000)
+    );
+    assert_eq!(output, Resampler::convert(&input, from, to).unwrap());
+}
+
+#[test]
 fn resampling_preserves_silence() {
     let input = vec![0i16; 1_600];
     let output = Resampler::convert(
@@ -43,28 +67,13 @@ fn resampling_preserves_silence() {
 
 #[test]
 fn rejects_non_mono_input_or_output() {
-    let stereo = PcmSpec {
-        sample_rate: 48_000,
-        channels: 2,
-        sample_format: SampleFormat::I16,
-    };
-
-    assert!(Resampler::convert(&[0; 32], stereo, PcmSpec::pcm16_mono(24_000)).is_err());
-    assert!(Resampler::convert(&[0; 32], PcmSpec::pcm16_mono(24_000), stereo).is_err());
+    assert!(PcmSpec::new(48_000, 2, super::super::SampleFormat::I16).is_err());
 }
 
 #[test]
 fn rejects_unsupported_sample_formats_and_invalid_rates() {
-    let float = PcmSpec {
-        sample_rate: 24_000,
-        channels: 1,
-        sample_format: SampleFormat::F32,
-    };
-    let invalid_rate = PcmSpec::pcm16_mono(0);
-
-    assert!(Resampler::convert(&[0; 32], float, PcmSpec::pcm16_mono(48_000)).is_err());
-    assert!(Resampler::convert(&[0; 32], PcmSpec::pcm16_mono(24_000), float).is_err());
-    assert!(Resampler::convert(&[0; 32], invalid_rate, PcmSpec::pcm16_mono(48_000)).is_err());
+    assert!(PcmSpec::new(24_000, 1, super::super::SampleFormat::F32).is_err());
+    assert!(PcmSpec::new(0, 1, super::super::SampleFormat::I16).is_err());
 }
 
 #[test]

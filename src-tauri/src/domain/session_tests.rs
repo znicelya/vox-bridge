@@ -1,5 +1,5 @@
 use super::{
-    audio::{AudioFrame, AudioSource},
+    audio::{AudioFrame, SAMPLE_RATE_HZ},
     session::{LanguagePair, ProviderId, SessionConfig, SessionDirection},
 };
 use crate::error::AppError;
@@ -30,10 +30,11 @@ fn deserialization_rejects_invalid_language_and_provider_ids() {
 }
 
 #[test]
-fn audio_frame_rejects_non_16khz_shape() {
-    let result = AudioFrame::new(AudioSource::Microphone, 1, 48_000, vec![0; 960]);
+fn audio_frame_rejects_non_mono_shape() {
+    let result = crate::audio::PcmSpec::new(16_000, 2, crate::audio::SampleFormat::I16);
 
     assert!(matches!(result, Err(AppError::InvalidRequest(_))));
+    assert_eq!(SAMPLE_RATE_HZ, 16_000);
 }
 
 #[test]
