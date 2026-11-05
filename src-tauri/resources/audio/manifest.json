@@ -1,0 +1,46 @@
+{
+  "manifest_version": 1,
+  "release": "0.1.0",
+  "license_gate": "Packaging must fail while any required redistributable package is unavailable or unlicensed.",
+  "endpoints": {
+    "input": { "name": "VoxBridge Input", "logical_id": "VoxBridge_Input", "role": "M1 virtual microphone" },
+    "output": { "name": "VoxBridge Output", "logical_id": "VoxBridge_Output", "role": "M2 virtual speaker" }
+  },
+  "platforms": {
+    "windows": {
+      "status": "unavailable",
+      "package": null,
+      "version": null,
+      "sha256": null,
+      "license": "Not provided; redistribution authorization is required.",
+      "install_command": "install.ps1",
+      "uninstall_command": "install.ps1 -Uninstall",
+      "required_privileges": "administrator",
+      "requires_restart": true,
+      "block_reason": "Signed Windows endpoint package and redistribution license were not supplied."
+    },
+    "macos": {
+      "status": "unavailable",
+      "package": null,
+      "version": null,
+      "sha256": null,
+      "license": "Not provided; redistribution authorization is required.",
+      "install_command": "install.sh",
+      "uninstall_command": "install.sh --uninstall",
+      "required_privileges": "user approval; system extension authorization as required by macOS",
+      "requires_restart": true,
+      "block_reason": "Signed macOS system audio extension and redistribution license were not supplied."
+    },
+    "linux": {
+      "status": "available-script-only",
+      "version": "system-provided PipeWire/PulseAudio modules",
+      "sha256": null,
+      "license": "Uses distribution-provided audio server modules; no driver binary is bundled.",
+      "install_command": "setup-pipewire.sh or setup-pulseaudio.sh",
+      "uninstall_command": "pactl unload-module VoxBridge_Input and VoxBridge_Output",
+      "required_privileges": "user session",
+      "requires_restart": false,
+      "block_reason": "Audio module availability varies by distribution; scripts are explicit and never change defaults."
+    }
+  }
+}
