@@ -1,4 +1,7 @@
+use std::sync::mpsc as std_mpsc;
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
 use tokio::sync::{broadcast, mpsc};
 
@@ -14,6 +17,7 @@ use crate::{
     },
     domain::audio::AudioSource,
     error::AppError,
+    events::{AudioSessionState, EventBus, SessionEvent},
 };
 
 fn endpoint(id: &str, direction: AudioDirection) -> AudioEndpoint {
@@ -50,6 +54,23 @@ fn health_for(ids: &[&str]) -> Health {
     Health(Arc::new(Mutex::new(
         ids.iter().map(|id| (*id).into()).collect(),
     )))
+}
+
+#[derive(Clone)]
+struct BlockingHealth {
+    ready: Health,
+    entered: Arc<std_mpsc::Sender<()>>,
+    release: Arc<Mutex<std_mpsc::Receiver<()>>>,
+}
+
+impl EndpointHealthCheck for BlockingHealth {
+    fn is_ready(&self, endpoint: &AudioEndpoint) -> bool {
+        if endpoint.id == "mic" {
+            let _ = self.entered.send(());
+            let _ = self.release.lock().unwrap().recv();
+        }
+        self.ready.is_ready(endpoint)
+    }
 }
 
 #[test]
@@ -126,8 +147,14 @@ async fn route_uses_bounded_sender_and_reports_target_backpressure() {
         .route(frame(4), RouteTarget::PhysicalOutput)
         .unwrap_err();
     assert!(matches!(error, AppError::InvalidRequest(_)));
-    assert!(error.to_string().contains("mic"));
-    assert!(error.to_string().contains("m1"));
+    assert!(error.to_string().contains("PhysicalOutput"));
+    assert!(!error.to_string().contains("mic"));
+    assert!(!error.to_string().contains("m1"));
+    let error = router
+        .route_direction(frame(5), Direction::BtoA)
+        .unwrap_err();
+    assert!(error.to_string().contains("BtoA"));
+    assert!(!error.to_string().contains("mic"));
     assert!(matches!(
         events.recv().await.unwrap(),
         AudioRouterEvent::Backpressure {
@@ -135,6 +162,83 @@ async fn route_uses_bounded_sender_and_reports_target_backpressure() {
             dropped_frames: 1
         }
     ));
+}
+
+#[tokio::test]
+async fn pause_and_resume_publish_typed_session_audio_state() {
+    let graph = AudioGraph::for_live(
+        endpoint("mic", AudioDirection::Input),
+        endpoint("m1", AudioDirection::Output),
+    )
+    .unwrap();
+    let (tx, _rx) = mpsc::channel(2);
+    let bus = EventBus::new();
+    let session_id = uuid::Uuid::new_v4();
+    bus.open_session(session_id);
+    let mut events = bus.subscribe(session_id);
+    let router = AudioRouter::for_live_with_events(
+        graph,
+        tx,
+        health_for(&["mic", "m1"]),
+        session_id,
+        Arc::new(bus),
+    );
+
+    router.pause("device disconnected");
+    assert!(matches!(
+        events.recv().await.unwrap(),
+        SessionEvent::AudioState { state: AudioSessionState::Paused { reason }, .. } if reason == "device disconnected"
+    ));
+    router.resume().unwrap();
+    assert!(matches!(
+        events.recv().await.unwrap(),
+        SessionEvent::AudioState {
+            state: AudioSessionState::Running,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn pause_waits_for_in_flight_route_and_blocks_later_delivery() {
+    let graph = AudioGraph::for_live(
+        endpoint("mic", AudioDirection::Input),
+        endpoint("m1", AudioDirection::Output),
+    )
+    .unwrap();
+    let (tx, mut rx) = mpsc::channel(2);
+    let (entered_tx, entered_rx) = std_mpsc::channel();
+    let (release_tx, release_rx) = std_mpsc::channel();
+    let (pause_started_tx, pause_started_rx) = std_mpsc::channel();
+    let (pause_done_tx, pause_done_rx) = std_mpsc::channel();
+    let health = BlockingHealth {
+        ready: health_for(&["mic", "m1"]),
+        entered: Arc::new(entered_tx),
+        release: Arc::new(Mutex::new(release_rx)),
+    };
+    let router = Arc::new(AudioRouter::for_live(graph, tx, health));
+    let route_router = router.clone();
+    let route_thread = thread::spawn(move || route_router.route(frame(1), RouteTarget::M1));
+    entered_rx.recv().unwrap();
+    let pause_router = router.clone();
+    let pause_thread = thread::spawn(move || {
+        pause_started_tx.send(()).unwrap();
+        pause_router.pause("device lost");
+        pause_done_tx.send(()).unwrap();
+    });
+    pause_started_rx.recv().unwrap();
+    assert!(matches!(
+        pause_done_rx.recv_timeout(Duration::from_millis(50)),
+        Err(std_mpsc::RecvTimeoutError::Timeout)
+    ));
+    release_tx.send(()).unwrap();
+    route_thread.join().unwrap().unwrap();
+    pause_done_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    pause_thread.join().unwrap();
+
+    assert_eq!(rx.try_recv().unwrap().sequence(), 1);
+    assert!(router.route(frame(2), RouteTarget::M1).is_err());
+    assert!(rx.try_recv().is_err());
 }
 
 #[tokio::test]

@@ -86,9 +86,6 @@ impl AudioGraph {
     pub(crate) fn route_for_target(&self, target: RouteTarget) -> Option<&Route> {
         self.routes.iter().find(|route| route.target == target)
     }
-    pub(crate) fn first_route(&self) -> Option<&Route> {
-        self.routes.first()
-    }
     pub(crate) fn endpoints(&self) -> &[AudioEndpoint] {
         &self.endpoints
     }
