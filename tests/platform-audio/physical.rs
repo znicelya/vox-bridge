@@ -170,11 +170,11 @@ pub fn run(options: Options) -> Result<PhysicalReport, String> {
         }
         thread::sleep(Duration::from_millis(1));
     }
-    let capture_dropped_chunks = capture.dropped_chunks();
-    let capture_dropped_frames = capture.dropped_frames();
-    let playback_dropped_samples = playback.dropped_samples();
-    capture.stop();
-    playback.stop();
+    let capture_stats = capture.stop_with_stats();
+    let playback_stats = playback.stop_with_stats();
+    let capture_dropped_chunks = capture_stats.dropped_chunks;
+    let capture_dropped_frames = capture_stats.dropped_frames;
+    let playback_dropped_samples = playback_stats.dropped_samples;
     while let Ok(frame) = capture_rx.try_recv() {
         capture_observed
             .observe(&frame, capture_spec)

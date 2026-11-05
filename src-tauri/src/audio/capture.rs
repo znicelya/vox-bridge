@@ -50,6 +50,26 @@ pub struct CaptureHandle {
     disconnected: Arc<AtomicBool>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct CaptureStats {
+    pub dropped_chunks: u64,
+    pub dropped_frames: u64,
+}
+
+impl CaptureStats {
+    fn after_stop(
+        stop: impl FnOnce(),
+        dropped_chunks: &AtomicU64,
+        dropped_frames: &AtomicU64,
+    ) -> Self {
+        stop();
+        Self {
+            dropped_chunks: dropped_chunks.load(Ordering::Relaxed),
+            dropped_frames: dropped_frames.load(Ordering::Relaxed),
+        }
+    }
+}
+
 impl CaptureHandle {
     pub fn dropped_chunks(&self) -> u64 {
         self.dropped_chunks.load(Ordering::Relaxed)
@@ -68,6 +88,13 @@ impl CaptureHandle {
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
+    }
+
+    /// Stops callbacks and joins the worker before returning final drop counters.
+    pub fn stop_with_stats(self) -> CaptureStats {
+        let dropped_chunks = self.dropped_chunks.clone();
+        let dropped_frames = self.dropped_frames.clone();
+        CaptureStats::after_stop(|| self.stop(), &dropped_chunks, &dropped_frames)
     }
 }
 
@@ -417,6 +444,34 @@ fn device_error(error: impl std::fmt::Display) -> AppError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_shutdown_stats_include_terminal_dropped_frame() {
+        let (sink, mut receiver) = mpsc::channel(1);
+        let dropped_chunks = AtomicU64::new(0);
+        let dropped_frames = AtomicU64::new(0);
+        send_frame(&sink, &dropped_frames, AudioSource::Microphone, 1, vec![1]);
+
+        let stats = CaptureStats::after_stop(
+            || {
+                // The capture worker flushes a final frame during stop. A full
+                // sink drops it, leaving no later received sequence to show a gap.
+                send_frame(&sink, &dropped_frames, AudioSource::Microphone, 2, vec![2]);
+            },
+            &dropped_chunks,
+            &dropped_frames,
+        );
+
+        assert_eq!(receiver.try_recv().unwrap().sequence(), 1);
+        assert!(receiver.try_recv().is_err());
+        assert_eq!(
+            stats,
+            CaptureStats {
+                dropped_chunks: 0,
+                dropped_frames: 1
+            }
+        );
+    }
 
     #[test]
     fn capture_folds_interleaved_channels_to_mono() {

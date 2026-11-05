@@ -50,6 +50,11 @@ pub struct PlaybackHandle {
     dropped_samples: Arc<AtomicU64>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct PlaybackStats {
+    pub dropped_samples: u64,
+}
+
 impl PlaybackHandle {
     pub fn state(&self) -> PlaybackState {
         decode_state(self.state.load(Ordering::Acquire))
@@ -72,6 +77,15 @@ impl PlaybackHandle {
         self.stream.take();
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
+        }
+    }
+
+    /// Stops callbacks and joins the worker before returning final drop counters.
+    pub fn stop_with_stats(self) -> PlaybackStats {
+        let dropped_samples = self.dropped_samples.clone();
+        self.stop();
+        PlaybackStats {
+            dropped_samples: dropped_samples.load(Ordering::Relaxed),
         }
     }
 }
@@ -326,6 +340,40 @@ fn device_error(error: impl std::fmt::Display) -> AppError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn playback_shutdown_stats_include_worker_drop_after_stop_signal() {
+        let stopped = Arc::new(AtomicBool::new(false));
+        let dropped_samples = Arc::new(AtomicU64::new(0));
+        let worker_stopped = stopped.clone();
+        let worker_dropped = dropped_samples.clone();
+        let ring = SpscAudioRing::new(1);
+        ring.push_overwrite(1);
+        let worker = std::thread::spawn(move || {
+            while !worker_stopped.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+            // An already-running conversion can finish its current frame after
+            // stop is signalled and record one last overwritten sample.
+            if ring.push_overwrite(2) {
+                worker_dropped.fetch_add(1, Ordering::Relaxed);
+            }
+        });
+        let (_, events) = mpsc::channel(1);
+        let handle = PlaybackHandle {
+            stream: None,
+            worker: Some(worker),
+            state: Arc::new(AtomicU8::new(STATE_RUNNING)),
+            stopped,
+            events,
+            dropped_samples,
+        };
+
+        assert_eq!(
+            handle.stop_with_stats(),
+            PlaybackStats { dropped_samples: 1 }
+        );
+    }
 
     #[test]
     fn bounded_playback_ring_discards_oldest_samples() {
