@@ -272,6 +272,16 @@ async fn fixture() -> (
     ProviderSessionConfig,
     tempfile::TempDir,
 ) {
+    fixture_for_scheme("ws").await
+}
+async fn fixture_for_scheme(
+    scheme: &str,
+) -> (
+    TcpListener,
+    VolcengineProvider,
+    ProviderSessionConfig,
+    tempfile::TempDir,
+) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SecretStore::for_tests(dir.path()).unwrap());
@@ -285,7 +295,7 @@ async fn fixture() -> (
         .unwrap();
     let provider = VolcengineProvider::for_endpoint(
         store,
-        format!("ws://{}/ast", listener.local_addr().unwrap()),
+        format!("{scheme}://{}/ast", listener.local_addr().unwrap()),
     )
     .unwrap();
     (listener, provider, cfg, dir)
@@ -302,8 +312,14 @@ async fn event(stream: &ProviderStream) -> Option<ProviderEvent> {
 async fn accept(
     listener: &TcpListener,
 ) -> tokio_tungstenite::WebSocketStream<tokio::net::TcpStream> {
+    accept_socket(listener.accept().await.unwrap().0).await
+}
+async fn accept_socket<S>(socket: S) -> tokio_tungstenite::WebSocketStream<S>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     accept_hdr_async(
-        listener.accept().await.unwrap().0,
+        socket,
         |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
          mut resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
             assert_eq!(req.headers()["X-Api-Key"], "fixture-api-key");
@@ -319,9 +335,10 @@ async fn accept(
     .await
     .unwrap()
 }
-async fn wire_event(
-    ws: &mut tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
-) -> TranslateRequest {
+async fn wire_event<S>(ws: &mut tokio_tungstenite::WebSocketStream<S>) -> TranslateRequest
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     let message = timeout(Duration::from_secs(3), ws.next())
         .await
         .unwrap()
@@ -329,10 +346,10 @@ async fn wire_event(
         .unwrap();
     decode_request(&message.into_data()).unwrap()
 }
-async fn send_response(
-    ws: &mut tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
-    native: i32,
-) {
+async fn send_response<S>(ws: &mut tokio_tungstenite::WebSocketStream<S>, native: i32)
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     ws.send(WsMessage::Binary(response(native, 0, 0, "", vec![]).into()))
         .await
         .unwrap();
@@ -1063,4 +1080,133 @@ async fn transport_cannot_log_credentials_frames_or_remote_close_bodies() {
     ));
     server.await.unwrap();
     assert_eq!(DETECTOR.0.load(Ordering::Relaxed), 0);
+}
+
+#[tokio::test]
+async fn tls_setup_failure_produces_one_terminal_event_instead_of_silent_actor_panic() {
+    use tokio::io::AsyncWriteExt;
+    let (listener, provider, cfg, _dir) = fixture_for_scheme("wss").await;
+    let provider = provider.with_test_timeouts();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        // Exercise the real WSS connector, without a remote service or a
+        // functioning TLS peer. Later retry attempts hit a closed listener.
+        let _ = socket.write_all(b"not a TLS handshake").await;
+    });
+    let stream = provider.connect(cfg).await.unwrap();
+    assert!(matches!(
+        event(&stream).await,
+        Some(ProviderEvent::Failed {
+            error: ProviderError::Disconnected,
+            ..
+        })
+    ));
+    assert!(event(&stream).await.is_none());
+    assert_eq!(
+        stream.send_audio(frame(1)).await,
+        Err(ProviderError::Closed)
+    );
+    server.await.unwrap();
+}
+
+fn tls_peer(
+    peer_name: &str,
+) -> (
+    rustls::pki_types::CertificateDer<'static>,
+    tokio_rustls::TlsAcceptor,
+) {
+    // Ephemeral test-only key/certificate; no host keyring or checked-in key.
+    let certified = rcgen::generate_simple_self_signed(vec![peer_name.into()]).unwrap();
+    let certificate = certified.cert.der().clone();
+    let private_key =
+        rustls::pki_types::PrivatePkcs8KeyDer::from(certified.signing_key.serialize_der());
+    let config = rustls::ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_no_client_auth()
+    .with_single_cert(vec![certificate.clone()], private_key.into())
+    .unwrap();
+    (
+        certificate,
+        tokio_rustls::TlsAcceptor::from(Arc::new(config)),
+    )
+}
+
+#[tokio::test]
+async fn tls_trusted_loopback_stream_uses_authenticated_upgrade_audio_and_finish() {
+    let (listener, provider, cfg, _dir) = fixture_for_scheme("wss").await;
+    let (certificate, acceptor) = tls_peer("127.0.0.1");
+    let provider = provider.with_test_root(certificate).unwrap();
+    let server = tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.unwrap();
+        let tls = acceptor.accept(socket).await.unwrap();
+        let mut socket = accept_socket(tls).await;
+        assert_eq!(wire_event(&mut socket).await.event, 100);
+        send_response(&mut socket, 150).await;
+        let audio = wire_event(&mut socket).await;
+        assert_eq!(audio.event, 200);
+        assert_eq!(&audio.source_audio.unwrap().binary_data[..2], &[42, 0]);
+        assert_eq!(wire_event(&mut socket).await.event, 102);
+        send_response(&mut socket, 152).await;
+        let _ = socket.next().await;
+    });
+    let stream = provider.connect(cfg).await.unwrap();
+    assert!(event(&stream).await.unwrap().is_session_started());
+    stream.send_audio(frame(42)).await.unwrap();
+    stream.finish().await.unwrap();
+    assert!(matches!(
+        event(&stream).await,
+        Some(ProviderEvent::Finished { .. })
+    ));
+    assert!(event(&stream).await.is_none());
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn tls_rejects_unknown_roots_and_wrong_peer_names_with_terminal_failure() {
+    for (peer_name, trust_root) in [("127.0.0.1", false), ("wrong.example", true)] {
+        let (listener, mut provider, cfg, _dir) = fixture_for_scheme("wss").await;
+        let (certificate, acceptor) = tls_peer(peer_name);
+        if trust_root {
+            provider = provider.with_test_root(certificate).unwrap();
+        }
+        let server = tokio::spawn(async move {
+            for _ in 0..3 {
+                let (socket, _) = timeout(Duration::from_secs(3), listener.accept())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                // Validation rejects the peer before sending upgrade headers
+                // containing credentials, with or without a trusted issuer.
+                assert!(acceptor.accept(socket).await.is_err());
+            }
+        });
+        let stream = provider.connect(cfg).await.unwrap();
+        assert!(matches!(
+            event(&stream).await,
+            Some(ProviderEvent::Failed {
+                error: ProviderError::Disconnected,
+                ..
+            })
+        ));
+        assert!(event(&stream).await.is_none());
+        assert_eq!(
+            stream.send_audio(frame(1)).await,
+            Err(ProviderError::Closed)
+        );
+        server.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn tls_fixture_root_injection_cannot_change_a_remote_endpoint() {
+    let dir = tempfile::tempdir().unwrap();
+    let secrets = Arc::new(SecretStore::for_tests(dir.path()).unwrap());
+    let (certificate, _) = tls_peer("127.0.0.1");
+    assert!(matches!(
+        VolcengineProvider::new(secrets).with_test_root(certificate),
+        Err(ProviderError::Protocol)
+    ));
 }

@@ -24,7 +24,7 @@ use tokio::{
     time::{Instant, timeout},
 };
 use tokio_tungstenite::{
-    MaybeTlsStream, WebSocketStream, connect_async_with_config,
+    Connector, MaybeTlsStream, WebSocketStream, connect_async_tls_with_config,
     tungstenite::{
         Message, client::IntoClientRequest, http::HeaderValue, protocol::WebSocketConfig,
     },
@@ -66,6 +66,8 @@ pub struct VolcengineProvider {
     endpoint: String,
     options: StartSessionOptions,
     timing: Timing,
+    #[cfg(test)]
+    test_roots: Option<rustls::RootCertStore>,
 }
 impl VolcengineProvider {
     pub fn new(secrets: Arc<SecretStore>) -> Self {
@@ -74,11 +76,29 @@ impl VolcengineProvider {
             endpoint: ENDPOINT.into(),
             options: StartSessionOptions::default(),
             timing: Timing::default(),
+            #[cfg(test)]
+            test_roots: None,
         }
     }
     pub fn with_start_options(mut self, options: StartSessionOptions) -> Self {
         self.options = options;
         self
+    }
+    fn tls_connector(&self) -> ProviderResult<Connector> {
+        let roots =
+            rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        #[cfg(test)]
+        let roots = self.test_roots.clone().unwrap_or(roots);
+        // Select per configuration, never through Rustls's process-wide
+        // provider inference (which can panic with zero or multiple backends).
+        let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .map_err(|_| ProviderError::Protocol)?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+        Ok(Connector::Rustls(Arc::new(config)))
     }
     /// Compiled only for tests; unencrypted transport is restricted to literal
     /// loopback addresses, so production credentials cannot reach remote WS.
@@ -93,7 +113,10 @@ impl VolcengineProvider {
             Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
             _ => false,
         };
-        if url.scheme() != "ws" || !local || !url.username().is_empty() || url.password().is_some()
+        if !matches!(url.scheme(), "ws" | "wss")
+            || !local
+            || !url.username().is_empty()
+            || url.password().is_some()
         {
             return Err(ProviderError::Protocol);
         }
@@ -101,6 +124,24 @@ impl VolcengineProvider {
             endpoint,
             ..Self::new(secrets)
         })
+    }
+    #[cfg(test)]
+    pub(super) fn with_test_root(
+        mut self,
+        certificate: rustls::pki_types::CertificateDer<'static>,
+    ) -> ProviderResult<Self> {
+        // Reuse the literal-loopback guard; a test trust root cannot be added
+        // to the production endpoint or any arbitrary remote host.
+        Self::for_endpoint(self.secrets.clone(), self.endpoint.clone())?;
+        if !self.endpoint.starts_with("wss://") {
+            return Err(ProviderError::Protocol);
+        }
+        let mut roots = rustls::RootCertStore::empty();
+        roots
+            .add(certificate)
+            .map_err(|_| ProviderError::Protocol)?;
+        self.test_roots = Some(roots);
+        Ok(self)
     }
     #[cfg(test)]
     pub(super) fn with_test_timeouts(mut self) -> Self {
@@ -181,6 +222,7 @@ impl TranslationProvider for VolcengineProvider {
         let actor = Actor {
             state: state.clone(),
             endpoint: self.endpoint.clone(),
+            connector: self.tls_connector()?,
             api_key,
             start,
             timing: self.timing.clone(),
@@ -292,6 +334,7 @@ impl ProviderConnection for Connection {
 struct Actor {
     state: Arc<Mutex<State>>,
     endpoint: String,
+    connector: Connector,
     api_key: Vec<u8>,
     start: Vec<u8>,
     timing: Timing,
@@ -376,7 +419,12 @@ impl Actor {
             .max_frame_size(Some(MAX_MESSAGE_BYTES));
         let (mut ws, response) = timeout(
             self.timing.connect,
-            connect_async_with_config(request, Some(config), true),
+            connect_async_tls_with_config(
+                request,
+                Some(config),
+                true,
+                Some(self.connector.clone()),
+            ),
         )
         .await
         .map_err(|_| ProviderError::Timeout)?
