@@ -1,5 +1,6 @@
 pub mod fixture;
 mod types;
+pub mod volc;
 
 pub use types::*;
 
