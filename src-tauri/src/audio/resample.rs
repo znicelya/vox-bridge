@@ -1,58 +1,70 @@
-use crate::error::AppResult;
+use rubato::{
+    Resampler as RubatoResampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType,
+    WindowFunction,
+};
+
+use crate::error::{AppError, AppResult};
 
 use super::PcmSpec;
 
-/// Streaming mono PCM16 conversion that carries interpolation state across chunks.
+const INPUT_CHUNK: usize = 1024;
+
+/// Stateful band-limited mono PCM16 conversion.
+///
+/// `process` is intended for an audio worker or queue boundary: it owns the
+/// reusable resampler state and returns an owned batch. Device callbacks must
+/// enqueue samples and must not call this allocation-bearing method directly.
 pub struct Resampler {
     from: PcmSpec,
     to: PcmSpec,
-    source_position: f64,
-    consumed: usize,
+    inner: SincFixedIn<f32>,
+    pending: Vec<i16>,
     total_input: usize,
     emitted: usize,
-    pending: Vec<i16>,
 }
 
 impl Resampler {
     pub fn new(from: PcmSpec, to: PcmSpec) -> AppResult<Self> {
         from.validate()?;
         to.validate()?;
+        let inner = SincFixedIn::new(
+            to.sample_rate() as f64 / from.sample_rate() as f64,
+            1.0,
+            SincInterpolationParameters {
+                sinc_len: 256,
+                f_cutoff: 0.95,
+                interpolation: SincInterpolationType::Linear,
+                oversampling_factor: 256,
+                window: WindowFunction::BlackmanHarris2,
+            },
+            INPUT_CHUNK,
+            1,
+        )
+        .map_err(|error| AppError::Internal(format!("failed to configure resampler: {error}")))?;
         Ok(Self {
             from,
             to,
-            source_position: 0.0,
-            consumed: 0,
+            inner,
+            pending: Vec::with_capacity(INPUT_CHUNK * 2),
             total_input: 0,
             emitted: 0,
-            pending: Vec::new(),
         })
     }
 
     pub fn process(&mut self, input: &[i16]) -> AppResult<Vec<i16>> {
-        if input.is_empty() {
-            return Ok(Vec::new());
-        }
         self.pending.extend_from_slice(input);
         self.total_input += input.len();
-        let available_end = self.consumed + self.pending.len();
-        let ratio = self.from.sample_rate() as f64 / self.to.sample_rate() as f64;
         let mut output = Vec::new();
-
-        while self.source_position.floor() as usize + 1 < available_end {
-            let absolute_index = self.source_position.floor() as usize;
-            let local_index = absolute_index.saturating_sub(self.consumed);
-            let fraction = self.source_position - absolute_index as f64;
-            let left = self.pending[local_index] as f64;
-            let right = self.pending[local_index + 1] as f64;
-            output.push(to_i16(left + (right - left) * fraction));
-            self.source_position += ratio;
-        }
-
-        let keep_from = self.source_position.floor() as usize;
-        let discard = keep_from.saturating_sub(self.consumed);
-        if discard > 0 {
-            self.pending.drain(..discard.min(self.pending.len()));
-            self.consumed += discard;
+        while self.pending.len() >= INPUT_CHUNK {
+            let block: Vec<f32> = self
+                .pending
+                .drain(..INPUT_CHUNK)
+                .map(|sample| sample as f32 / 32768.0)
+                .collect();
+            let converted = self.inner.process(&[block], None).map_err(|error| {
+                AppError::Internal(format!("failed to resample audio: {error}"))
+            })?;
+            append_channel(&mut output, converted.first())?;
         }
         self.emitted += output.len();
         Ok(output)
@@ -62,26 +74,33 @@ impl Resampler {
         if self.total_input == 0 {
             return Ok(Vec::new());
         }
-        let ratio = self.from.sample_rate() as f64 / self.to.sample_rate() as f64;
         let mut output = Vec::new();
-        let expected = ((self.total_input as u64 * self.to.sample_rate() as u64)
-            + (self.from.sample_rate() as u64 / 2))
-            / self.from.sample_rate() as u64;
-        while self.emitted + output.len() < expected as usize {
-            let absolute_index = self.source_position.floor() as usize;
-            let local_index = absolute_index.saturating_sub(self.consumed);
-            let left = self.pending[local_index] as f64;
-            let right = self
+        if !self.pending.is_empty() {
+            let partial: Vec<f32> = self
                 .pending
-                .get(local_index + 1)
-                .copied()
-                .unwrap_or(left as i16) as f64;
-            let fraction = self.source_position - absolute_index as f64;
-            output.push(to_i16(left + (right - left) * fraction));
-            self.source_position += ratio;
+                .iter()
+                .map(|sample| *sample as f32 / 32768.0)
+                .collect();
+            let converted =
+                self.inner
+                    .process_partial(Some(&[partial]), None)
+                    .map_err(|error| {
+                        AppError::Internal(format!("failed to flush resampler: {error}"))
+                    })?;
+            append_channel(&mut output, converted.first())?;
+            self.pending.clear();
         }
-        self.pending.clear();
-        self.consumed = self.total_input;
+        let expected = expected_len(self.total_input, self.from, self.to);
+        output.truncate(expected.saturating_sub(self.emitted));
+        let remaining = expected.saturating_sub(self.emitted + output.len());
+        if remaining > 0 {
+            let fill = output
+                .last()
+                .copied()
+                .or_else(|| self.pending.last().copied())
+                .unwrap_or(0);
+            output.resize(output.len() + remaining, fill);
+        }
         self.emitted += output.len();
         Ok(output)
     }
@@ -90,16 +109,25 @@ impl Resampler {
         let mut resampler = Self::new(from, to)?;
         let mut output = resampler.process(input)?;
         output.extend(resampler.flush()?);
-        let expected = ((input.len() as u64 * to.sample_rate() as u64)
-            + (from.sample_rate() as u64 / 2))
-            / from.sample_rate() as u64;
-        output.truncate(expected as usize);
+        output.truncate(expected_len(input.len(), from, to));
         Ok(output)
     }
 }
 
-fn to_i16(sample: f64) -> i16 {
-    sample.round().clamp(i16::MIN as f64, i16::MAX as f64) as i16
+fn append_channel(output: &mut Vec<i16>, channel: Option<&Vec<f32>>) -> AppResult<()> {
+    let channel =
+        channel.ok_or_else(|| AppError::Internal("resampler returned no channel".into()))?;
+    output.extend(channel.iter().map(|sample| {
+        (sample * 32768.0)
+            .round()
+            .clamp(i16::MIN as f32, i16::MAX as f32) as i16
+    }));
+    Ok(())
+}
+
+fn expected_len(input_len: usize, from: PcmSpec, to: PcmSpec) -> usize {
+    (((input_len as u64 * to.sample_rate() as u64) + (from.sample_rate() as u64 / 2))
+        / from.sample_rate() as u64) as usize
 }
 
 #[cfg(test)]

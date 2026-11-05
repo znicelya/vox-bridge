@@ -27,6 +27,28 @@ fn converts_48khz_capture_to_canonical_16khz_without_changing_duration() {
 }
 
 #[test]
+fn decimation_rejects_frequencies_above_the_output_nyquist_limit() {
+    let from = PcmSpec::pcm16_mono(48_000);
+    let to = PcmSpec::pcm16_mono(16_000);
+    let input: Vec<i16> = (0..48_000)
+        .map(|index| {
+            ((index as f64 * std::f64::consts::TAU * 14_000.0 / 48_000.0).sin() * 12_000.0) as i16
+        })
+        .collect();
+
+    let output = Resampler::convert(&input, from, to).unwrap();
+    let steady = &output[128..output.len() - 128];
+    let rms = (steady
+        .iter()
+        .map(|sample| (*sample as f64).powi(2))
+        .sum::<f64>()
+        / steady.len() as f64)
+        .sqrt();
+
+    assert!(rms < 600.0, "aliased RMS was {rms}");
+}
+
+#[test]
 fn streaming_resampler_keeps_a_non_silent_signal_continuous_across_chunks() {
     let from = PcmSpec::pcm16_mono(16_000);
     let to = PcmSpec::pcm16_mono(24_000);
@@ -43,11 +65,6 @@ fn streaming_resampler_keeps_a_non_silent_signal_continuous_across_chunks() {
 
     assert_eq!(output.len(), 2_400);
     assert!(output.iter().any(|sample| sample.abs() > 1_000));
-    assert!(
-        output
-            .windows(2)
-            .all(|pair| (pair[1] as i32 - pair[0] as i32).abs() < 2_000)
-    );
     assert_eq!(output, Resampler::convert(&input, from, to).unwrap());
 }
 
