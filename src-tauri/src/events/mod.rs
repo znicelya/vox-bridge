@@ -18,6 +18,12 @@ pub enum SessionEvent {
         occurred_at: SystemTime,
         status: String,
     },
+    AudioState {
+        event_id: Uuid,
+        session_id: Uuid,
+        occurred_at: SystemTime,
+        state: AudioSessionState,
+    },
     InterimTranscript {
         event_id: Uuid,
         session_id: Uuid,
@@ -58,6 +64,7 @@ impl SessionEvent {
     pub fn session_id(&self) -> Uuid {
         match self {
             Self::Status { session_id, .. }
+            | Self::AudioState { session_id, .. }
             | Self::InterimTranscript { session_id, .. }
             | Self::FinalTranscript { session_id, .. }
             | Self::TranslationAudio { session_id, .. }
@@ -74,4 +81,20 @@ impl SessionEvent {
             status: status.into(),
         }
     }
+
+    pub fn audio_state(session_id: Uuid, state: AudioSessionState) -> Self {
+        Self::AudioState {
+            event_id: Uuid::new_v4(),
+            session_id,
+            occurred_at: SystemTime::now(),
+            state,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum AudioSessionState {
+    Running,
+    Paused { reason: String },
 }

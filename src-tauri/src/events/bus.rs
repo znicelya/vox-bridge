@@ -180,6 +180,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn audio_state_is_published_as_a_transient_typed_event() {
+        let bus = EventBus::new();
+        let session_id = Uuid::new_v4();
+        bus.open_session(session_id);
+        let mut receiver = bus.subscribe(session_id);
+
+        bus.publish(
+            session_id,
+            SessionEvent::audio_state(
+                session_id,
+                super::super::AudioSessionState::Paused {
+                    reason: "device lost".into(),
+                },
+            ),
+        )
+        .unwrap();
+
+        assert!(
+            matches!(receiver.recv().await.unwrap(), SessionEvent::AudioState { state: super::super::AudioSessionState::Paused { reason }, .. } if reason == "device lost")
+        );
+        assert_eq!(bus.terminal_replay_len(), 0);
+    }
+
+    #[tokio::test]
     async fn slow_subscribers_receive_a_typed_lagged_error() {
         let bus = EventBus::new();
         let session_id = Uuid::new_v4();
