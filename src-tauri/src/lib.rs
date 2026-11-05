@@ -4,6 +4,7 @@ pub mod config;
 pub mod domain;
 pub mod error;
 pub mod events;
+pub mod export;
 pub mod session;
 pub mod storage;
 use tauri::Manager;
@@ -32,7 +33,8 @@ pub fn run() {
             commands::list_sessions,
             commands::get_session,
             commands::delete_session,
-            commands::subscribe_session
+            commands::subscribe_session,
+            commands::export_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

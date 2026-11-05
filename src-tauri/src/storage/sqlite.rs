@@ -1,5 +1,6 @@
 use super::models::{
-    SessionSummary, StoredSession, StoredSessionLifecycle, StoredTranscriptSegment, SummaryVersion,
+    ExportData, SessionSummary, StoredSession, StoredSessionLifecycle, StoredTranscriptSegment,
+    SummaryVersion,
 };
 use crate::error::AppResult;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -211,6 +212,42 @@ impl LocalStore {
             })
         })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn get_export_data(&self, id: Uuid) -> AppResult<Option<ExportData>> {
+        let Some(session) = self.get_session(id)? else {
+            return Ok(None);
+        };
+        let lifecycle = self.get_session_lifecycle(id)?.ok_or_else(|| {
+            crate::error::AppError::Internal("session lifecycle is missing".into())
+        })?;
+        let c = self.connection.lock().unwrap();
+        let mut q = c.prepare(
+            "SELECT id,session_id,direction,sequence,occurred_at,language,text,is_final
+             FROM translation_segments WHERE session_id=?1 AND is_final=1
+             ORDER BY occurred_at, sequence, id",
+        )?;
+        let rows = q.query_map(params![id.to_string()], |r| {
+            Ok(StoredTranscriptSegment {
+                id: Uuid::parse_str(&r.get::<_, String>(0)?).unwrap(),
+                session_id: Uuid::parse_str(&r.get::<_, String>(1)?).unwrap(),
+                direction: r.get(2)?,
+                sequence: r.get(3)?,
+                occurred_at: r.get(4)?,
+                language: r.get(5)?,
+                text: r.get(6)?,
+                is_final: r.get::<_, i64>(7)? == 1,
+            })
+        })?;
+        let segments = rows.collect::<Result<Vec<_>, _>>()?;
+        drop(q);
+        drop(c);
+        Ok(Some(ExportData {
+            session,
+            lifecycle,
+            segments,
+            summaries: self.list_summary_versions(id)?,
+        }))
     }
 }
 fn parse_cursor(v: &str) -> AppResult<(i64, String)> {

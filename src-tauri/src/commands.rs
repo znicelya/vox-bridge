@@ -2,11 +2,23 @@ use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use crate::{
-    app::AppState, domain::session::SessionConfig, error::AppError, session::SessionRecord,
+    app::AppState, domain::session::SessionConfig, error::AppError, export::ExportFormat,
+    session::SessionRecord,
 };
 
 fn command_error(error: AppError) -> String {
     format!("[{}] {}", error.code(), error)
+}
+
+#[tauri::command]
+pub fn export_session(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    format: ExportFormat,
+    destination: std::path::PathBuf,
+) -> Result<std::path::PathBuf, String> {
+    crate::export::export_session(state.store(), session_id, format, &destination)
+        .map_err(command_error)
 }
 
 #[tauri::command]

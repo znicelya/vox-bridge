@@ -54,3 +54,11 @@ pub struct SummaryVersion {
     pub status: String,
     pub structured_json: String,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExportData {
+    pub session: StoredSession,
+    pub lifecycle: StoredSessionLifecycle,
+    pub segments: Vec<StoredTranscriptSegment>,
+    pub summaries: Vec<SummaryVersion>,
+}
