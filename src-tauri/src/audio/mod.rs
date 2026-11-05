@@ -1,6 +1,8 @@
 pub mod capture;
 pub mod frame;
 pub mod graph;
+#[cfg(debug_assertions)]
+pub mod loopback;
 pub mod platform;
 pub mod playback;
 pub mod queue;

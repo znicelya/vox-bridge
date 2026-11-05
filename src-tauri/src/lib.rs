@@ -29,6 +29,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            #[cfg(debug_assertions)]
+            commands::dev_audio_loopback,
             commands::create_session,
             commands::stop_session,
             commands::list_sessions,

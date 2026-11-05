@@ -10,6 +10,17 @@ fn command_error(error: AppError) -> String {
     format!("[{}] {}", error.code(), error)
 }
 
+/// Development-only synthetic diagnostics; never opens audio hardware or a provider.
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub async fn dev_audio_loopback(
+    frames: Option<u32>,
+) -> Result<crate::audio::loopback::SyntheticReport, String> {
+    crate::audio::loopback::run_synthetic(frames.unwrap_or(50))
+        .await
+        .map_err(command_error)
+}
+
 #[tauri::command]
 pub fn export_session(
     state: State<'_, AppState>,

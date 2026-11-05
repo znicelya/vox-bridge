@@ -5,6 +5,7 @@
   "identifier": "com.voxbridge",
   "build": {
     "beforeDevCommand": "pnpm dev",
+    "additionalWatchFolders": ["../tests/platform-audio"],
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "pnpm build && pnpm check:audio-packages",
     "frontendDist": "../dist"

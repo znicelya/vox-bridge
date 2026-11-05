@@ -43,6 +43,10 @@ crossbeam-queue = "0.3.14"
 [dev-dependencies]
 tempfile = "3"
 
+[[example]]
+name = "run-loopback"
+path = "../tests/platform-audio/run-loopback.rs"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
