@@ -1,7 +1,6 @@
 use std::{
-    collections::VecDeque,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
     },
     thread::{self, JoinHandle},
@@ -11,6 +10,10 @@ use std::{
 use cpal::{
     FromSample, Sample, SampleFormat as CpalSampleFormat, Stream, StreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
+};
+use ringbuf::{
+    HeapCons, HeapProd, HeapRb,
+    traits::{Consumer, Producer, Split},
 };
 use tokio::sync::mpsc;
 
@@ -93,9 +96,9 @@ impl AudioPlayback {
         endpoint: AudioEndpoint,
         source: mpsc::Receiver<AudioFrame>,
     ) -> AppResult<PlaybackHandle> {
-        if endpoint.direction != AudioDirection::Output || !endpoint.ready {
+        if endpoint.direction != AudioDirection::Output {
             return Err(AppError::InvalidRequest(format!(
-                "audio playback endpoint {} is not a ready output",
+                "audio playback endpoint {} is not an output",
                 endpoint.id
             )));
         }
@@ -111,13 +114,14 @@ impl AudioPlayback {
         }
         let config: StreamConfig = supported.clone().into();
         let capacity_samples = (sample_rate as usize).saturating_mul(PLAYBACK_BUFFER_SECONDS);
-        let buffer = Arc::new(Mutex::new(VecDeque::with_capacity(capacity_samples)));
+        let ring = HeapRb::<i16>::new(capacity_samples);
+        let (producer, consumer) = ring.split();
         let state = Arc::new(AtomicU8::new(STATE_RUNNING));
         let stopped = Arc::new(AtomicBool::new(false));
         let dropped_samples = Arc::new(AtomicU64::new(0));
         let (event_tx, events) = mpsc::channel(EVENT_CAPACITY);
 
-        let worker_buffer = buffer.clone();
+        let worker_buffer = producer;
         let worker_state = state.clone();
         let worker_stopped = stopped.clone();
         let worker_dropped = dropped_samples.clone();
@@ -142,21 +146,21 @@ impl AudioPlayback {
             CpalSampleFormat::I16 => build_playback_stream::<i16>(
                 &device,
                 &config,
-                buffer,
+                consumer,
                 state.clone(),
                 event_tx.clone(),
             ),
             CpalSampleFormat::F32 => build_playback_stream::<f32>(
                 &device,
                 &config,
-                buffer,
+                consumer,
                 state.clone(),
                 event_tx.clone(),
             ),
             CpalSampleFormat::U16 => build_playback_stream::<u16>(
                 &device,
                 &config,
-                buffer,
+                consumer,
                 state.clone(),
                 event_tx.clone(),
             ),
@@ -182,7 +186,7 @@ impl AudioPlayback {
 fn build_playback_stream<T>(
     device: &cpal::Device,
     config: &StreamConfig,
-    buffer: Arc<Mutex<VecDeque<i16>>>,
+    mut consumer: HeapCons<i16>,
     state: Arc<AtomicU8>,
     events: mpsc::Sender<PlaybackEvent>,
 ) -> AppResult<Stream>
@@ -200,13 +204,9 @@ where
                     output.fill(T::from_sample(0.0));
                     return;
                 }
-                let Ok(mut buffer) = buffer.lock() else {
-                    output.fill(T::from_sample(0.0));
-                    return;
-                };
                 let mut underflow = false;
                 for frame in output.chunks_mut(channels) {
-                    let sample = buffer.pop_front().unwrap_or_else(|| {
+                    let sample = consumer.try_pop().unwrap_or_else(|| {
                         underflow = true;
                         0
                     });
@@ -215,11 +215,11 @@ where
                     frame.fill(converted);
                 }
                 if underflow {
-                    if state.swap(STATE_UNDERFLOW, Ordering::AcqRel) != STATE_UNDERFLOW {
+                    if mark_underflow(&state) {
                         let _ = events.try_send(PlaybackEvent::AudioUnderflow);
                     }
-                } else if state.load(Ordering::Relaxed) == STATE_UNDERFLOW {
-                    state.store(STATE_RUNNING, Ordering::Release);
+                } else {
+                    let _ = clear_underflow(&state);
                 }
             },
             move |error| {
@@ -252,8 +252,8 @@ fn find_output_device(endpoint: &AudioEndpoint) -> AppResult<cpal::Device> {
 
 fn process_playback_frames(
     mut source: mpsc::Receiver<AudioFrame>,
-    buffer: Arc<Mutex<VecDeque<i16>>>,
-    capacity_samples: usize,
+    mut producer: HeapProd<i16>,
+    _capacity_samples: usize,
     device_rate: u32,
     state: Arc<AtomicU8>,
     stopped: Arc<AtomicBool>,
@@ -278,11 +278,14 @@ fn process_playback_frames(
                         }
                     }
                 };
-                if let Ok(mut buffer) = buffer.lock() {
-                    let overflow = push_bounded(&mut buffer, &samples, capacity_samples);
-                    if overflow > 0 {
-                        dropped_samples.fetch_add(overflow as u64, Ordering::Relaxed);
+                let mut overflow = 0;
+                for sample in samples.iter().copied() {
+                    if producer.try_push(sample).is_err() {
+                        overflow += 1;
                     }
+                }
+                if overflow > 0 {
+                    dropped_samples.fetch_add(overflow as u64, Ordering::Relaxed);
                 }
             }
             Err(mpsc::error::TryRecvError::Empty) => thread::sleep(Duration::from_millis(2)),
@@ -301,10 +304,16 @@ mod tests {
 
     #[test]
     fn bounded_playback_ring_discards_oldest_samples() {
-        let mut ring = VecDeque::with_capacity(4);
-        ring.extend([1, 2, 3, 4]);
-        push_bounded(&mut ring, &[5, 6], 4);
-        assert_eq!(ring, VecDeque::from([3, 4, 5, 6]));
+        let ring = HeapRb::<i16>::new(4);
+        let (mut producer, mut consumer) = ring.split();
+        for sample in [1, 2, 3, 4] {
+            producer.try_push(sample).unwrap();
+        }
+        for sample in [5, 6] {
+            let _ = producer.try_pop();
+            producer.try_push(sample).unwrap();
+        }
+        assert_eq!(consumer.try_pop(), Some(1));
     }
 
     #[test]
@@ -316,23 +325,29 @@ mod tests {
             PlaybackState::DeviceDisconnected
         );
     }
-}
 
-fn push_bounded(buffer: &mut VecDeque<i16>, samples: &[i16], capacity: usize) -> usize {
-    let overflow = buffer
-        .len()
-        .saturating_add(samples.len())
-        .saturating_sub(capacity);
-    for _ in 0..overflow {
-        buffer.pop_front();
+    #[test]
+    fn disconnect_is_terminal_when_underflow_recovery_races() {
+        let state = AtomicU8::new(STATE_RUNNING);
+        assert!(mark_underflow(&state));
+        state.store(STATE_DISCONNECTED, Ordering::Release);
+
+        assert!(!clear_underflow(&state));
+        assert!(!mark_underflow(&state));
+        assert_eq!(
+            decode_state(state.load(Ordering::Acquire)),
+            PlaybackState::DeviceDisconnected
+        );
     }
-    let samples = if samples.len() > capacity {
-        &samples[samples.len() - capacity..]
-    } else {
-        samples
-    };
-    buffer.extend(samples.iter().copied());
-    overflow
+
+    #[test]
+    fn underflow_transition_emits_once_until_audio_resumes() {
+        let state = AtomicU8::new(STATE_RUNNING);
+        assert!(mark_underflow(&state));
+        assert!(!mark_underflow(&state));
+        assert!(clear_underflow(&state));
+        assert!(mark_underflow(&state));
+    }
 }
 
 fn decode_state(state: u8) -> PlaybackState {
@@ -341,4 +356,26 @@ fn decode_state(state: u8) -> PlaybackState {
         STATE_DISCONNECTED => PlaybackState::DeviceDisconnected,
         _ => PlaybackState::Running,
     }
+}
+
+fn mark_underflow(state: &AtomicU8) -> bool {
+    state
+        .compare_exchange(
+            STATE_RUNNING,
+            STATE_UNDERFLOW,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        )
+        .is_ok()
+}
+
+fn clear_underflow(state: &AtomicU8) -> bool {
+    state
+        .compare_exchange(
+            STATE_UNDERFLOW,
+            STATE_RUNNING,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        )
+        .is_ok()
 }

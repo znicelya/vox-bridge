@@ -30,27 +30,17 @@ enum RawSamples {
     U16(Vec<u16>),
 }
 
-trait CaptureSample: SizedSample + Copy {
-    fn copy_samples(samples: &[Self]) -> RawSamples;
+struct RawBlock {
+    samples: RawSamples,
+    len: usize,
 }
 
-impl CaptureSample for i16 {
-    fn copy_samples(samples: &[Self]) -> RawSamples {
-        RawSamples::I16(samples.to_vec())
-    }
-}
+const CAPTURE_BUFFER_SAMPLES: usize = 8192;
 
-impl CaptureSample for f32 {
-    fn copy_samples(samples: &[Self]) -> RawSamples {
-        RawSamples::F32(samples.to_vec())
-    }
-}
-
-impl CaptureSample for u16 {
-    fn copy_samples(samples: &[Self]) -> RawSamples {
-        RawSamples::U16(samples.to_vec())
-    }
-}
+trait CaptureSample: SizedSample + Copy {}
+impl CaptureSample for i16 {}
+impl CaptureSample for f32 {}
+impl CaptureSample for u16 {}
 
 pub struct CaptureHandle {
     stream: Option<Stream>,
@@ -97,9 +87,9 @@ impl AudioCapture {
         endpoint: AudioEndpoint,
         sink: mpsc::Sender<AudioFrame>,
     ) -> AppResult<CaptureHandle> {
-        if endpoint.direction != AudioDirection::Input || !endpoint.ready {
+        if endpoint.direction != AudioDirection::Input {
             return Err(AppError::InvalidRequest(format!(
-                "audio capture endpoint {} is not a ready input",
+                "audio capture endpoint {} is not an input",
                 endpoint.id
             )));
         }
@@ -126,6 +116,8 @@ impl AudioCapture {
         } else {
             AudioSource::Microphone
         };
+        let (pool_tx, pool_rx) = make_pool(supported.sample_format(), channels);
+        let worker_pool = pool_tx.clone();
         let worker = thread::Builder::new()
             .name("vox-audio-capture-convert".into())
             .spawn(move || {
@@ -137,6 +129,7 @@ impl AudioCapture {
                     channels,
                     worker_dropped_frames,
                     worker_disconnected,
+                    worker_pool,
                 );
             })
             .map_err(|error| {
@@ -148,6 +141,8 @@ impl AudioCapture {
                 &device,
                 &config,
                 ingress_tx.clone(),
+                pool_rx.clone(),
+                pool_tx.clone(),
                 dropped_chunks.clone(),
                 disconnected.clone(),
             ),
@@ -155,6 +150,8 @@ impl AudioCapture {
                 &device,
                 &config,
                 ingress_tx.clone(),
+                pool_rx.clone(),
+                pool_tx.clone(),
                 dropped_chunks.clone(),
                 disconnected.clone(),
             ),
@@ -162,6 +159,8 @@ impl AudioCapture {
                 &device,
                 &config,
                 ingress_tx.clone(),
+                pool_rx.clone(),
+                pool_tx.clone(),
                 dropped_chunks.clone(),
                 disconnected.clone(),
             ),
@@ -186,7 +185,9 @@ impl AudioCapture {
 fn build_capture_stream<T: CaptureSample + Sample + FromSample<T> + Send + 'static>(
     device: &Device,
     config: &StreamConfig,
-    ingress: sync_mpsc::SyncSender<RawSamples>,
+    ingress: sync_mpsc::SyncSender<RawBlock>,
+    pool: crossbeam_channel::Receiver<RawSamples>,
+    pool_return: crossbeam_channel::Sender<RawSamples>,
     dropped_chunks: Arc<AtomicU64>,
     disconnected: Arc<AtomicBool>,
 ) -> AppResult<Stream> {
@@ -202,8 +203,48 @@ fn build_capture_stream<T: CaptureSample + Sample + FromSample<T> + Send + 'stat
                 if disconnected.load(Ordering::Acquire) {
                     return;
                 }
-                if ingress.try_send(T::copy_samples(data)).is_err() {
+                let Some(mut buffer) = pool.try_recv().ok() else {
                     dropped_chunks.fetch_add(1, Ordering::Relaxed);
+                    return;
+                };
+                let copied = match &mut buffer {
+                    RawSamples::I16(samples) => {
+                        let n = data.len().min(samples.len());
+                        samples[..n].copy_from_slice(unsafe {
+                            std::slice::from_raw_parts(data.as_ptr() as *const i16, n)
+                        });
+                        n
+                    }
+                    RawSamples::F32(samples) => {
+                        let n = data.len().min(samples.len());
+                        samples[..n].copy_from_slice(unsafe {
+                            std::slice::from_raw_parts(data.as_ptr() as *const f32, n)
+                        });
+                        n
+                    }
+                    RawSamples::U16(samples) => {
+                        let n = data.len().min(samples.len());
+                        samples[..n].copy_from_slice(unsafe {
+                            std::slice::from_raw_parts(data.as_ptr() as *const u16, n)
+                        });
+                        n
+                    }
+                };
+                if copied < data.len() {
+                    dropped_chunks.fetch_add(1, Ordering::Relaxed);
+                    let _ = pool_return.try_send(buffer);
+                    return;
+                }
+                if let Err(error) = ingress.try_send(RawBlock {
+                    samples: buffer,
+                    len: copied,
+                }) {
+                    dropped_chunks.fetch_add(1, Ordering::Relaxed);
+                    let block = match error {
+                        sync_mpsc::TrySendError::Full(block)
+                        | sync_mpsc::TrySendError::Disconnected(block) => block,
+                    };
+                    let _ = pool_return.try_send(block.samples);
                 }
             },
             error,
@@ -230,13 +271,14 @@ fn find_input_device(endpoint: &AudioEndpoint) -> AppResult<Device> {
 }
 
 fn process_capture_blocks(
-    receiver: sync_mpsc::Receiver<RawSamples>,
+    receiver: sync_mpsc::Receiver<RawBlock>,
     sink: mpsc::Sender<AudioFrame>,
     source: AudioSource,
     sample_rate: u32,
     channels: u16,
     dropped_frames: Arc<AtomicU64>,
     disconnected: Arc<AtomicBool>,
+    pool: crossbeam_channel::Sender<RawSamples>,
 ) {
     let from = match PcmSpec::new(sample_rate, 1, SampleFormat::I16) {
         Ok(spec) => spec,
@@ -253,11 +295,13 @@ fn process_capture_blocks(
         }
     };
     let mut sequence = 0;
-    while let Ok(samples) = receiver.recv() {
-        let mono = downmix_to_i16(samples, channels);
+    while let Ok(block) = receiver.recv() {
+        let mono = downmix_to_i16(&block.samples, block.len, channels);
+        let _ = pool.try_send(block.samples);
         if mono.is_empty() {
             continue;
         }
+        // Buffers are recycled by the callback-side pool in the stream owner.
         let converted = match resampler.process(&mono) {
             Ok(converted) => converted,
             Err(error) => {
@@ -277,6 +321,32 @@ fn process_capture_blocks(
             send_frame(&sink, &dropped_frames, source, sequence, tail);
         }
     }
+}
+
+fn make_pool(
+    format: CpalSampleFormat,
+    channels: u16,
+) -> (
+    crossbeam_channel::Sender<RawSamples>,
+    crossbeam_channel::Receiver<RawSamples>,
+) {
+    let (tx, rx) = crossbeam_channel::bounded(CAPTURE_INGRESS_BLOCKS);
+    for _ in 0..CAPTURE_INGRESS_BLOCKS {
+        let buffer = match format {
+            CpalSampleFormat::I16 => {
+                RawSamples::I16(vec![0; CAPTURE_BUFFER_SAMPLES * channels as usize])
+            }
+            CpalSampleFormat::F32 => {
+                RawSamples::F32(vec![0.0; CAPTURE_BUFFER_SAMPLES * channels as usize])
+            }
+            CpalSampleFormat::U16 => {
+                RawSamples::U16(vec![0; CAPTURE_BUFFER_SAMPLES * channels as usize])
+            }
+            _ => RawSamples::I16(vec![0; CAPTURE_BUFFER_SAMPLES]),
+        };
+        let _ = tx.try_send(buffer);
+    }
+    (tx, rx)
 }
 
 fn send_frame(
@@ -301,17 +371,17 @@ fn send_frame(
     }
 }
 
-fn downmix_to_i16(samples: RawSamples, channels: u16) -> Vec<i16> {
+fn downmix_to_i16(samples: &RawSamples, len: usize, channels: u16) -> Vec<i16> {
     let channels = usize::from(channels.max(1));
     match samples {
-        RawSamples::I16(samples) => samples
+        RawSamples::I16(samples) => samples[..len]
             .chunks_exact(channels)
             .map(|frame| {
                 (frame.iter().map(|sample| i64::from(*sample)).sum::<i64>() / channels as i64)
                     as i16
             })
             .collect(),
-        RawSamples::F32(samples) => samples
+        RawSamples::F32(samples) => samples[..len]
             .chunks_exact(channels)
             .map(|frame| {
                 let mono = frame
@@ -324,7 +394,7 @@ fn downmix_to_i16(samples: RawSamples, channels: u16) -> Vec<i16> {
                     .clamp(i16::MIN as f32, i16::MAX as f32) as i16
             })
             .collect(),
-        RawSamples::U16(samples) => samples
+        RawSamples::U16(samples) => samples[..len]
             .chunks_exact(channels)
             .map(|frame| {
                 let mono = frame
@@ -350,13 +420,13 @@ mod tests {
 
     #[test]
     fn capture_folds_interleaved_channels_to_mono() {
-        let mono = downmix_to_i16(RawSamples::I16(vec![100, 300, -100, 100]), 2);
+        let mono = downmix_to_i16(&RawSamples::I16(vec![100, 300, -100, 100]), 4, 2);
         assert_eq!(mono, vec![200, 0]);
     }
 
     #[test]
     fn capture_converts_float_samples_to_pcm16() {
-        let mono = downmix_to_i16(RawSamples::F32(vec![-1.0, 0.0, 1.0]), 1);
+        let mono = downmix_to_i16(&RawSamples::F32(vec![-1.0, 0.0, 1.0]), 3, 1);
         assert_eq!(mono, vec![-32767, 0, 32767]);
     }
 }
