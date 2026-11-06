@@ -1,10 +1,13 @@
 import type {
   RuntimeDiagnostic,
   SessionRecord,
+  SessionDirection,
   TranscriptUpdate,
 } from "../../lib/wire";
 export interface SessionStreamState {
   session: SessionRecord | null;
+  /** Fixed direction keys; reconciliation facts survive display-row eviction. */
+  epochs: Partial<Record<SessionDirection, number>>;
   finals: TranscriptUpdate[];
   interims: TranscriptUpdate[];
   diagnostics: RuntimeDiagnostic[];

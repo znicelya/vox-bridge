@@ -1,5 +1,4 @@
 import {
-  invokeDecoded,
   localDesktopError,
   withDesktopDeadline,
   type DesktopPort,
@@ -12,6 +11,7 @@ import {
   decodeTranscriptPage,
   decodeUuid,
   WireDecodeError,
+  type Decoder,
   type SessionEvent,
   type SessionRecord,
   type SubscriptionTicket,
@@ -20,25 +20,39 @@ import {
   emptyStreamState,
   reduceDiagnostic,
   reduceTranscript,
+  reduceSessionRecord,
+  observeEpoch,
 } from "./reducer";
 import type { SessionStreamController, SessionStreamState } from "./types";
 
+type NativeKey =
+  | "subscribe_session"
+  | "unsubscribe_session"
+  | "listen"
+  | "get_session"
+  | "get_session_transcript"
+  | "get_session_diagnostics";
+type NativeOperation<T> = { native: Promise<T>; local: Promise<T> };
 type Run = {
   generation: number;
   sessionId: string;
   stopped: boolean;
   ticket?: SubscriptionTicket;
   unlisten?: () => void;
-  cleanup?: Promise<void>;
+  requests: Map<NativeKey, NativeOperation<unknown>>;
+  started: Promise<void>;
+  finishStart: () => void;
+  admissionTimer?: ReturnType<typeof setTimeout>;
   timer?: ReturnType<typeof setInterval>;
   recovery?: Promise<void>;
-  recordRequest?: Promise<SessionRecord | null>;
   refreshing: boolean;
   revision: number;
   buffer: SessionEvent[];
   transcriptCursor: number | null;
   diagnosticCursor: number | null;
 };
+// Includes retired generations whose original native operations have not settled.
+const MAX_OWNED_RUNS = 4;
 const terminal = (session: SessionRecord | null) =>
   session?.status === "completed" || session?.status === "failed";
 const eventSession = (event: SessionEvent) =>
@@ -55,7 +69,9 @@ export function createSessionStream(
   let generation = 0;
   let current: Run | undefined;
   const listeners = new Set<() => void>();
-  const retiring = new Set<Run>();
+  const subscriberId = crypto.randomUUID();
+  const owned = new Set<Run>();
+  let queued: Run | undefined;
   const publish = (next: SessionStreamState) => {
     state = next;
     for (const changed of listeners) changed();
@@ -65,8 +81,44 @@ export function createSessionStream(
   const fail = (run: Run, error: unknown) => {
     if (alive(run)) publish({ ...state, error: localDesktopError(error) });
   };
-  function retire(run: Run): Promise<void> {
+  function releaseOwnership(run: Run) {
+    if (run.stopped && run.requests.size === 0 && !run.ticket && !run.unlisten)
+      owned.delete(run);
+    pump();
+  }
+  function operation<T>(
+    run: Run,
+    key: NativeKey,
+    invoke: () => Promise<T>,
+  ): NativeOperation<T> {
+    const pending = run.requests.get(key);
+    if (pending) return pending as NativeOperation<T>;
+    // Record admission before invoking native code, and release only after the
+    // original Promise settles. A deadline only ends its local caller's wait.
+    const native = Promise.resolve().then(invoke);
+    const work = { native, local: withDesktopDeadline(native) };
+    run.requests.set(key, work);
+    const settled = () => {
+      run.requests.delete(key);
+      releaseOwnership(run);
+    };
+    void native.then(settled, settled);
+    return work;
+  }
+  function invokeOwned<T>(
+    run: Run,
+    command: NativeKey,
+    args: Record<string, unknown>,
+    decode: Decoder<T>,
+  ): Promise<T> {
+    return operation(run, command, () =>
+      port.invoke<unknown>(command, args).then(decode),
+    ).local;
+  }
+  async function retire(run: Run, reportGeneration?: number): Promise<void> {
     run.stopped = true;
+    run.finishStart();
+    if (queued === run) queued = undefined;
     if (run.timer) {
       clearInterval(run.timer);
       run.timer = undefined;
@@ -75,50 +127,100 @@ export function createSessionStream(
       run.unlisten();
       run.unlisten = undefined;
     }
-    if (run.cleanup) return run.cleanup;
-    if (!run.ticket) return Promise.resolve();
-    retiring.add(run);
-    const ticket = run.ticket;
-    run.cleanup = (async () => {
+    if (run.ticket) {
+      const ticket = run.ticket;
+      const work = operation(run, "unsubscribe_session", () =>
+        port
+          .invoke("unsubscribe_session", { subscriptionId: ticket.id })
+          // Only a real native rejection permits another native attempt. A local
+          // timeout leaves this operation shared, including its eventual retry.
+          .catch(() =>
+            port.invoke("unsubscribe_session", { subscriptionId: ticket.id }),
+          )
+          .then(() => {
+            run.ticket = undefined;
+          }),
+      );
       try {
-        try {
-          await withDesktopDeadline(
-            port.invoke("unsubscribe_session", { subscriptionId: ticket.id }),
-          );
-        } catch {
-          await withDesktopDeadline(
-            port.invoke("unsubscribe_session", { subscriptionId: ticket.id }),
-          );
-        }
-        run.ticket = undefined;
-        retiring.delete(run);
+        await work.local;
       } catch (error) {
-        // Keep the ticket for a later stop/start cleanup retry; never claim it was released.
-        publish({ ...state, error: localDesktopError(error) });
-      } finally {
-        run.cleanup = undefined;
+        if (reportGeneration === generation)
+          publish({ ...state, error: localDesktopError(error) });
       }
-    })();
-    return run.cleanup;
+    }
+    releaseOwnership(run);
   }
   function readSession(run: Run): Promise<SessionRecord | null> {
-    if (run.recordRequest) return run.recordRequest;
-    const nativeRequest = port
-      .invoke<unknown>("get_session", { sessionId: run.sessionId })
-      .then((value) => {
+    return invokeOwned(
+      run,
+      "get_session",
+      { sessionId: run.sessionId },
+      (value) => {
         const session = decodeNullableSessionRecord(value);
         if (session && session.id !== run.sessionId)
           throw new WireDecodeError();
         return session;
-      });
-    // A JS timeout cannot cancel Tauri work. Keep the rejected shared Promise until
-    // the native call settles so subsequent ticks cannot pile up native requests.
-    run.recordRequest = withDesktopDeadline(nativeRequest);
-    const release = () => {
-      run.recordRequest = undefined;
-    };
-    void nativeRequest.then(release, release);
-    return run.recordRequest;
+      },
+    );
+  }
+  function pump() {
+    const run = queued;
+    if (!run || !alive(run) || owned.size >= MAX_OWNED_RUNS) return;
+    // A late earlier same-key native subscribe must never replace a newer ticket.
+    if (
+      [...owned].some(
+        (earlier) =>
+          earlier.sessionId === run.sessionId &&
+          earlier.requests.has("subscribe_session"),
+      )
+    )
+      return;
+    queued = undefined;
+    if (run.admissionTimer) {
+      clearTimeout(run.admissionTimer);
+      run.admissionTimer = undefined;
+    }
+    owned.add(run);
+    void launch(run);
+  }
+  async function launch(run: Run) {
+    try {
+      const ticket = await operation(run, "subscribe_session", () =>
+        port
+          .invoke<unknown>("subscribe_session", {
+            sessionId: run.sessionId,
+            subscriberId,
+          })
+          .then((value) => {
+            const ticket = decodeSubscriptionTicket(value);
+            run.ticket = ticket;
+            if (!alive(run)) void retire(run);
+            return ticket;
+          }),
+      ).local;
+      if (!alive(run)) return;
+      await operation(run, "listen", () =>
+        port
+          .listen<unknown>(ticket.event_name, (payload) =>
+            receive(run, payload),
+          )
+          .then((unlisten) => {
+            if (!alive(run)) unlisten();
+            else run.unlisten = unlisten;
+          }),
+      ).local;
+      if (!alive(run)) return;
+      run.timer = setInterval(() => {
+        void refresh(run);
+      }, 2000);
+      await recover(run);
+    } catch (error) {
+      fail(run, error);
+      if (alive(run)) publish({ ...state, recovering: false });
+      await retire(run);
+    } finally {
+      run.finishStart();
+    }
   }
   function apply(run: Run, event: SessionEvent) {
     if (!alive(run)) return;
@@ -140,14 +242,14 @@ export function createSessionStream(
         const args = { sessionId: run.sessionId, after, limit: 200 };
         const page =
           family === "transcript"
-            ? await invokeDecoded(
-                port,
+            ? await invokeOwned(
+                run,
                 "get_session_transcript",
                 args,
                 decodeTranscriptPage,
               )
-            : await invokeDecoded(
-                port,
+            : await invokeOwned(
+                run,
                 "get_session_diagnostics",
                 args,
                 decodeDiagnosticPage,
@@ -199,7 +301,7 @@ export function createSessionStream(
           if (!alive(run)) return;
           if (revision !== run.revision) continue;
           if (session === null) throw "[SESSION_NOT_FOUND]";
-          publish({ ...state, session });
+          publish(reduceSessionRecord(state, session));
           if (!(await pages(run, revision))) continue;
           const buffered = run.buffer;
           run.buffer = [];
@@ -222,6 +324,9 @@ export function createSessionStream(
   }
   function resync(run: Run) {
     run.revision++;
+    run.buffer = run.buffer.filter(
+      (event) => event.type !== "transcript" || event.update.is_final,
+    );
     publish({ ...state, interims: [] });
     return recover(run);
   }
@@ -238,7 +343,7 @@ export function createSessionStream(
       const session = await readSession(run);
       if (!alive(run)) return;
       if (session === null) throw "[SESSION_NOT_FOUND]";
-      publish({ ...state, session });
+      publish(reduceSessionRecord(state, session));
       if (terminal(session)) await resync(run);
     } catch (error) {
       fail(run, error);
@@ -255,6 +360,21 @@ export function createSessionStream(
         void resync(run);
         return;
       }
+      if (event.type === "transcript")
+        state = observeEpoch(
+          state,
+          event.update.direction,
+          event.update.details?.stream_epoch ?? null,
+        );
+      else if (
+        event.type === "diagnostic" &&
+        event.diagnostic.direction !== null
+      )
+        state = observeEpoch(
+          state,
+          event.diagnostic.direction,
+          event.diagnostic.stream_epoch,
+        );
       if (state.recovering) {
         if (run.buffer.length >= 512) {
           run.buffer = [];
@@ -266,17 +386,31 @@ export function createSessionStream(
     }
   }
   return {
-    async start(sessionId) {
+    start(sessionId) {
       const previous = current;
       generation++;
       current = undefined;
       if (previous) void retire(previous);
-      for (const pending of retiring) void retire(pending);
+      for (const old of owned)
+        if (old.stopped && old !== previous) void retire(old);
       publish(emptyStreamState());
+      let resolveStart!: () => void;
+      const started = new Promise<void>((resolve) => {
+        resolveStart = resolve;
+      });
       const run: Run = {
         generation,
         sessionId,
         stopped: false,
+        requests: new Map(),
+        started,
+        finishStart: () => {
+          if (run.admissionTimer) {
+            clearTimeout(run.admissionTimer);
+            run.admissionTimer = undefined;
+          }
+          resolveStart();
+        },
         refreshing: false,
         revision: 0,
         buffer: [],
@@ -286,50 +420,35 @@ export function createSessionStream(
       current = run;
       try {
         decodeUuid(sessionId);
-        if (retiring.size >= 16) throw new Error("cleanup capacity");
-        publish({ ...state, recovering: true });
-        // Attach ownership to the original Promise so timeouts and late replies still clean up.
-        const subscribing = port
-          .invoke<unknown>("subscribe_session", {
-            sessionId,
-            subscriberId: crypto.randomUUID(),
-          })
-          .then(async (value) => {
-            const ticket = decodeSubscriptionTicket(value);
-            run.ticket = ticket;
-            if (!alive(run)) await retire(run);
-            return ticket;
-          });
-        const ticket = await withDesktopDeadline(subscribing);
-        if (!alive(run)) return;
-        const listening = port
-          .listen<unknown>(ticket.event_name, (payload) =>
-            receive(run, payload),
-          )
-          .then((unlisten) => {
-            if (!alive(run)) unlisten();
-            else run.unlisten = unlisten;
-          });
-        await withDesktopDeadline(listening);
-        if (!alive(run)) return;
-        run.timer = setInterval(() => {
-          void refresh(run);
-        }, 2000);
-        await recover(run);
       } catch (error) {
         fail(run, error);
-        if (alive(run)) publish({ ...state, recovering: false });
-        await retire(run);
+        void retire(run);
+        return started;
       }
+      publish({ ...state, recovering: true });
+      // Exactly one latest-only local waiter, with cancellation and its own
+      // deadline. It does not occupy native admission or retain older waiters.
+      queued = run;
+      run.admissionTimer = setTimeout(() => {
+        if (queued !== run || !alive(run)) return;
+        publish({
+          ...state,
+          recovering: false,
+          error: "会话仍在连接或清理，请重试。",
+        });
+        void retire(run);
+      }, 10000);
+      pump();
+      return started;
     },
     async stop() {
       generation++;
       const stoppedGeneration = generation;
       const previous = current;
       current = undefined;
-      if (previous) await retire(previous);
-      for (const pending of [...retiring])
-        if (pending !== previous) await retire(pending);
+      const runs = new Set(owned);
+      if (previous) runs.add(previous);
+      await Promise.all([...runs].map((run) => retire(run, stoppedGeneration)));
       if (generation === stoppedGeneration)
         publish({ ...state, recovering: false, interims: [] });
     },

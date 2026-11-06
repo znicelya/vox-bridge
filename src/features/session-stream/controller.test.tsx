@@ -179,6 +179,7 @@ it("cleans a late subscribe ticket after stop or session switch", async () => {
   await stream.start(next.id);
   gate.release();
   await oldStart;
+  await waitFor(() => expect(port.activeTicketCount()).toBe(1));
   expect(stream.snapshot().session?.id).toBe(next.id);
   expect(port.activeTicketCount()).toBe(1);
   expect(port.liveListenerCount()).toBe(1);
@@ -193,6 +194,7 @@ it("cleans a late listener and ignores a stale page completion", async () => {
   await stream.stop();
   listener.release();
   await oldStart;
+  await waitFor(() => expect(port.liveListenerCount()).toBe(0));
   expect(port.liveListenerCount()).toBe(0);
   expect(port.activeTicketCount()).toBe(0);
   const page = port.deferNext("get_session_transcript");
@@ -203,6 +205,7 @@ it("cleans a late listener and ignores a stale page completion", async () => {
   await stream.start(next.id);
   page.release();
   await first;
+  await waitFor(() => expect(port.pendingNativeCount()).toBe(0));
   expect(stream.snapshot().session?.id).toBe(next.id);
   expect(stream.snapshot().finals).toEqual([]);
 });
@@ -374,4 +377,157 @@ it("keeps one native status request outstanding even after its local deadline ex
   expect(
     port.calls.filter((call) => call.command === "get_session"),
   ).toHaveLength(3);
+});
+it("retains direction epochs after peer finals evict every higher-epoch display row", async () => {
+  const { port, stream } = setup();
+  const record = port.deferNext("get_session");
+  const started = stream.start(wire.callRecord.id);
+  await record.requested;
+  const old = { ...wire.reverseSourceFinal, id: id(900), is_final: false };
+  const peer = { ...old, id: id(901), direction: "source_to_target" as const };
+  port.emit({ type: "transcript", update: old });
+  port.emit({ type: "transcript", update: peer });
+  const newer = {
+    ...wire.reverseSourceFinal,
+    details: { ...wire.reverseSourceFinal.details!, stream_epoch: 3 },
+  };
+  port.persistFinal(newer);
+  port.emit({ type: "transcript", update: newer });
+  for (let n = 0; n < 500; n++)
+    port.persistFinal({
+      ...wire.reverseSourceFinal,
+      id: id(100 + n),
+      direction: "source_to_target",
+    });
+  record.release();
+  await started;
+  expect(stream.snapshot().finals).toHaveLength(500);
+  expect(stream.snapshot().finals[0].id).toBe(id(100));
+  expect(stream.snapshot().interims).toEqual([peer]);
+  await stream.stop();
+  const next = { ...wire.callRecord, id: id(888), runtime: null };
+  port.setSession(next);
+  await stream.start(next.id);
+  const nextInterim = { ...old, session_id: next.id };
+  port.emit({ type: "transcript", update: nextInterim }, next.id);
+  expect(stream.snapshot().interims).toEqual([nextInterim]);
+});
+it("uses runtime snapshot epochs before any row exists and after a status refresh", async () => {
+  vi.useFakeTimers();
+  const { port, stream } = setup();
+  const record = {
+    ...wire.callRecord,
+    runtime: {
+      ...wire.callRecord.runtime!,
+      directions: [
+        {
+          direction: "target_to_source" as const,
+          phase: "running" as const,
+          stream_epoch: 3,
+          failure: null,
+        },
+      ],
+    },
+  };
+  port.setSession(record);
+  await stream.start(record.id);
+  port.emit({ type: "transcript", update: fixture.reverseSourceInterim });
+  expect(stream.snapshot().interims).toEqual([]);
+  const current = {
+    ...decodeTranscriptUpdate(fixture.reverseSourceInterim),
+    details: { ...wire.reverseSourceFinal.details!, stream_epoch: 3 },
+  };
+  port.emit({ type: "transcript", update: current });
+  expect(stream.snapshot().interims).toEqual([current]);
+  port.setSession({
+    ...record,
+    runtime: {
+      ...record.runtime,
+      directions: [{ ...record.runtime.directions[0], stream_epoch: 4 }],
+    },
+  });
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(stream.snapshot().interims).toEqual([]);
+});
+it("discards pre-resync buffered interims and preserves post-resync interims", async () => {
+  const { port, stream } = setup();
+  const page = port.deferNext("get_session_transcript");
+  const started = stream.start(wire.callRecord.id);
+  await page.requested;
+  port.emit({ type: "transcript", update: fixture.reverseSourceInterim });
+  port.emit({
+    type: "resync_needed",
+    session_id: wire.callRecord.id,
+    missed_events: 1,
+  });
+  const later = {
+    ...decodeTranscriptUpdate(fixture.reverseSourceInterim),
+    id: id(902),
+  };
+  port.emit({ type: "transcript", update: later });
+  page.release();
+  await started;
+  expect(stream.snapshot().interims).toEqual([later]);
+});
+it("reuses one subscriber token throughout a controller lifetime", async () => {
+  const { port, stream } = setup();
+  await stream.start(wire.callRecord.id);
+  await stream.stop();
+  await stream.start(wire.callRecord.id);
+  const tokens = port.calls
+    .filter((call) => call.command === "subscribe_session")
+    .map((call) => call.args?.subscriberId);
+  expect(tokens).toHaveLength(2);
+  expect(new Set(tokens).size).toBe(1);
+});
+it("bounds unticketed native subscribe work after repeated local deadlines", async () => {
+  vi.useFakeTimers();
+  const { port, stream } = setup();
+  const gates = Array.from({ length: 24 }, () =>
+    port.deferNext("subscribe_session"),
+  );
+  try {
+    for (let n = 0; n < 24; n++) {
+      const starting = stream.start(wire.callRecord.id);
+      await vi.advanceTimersByTimeAsync(10000);
+      await starting;
+      await stream.stop();
+    }
+    expect(
+      port.calls.filter((call) => call.command === "subscribe_session"),
+    ).toHaveLength(1);
+  } finally {
+    for (const gate of gates) gate.release();
+    await vi.advanceTimersByTimeAsync(0);
+    await stream.stop();
+  }
+  expect(port.activeTicketCount()).toBe(0);
+  expect(port.liveListenerCount()).toBe(0);
+});
+it("shares a native unsubscribe through local timeouts and retries only its actual rejection", async () => {
+  vi.useFakeTimers();
+  const { port, stream } = setup();
+  await stream.start(wire.callRecord.id);
+  // The command will reject only when released; no retry is valid before then.
+  port.rejectNext("unsubscribe_session");
+  const gate = port.deferNext("unsubscribe_session");
+  try {
+    for (let n = 0; n < 4; n++) {
+      const stopping = stream.stop();
+      await vi.advanceTimersByTimeAsync(20000);
+      await stopping;
+    }
+    expect(
+      port.calls.filter((call) => call.command === "unsubscribe_session"),
+    ).toHaveLength(1);
+    expect(stream.snapshot().error).toContain("超时");
+  } finally {
+    gate.release();
+    await vi.advanceTimersByTimeAsync(0);
+    await stream.stop();
+  }
+  expect(
+    port.calls.filter((call) => call.command === "unsubscribe_session"),
+  ).toHaveLength(2);
+  expect(port.activeTicketCount()).toBe(0);
 });

@@ -19,11 +19,20 @@ export function runtimeDesktopFixture(wire: { callRecord: SessionRecord }) {
   const transcripts: TranscriptUpdate[] = [];
   const diagnostics: RuntimeDiagnostic[] = [];
   const listeners = new Map<string, Set<(payload: unknown) => void>>();
-  const tickets = new Map<string, { sessionId: string; event_name: string }>();
+  const tickets = new Map<
+    string,
+    { sessionId: string; subscriberId: string; event_name: string }
+  >();
+  const pendingNative = new Map<string, number>();
   const queued = new Map<string, Reply[]>();
   const gates = new Map<
     string,
-    { wait: Promise<void>; release: () => void; entered: () => void }[]
+    {
+      wait: Promise<void>;
+      release: () => void;
+      entered: () => void;
+      phase: "effect" | "reply";
+    }[]
   >();
   const releases = new Set<() => void>();
   const calls: Call[] = [];
@@ -68,49 +77,74 @@ export function runtimeDesktopFixture(wire: { callRecord: SessionRecord }) {
     ): Promise<T> {
       if (calls.length >= 10000) throw Error("fixture call capacity");
       calls.push({ command, args });
-      const gate = gates.get(command)?.shift();
-      const programmed = queued.get(command)?.shift();
-      let value: unknown;
-      if (programmed && "error" in programmed) {
-        gate?.entered();
-        if (gate) await gate.wait;
-        throw programmed.error;
-      }
-      if (programmed) value = programmed.value;
-      else
-        switch (command) {
-          case "subscribe_session": {
-            if (!records.has(String(args.sessionId)))
-              throw Error("[SESSION_NOT_FOUND] missing");
-            if (tickets.size >= 16 || typeof args.subscriberId !== "string")
-              throw Error("fixture ticket capacity or invalid subscriber");
-            const id = `00000000-0000-0000-0000-${(nextTicket++).toString().padStart(12, "0")}`;
-            const event_name = `voxbridge://session/${id}`;
-            tickets.set(id, { sessionId: String(args.sessionId), event_name });
-            value = { id, event_name };
-            beforeReply?.();
-            beforeReply = undefined;
-            break;
-          }
-          case "unsubscribe_session":
-            tickets.delete(String(args.subscriptionId));
-            value = null;
-            break;
-          case "get_session":
-            value = records.get(String(args.sessionId)) ?? null;
-            break;
-          case "get_session_transcript":
-            value = page(transcripts, args);
-            break;
-          case "get_session_diagnostics":
-            value = page(diagnostics, args);
-            break;
-          default:
-            throw Error(`unsupported fixture command ${command}`);
+      pendingNative.set(command, (pendingNative.get(command) ?? 0) + 1);
+      try {
+        const gate = gates.get(command)?.shift();
+        const programmed = queued.get(command)?.shift();
+        if (gate?.phase === "effect") {
+          gate.entered();
+          await gate.wait;
         }
-      gate?.entered();
-      if (gate) await gate.wait;
-      return structuredClone(value) as T;
+        let value: unknown;
+        if (programmed && "error" in programmed) {
+          if (gate?.phase === "reply") {
+            gate.entered();
+            await gate.wait;
+          }
+          throw programmed.error;
+        }
+        if (programmed) value = programmed.value;
+        else
+          switch (command) {
+            case "subscribe_session": {
+              if (!records.has(String(args.sessionId)))
+                throw Error("[SESSION_NOT_FOUND] missing");
+              if (typeof args.subscriberId !== "string")
+                throw Error("invalid subscriber");
+              for (const [id, ticket] of tickets)
+                if (
+                  ticket.sessionId === args.sessionId &&
+                  ticket.subscriberId === args.subscriberId
+                )
+                  tickets.delete(id);
+              if (tickets.size >= 16)
+                throw Error("fixture ticket capacity or invalid subscriber");
+              const id = `00000000-0000-0000-0000-${(nextTicket++).toString().padStart(12, "0")}`;
+              const event_name = `voxbridge://subscription/${id}`;
+              tickets.set(id, {
+                sessionId: String(args.sessionId),
+                subscriberId: args.subscriberId,
+                event_name,
+              });
+              value = { id, event_name };
+              beforeReply?.();
+              beforeReply = undefined;
+              break;
+            }
+            case "unsubscribe_session":
+              tickets.delete(String(args.subscriptionId));
+              value = null;
+              break;
+            case "get_session":
+              value = records.get(String(args.sessionId)) ?? null;
+              break;
+            case "get_session_transcript":
+              value = page(transcripts, args);
+              break;
+            case "get_session_diagnostics":
+              value = page(diagnostics, args);
+              break;
+            default:
+              throw Error(`unsupported fixture command ${command}`);
+          }
+        if (gate?.phase === "reply") {
+          gate.entered();
+          await gate.wait;
+        }
+        return structuredClone(value) as T;
+      } finally {
+        pendingNative.set(command, (pendingNative.get(command) ?? 1) - 1);
+      }
     },
     async listen<T>(
       event: string,
@@ -169,7 +203,7 @@ export function runtimeDesktopFixture(wire: { callRecord: SessionRecord }) {
     replyNext(command: string, value: unknown) {
       queue(command, { value });
     },
-    deferNext(command: string) {
+    deferNext(command: string, phase: "effect" | "reply" = "reply") {
       let release!: () => void;
       let entered!: () => void;
       const wait = new Promise<void>((resolve) => {
@@ -181,7 +215,7 @@ export function runtimeDesktopFixture(wire: { callRecord: SessionRecord }) {
       releases.add(release);
       gates.set(command, [
         ...(gates.get(command) ?? []),
-        { wait, release, entered },
+        { wait, release, entered, phase },
       ]);
       return {
         requested,
@@ -191,6 +225,13 @@ export function runtimeDesktopFixture(wire: { callRecord: SessionRecord }) {
         },
       };
     },
+    pendingNativeCount: (command?: string) =>
+      command
+        ? (pendingNative.get(command) ?? 0)
+        : Array.from(pendingNative.values()).reduce(
+            (total, count) => total + count,
+            0,
+          ),
     activeTicketCount: () => tickets.size,
     liveListenerCount: () =>
       Array.from(listeners.values()).reduce(

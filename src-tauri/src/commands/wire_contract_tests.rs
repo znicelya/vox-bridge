@@ -284,7 +284,7 @@ fn wire_contract_real_runtime_dtos_match_shared_json() {
     };
     let ticket = SubscriptionTicket {
         id: id(3),
-        event_name: format!("voxbridge://session/{}", id(3)),
+        event_name: format!("voxbridge://subscription/{}", id(3)),
     };
     let transcript_page = TranscriptPage {
         rows: vec![source.clone(), translation.clone(), legacy.clone()],

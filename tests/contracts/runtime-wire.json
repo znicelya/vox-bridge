@@ -559,7 +559,7 @@
   ],
   "ticket": {
     "id": "00000000-0000-0000-0000-000000000003",
-    "event_name": "voxbridge://session/00000000-0000-0000-0000-000000000003"
+    "event_name": "voxbridge://subscription/00000000-0000-0000-0000-000000000003"
   },
   "transcriptPage": {
     "rows": [
