@@ -677,6 +677,8 @@ impl PreparedProviderSession {
 }
 ~~~
 
+Pin launch/runtime JSON: DeviceSelection uses #[serde(tag="mode",rename_all="snake_case")], RuntimeOutcome uses #[serde(tag="status",rename_all="snake_case")], and DirectionPhase/RuntimePhase use snake_case strings. Add exact JSON and round-trip tests. Either single live SessionDirection maps to Router Direction::Live; retain factory language swapping for TargetToSource. Call maps SourceToTarget to AtoB and TargetToSource to BtoA.
+
 TranslationRuntime holds Arc collaborators. PreparedRuntime holds session/context, validated directed configs, provider preparation and exact audio requests. RunningSession is Clone, holding shared stop/control/status/task completion channels. Do not expose provider streams or PCM via public snapshots. start runs inside Tokio and immediately owns its supervisor; only the orchestrator writes aggregate lifecycle or closes EventBus.
 
 - [ ] **1. Add explicit24k fixture support and a failing runtime integration test.** FixtureScript stores output_audio and adds:
@@ -840,6 +842,7 @@ impl SessionOrchestrator {
         saved: ProviderConfig) -> AppResult<SessionRecord>;
     pub async fn resume_direction(&self, id: Uuid,
         direction: SessionDirection) -> AppResult<()>;
+    pub(crate) async fn uses_provider_config(&self, config_id: Uuid) -> bool;
 }
 ~~~
 
@@ -882,7 +885,7 @@ Use existing lifecycle SQL failure injection and a new INSERT trigger for Starti
 cargo test --manifest-path src-tauri/Cargo.toml --lib session::orchestrator
 ~~~
 
-- [ ] **3. Implement one lifecycle owner and restart recovery.** create_runtime_session inserts session, Starting lifecycle and context in a transaction. prepare runs before it; opening begins after it. Reserve one desktop active-session slot during start; concurrent second start returns a local "stop the active session first" error with no network/hardware activity. Release the reservation on preparation/persistence failure.
+- [ ] **3. Implement one lifecycle owner and restart recovery.** create_runtime_session inserts session, Starting lifecycle and context in a transaction. prepare runs before it; opening begins after it. Reserve the singleton Starting slot under the active-state mutex as the first start operation, before runtime.prepare/inventory. Retain its provider_config_id and release the mutex during preparation. A second start returns a local "stop the active session first" error before preparation or any network/hardware activity. Release the reservation on failure or caller cancellation before attachment. After durable Starting/context creation, install the active entry and attach runtime.start without an intervening await. uses_provider_config includes both the reservation and attached runtime. Add a barrier test proving the losing start calls neither inventory/preparation nor provider/audio open.
 
 ActiveSession owns RunningSession and a replayable watch completion:
 
@@ -890,11 +893,11 @@ ActiveSession owns RunningSession and a replayable watch completion:
 type SessionCompletion = Option<Result<SessionRecord, String>>;
 ~~~
 
-The String is a safe local command error, not a remote payload. One lifecycle observer writes state. Copy handles/receivers out of the active map before awaiting; no active-map mutex spans OS/network waits. Persist Running before publishing it. Failed lifecycle writes request runtime.stop and report Storage once. On terminal cleanup, persist terminal state before close_with_final and releasing active ownership. If terminal persistence fails, close with a safe failure, retain the completion error for concurrent callers, and let subsequent get reveal the actual persisted state; do not fabricate a completed record.
+The String is a safe local command error, not a remote payload. One lifecycle observer writes state. Copy handles/receivers out of the active map before awaiting; no active-map mutex spans OS/network waits. Persist Running before publishing it. Failed lifecycle writes request runtime.stop and report Storage once. On terminal cleanup, persist terminal state before close_with_final and releasing active ownership. If terminal persistence fails, close with a safe failure and publish the completion error before removing the operation entry. Release the runtime and singleton slot after cleanup even on persistence failure. Every stop caller attached to that operation receives the same result; subsequent get reveals actual persisted state. Do not fabricate a completed record or keep an unbounded permanent error cache. A later stop after removal may use durable state/error semantics; barrier tests distinguish attached concurrent waiters from later calls.
 
-Repeated stop waits on the same watch or reads an already-terminal stored record. Stop during startup cancels immediately instead of waiting on the current single-permit Notify. Direction changes feed the same observer; one failed direction does not pause the whole call while its peer runs. Terminal SessionRecord.runtime is None so repeated stop/get equality is stable.
+Elect one stop request under the active-state mutex and let the owned lifecycle observer drive it; caller cancellation must not cancel the shared cleanup. Copy handles/completion receivers before awaits. Repeated stop waits on the same watch or reads an already-terminal stored record. Stop during startup cancels immediately instead of waiting on the current single-permit Notify. Direction changes feed the same observer; one failed direction does not pause the whole call while its peer runs. Terminal SessionRecord.runtime is None so repeated stop/get equality is stable.
 
-At app initialization, under a single data-directory process owner, interrupt_incomplete_sessions transactionally marks created/starting/running/stopping/paused sessions Failed with ended_at and an Interrupted diagnostic. Keep final text/context. Never reopen devices/providers automatically. Task6 owns the process lock; do not interrupt sessions belonging to another live process.
+At app initialization, under a single data-directory process owner, interrupt_incomplete_sessions transactionally marks created/starting/running/stopping/paused sessions Failed with ended_at and an Interrupted diagnostic. Keep final text/context. Never reopen devices/providers automatically. Task6 owns production process-lock wiring: Task5 implements/tests the store recovery operation, but does not call it from an unlocked AppState constructor. Task6 invokes it only after acquiring the data-directory owner lock. Do not interrupt sessions belonging to another live process.
 
 - [ ] **4. Verify and commit.**
 
@@ -908,7 +911,7 @@ Commit Task5 paths: feat: coordinate durable lifecycle and idempotent stop.
 
 ### Task 6: Configuration, app commands and recoverable subscriptions
 
-**Files:** Modify app/{mod,tests}.rs, commands.rs, lib.rs, config/{mod,models,secret_store,secret_store_tests}.rs. Create commands_tests.rs and commands/subscriptions.rs. Update README.md, docs/superpowers/plans/release-gates.md and tests/platform-audio/README.md.
+**Files:** Modify app/{mod,tests}.rs, commands.rs, lib.rs, config/{mod,models,secret_store,secret_store_tests}.rs. Create commands_tests.rs, commands/subscriptions.rs and config/worker.rs. Update README.md, docs/superpowers/plans/release-gates.md and tests/platform-audio/README.md.
 
 **Consumes:** All earlier APIs. App construction creates local objects/storage only; credential operations access keyring as needed, explicit launch opens capture/network.
 
@@ -920,6 +923,7 @@ Define command values:
 
 ~~~rust
 #[derive(Deserialize)]
+#[serde(tag="action",rename_all="snake_case")]
 pub enum CredentialChange { Keep, Clear, Replace { api_key: String } }
 #[derive(Deserialize)]
 pub struct SaveProviderRequest {
@@ -941,9 +945,49 @@ pub struct LaunchValidation {
 pub struct SubscriptionTicket { pub id: Uuid, pub event_name: String }
 ~~~
 
-Credential input gets no Debug/Serialize. ProviderConfigView can retain the existing opaque secret reference; configured is actual encrypted-entry presence. Derive Serialize for ProviderCapabilities to expose safe capability data.
+Credential input gets no Debug/Serialize. ProviderConfigView can retain the existing opaque secret reference; configured is actual encrypted-entry presence for its valid normalized reference, excluding unreferenced cleanup orphans. Derive Serialize for ProviderCapabilities to expose safe capability data.
 
-AppState::with_dependencies(data_dir:PathBuf,secrets:Arc<SecretStore>,audio:Arc<dyn AudioBackend>,factory:Arc<ProviderFactory>)->AppResult<Self> supports tests and production composition. new constructs platform dependencies. Retain ConfigStore behind a mutex, the process lock, LocalStore/EventBus/audio/runtime/orchestrator/subscription registry. If Debug is needed, use an opaque manual implementation for sensitive trait objects.
+Task6 also produces ConfigIo/ConfigTransaction in config/worker.rs, re-exported pub(crate) from config. Define EncryptedSecretSnapshot in secret_store.rs around its existing private EncryptedValue representation:
+
+~~~rust
+#[derive(Clone)]
+pub(crate) struct ConfigIo {
+    store: Arc<std::sync::Mutex<ConfigStore>>,
+    permits: Arc<tokio::sync::Semaphore>,
+    data_dir: PathBuf,
+    deadline: std::time::Duration,
+}
+pub(crate) struct ConfigTransaction<'a> {
+    store: &'a mut ConfigStore,
+    _config_lock: std::fs::File,
+    secret_lock: Option<std::fs::File>,
+}
+pub(crate) struct EncryptedSecretSnapshot(Option<EncryptedValue>);
+impl ConfigIo {
+    pub(crate) fn new(store: ConfigStore) -> Self;
+    pub(crate) fn data_dir(&self) -> &Path;
+    pub(crate) async fn run<T, F>(&self, operation: F) -> AppResult<T>
+    where T: Send + 'static,
+          F: for<'a> FnOnce(&mut ConfigTransaction<'a>) -> AppResult<T> + Send + 'static;
+}
+impl ConfigTransaction<'_> {
+    pub(crate) fn data_dir(&self) -> &Path;
+    pub(crate) fn load_provider_config(&mut self, id: Uuid) -> AppResult<ProviderConfig>;
+    pub(crate) fn list_provider_configs(&mut self) -> AppResult<Vec<ProviderConfig>>;
+    pub(crate) fn save_provider_config(&mut self, config: ProviderConfig) -> AppResult<()>;
+    pub(crate) fn delete_provider_config(&mut self, id: Uuid) -> AppResult<()>;
+    pub(crate) fn secret_get(&mut self, service: &str, key: &str) -> AppResult<Option<Vec<u8>>>;
+    pub(crate) fn secret_set(&mut self, service: &str, key: &str, value: &[u8]) -> AppResult<()>;
+    pub(crate) fn secret_contains(&mut self, service: &str, key: &str) -> AppResult<bool>;
+    pub(crate) fn secret_delete(&mut self, service: &str, key: &str) -> AppResult<()>;
+    pub(crate) fn snapshot_secret(&mut self, service: &str, key: &str) -> AppResult<EncryptedSecretSnapshot>;
+    pub(crate) fn restore_secret(&mut self, service: &str, key: &str, prior: EncryptedSecretSnapshot) -> AppResult<()>;
+}
+~~~
+
+ConfigIo uses one process-wide two-slot blocking gate, distinct from Volc's connect gate, and a10s caller budget including permit wait. Acquire before spawn_blocking and move the owned permit into the closure; timeouts/cancellation cannot free capacity until native work returns. Skip cancelled jobs that have not entered their transaction; an entered operation completes/compensates under its retained guards. Use injected small deadlines/gates for tests and release blocked latches. Constructor performs no OS operation. ConfigTransaction holds the cross-process config lock through the entire closure and acquires secret/DEK locks in that order; its lock-aware methods must not recursively call public methods that reacquire the same locks. It exposes data_dir, load/list/save/delete_provider_config plus secret_get/set/contains/delete and snapshot_secret/restore_secret (service/key arguments backend-derived; get returns Option<Vec<u8>>, snapshot is opaque encrypted data). The later service-config store uses this same ConfigIo and transaction lock for its own JSON file and credentials, releasing all locks before HTTP. Add serialized-operation, cross-instance RMW, blocked-native capacity retention, cancellation-before-entry and no-plaintext-output tests.
+
+AppState::with_dependencies(data_dir:PathBuf,secrets:Arc<SecretStore>,audio:Arc<dyn AudioBackend>,factory:Arc<ProviderFactory>)->AppResult<Self> supports tests and production composition. new constructs platform dependencies. Retain ConfigIo/shared ConfigStore ownership, the process lock, a narrow async admission gate, LocalStore/EventBus/audio/runtime/orchestrator/subscription registry. If Debug is needed, use an opaque manual implementation for sensitive trait objects.
 
 Commands are thin Tauri wrappers over testable AppState methods of the same names and argument/result shapes. AppState methods below are async except get_session_transcript/get_session_diagnostics, which can remain synchronous local reads:
 
@@ -1007,17 +1051,17 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib config
 cargo test --manifest-path src-tauri/Cargo.toml --lib app
 ~~~
 
-- [ ] **3. Implement app ownership and atomic credential storage.** Acquire nonblocking exclusive fs2 data-directory app lock before startup interruption and retain its file in AppState. Another app owner gets a local "data directory already in use" error.
+- [ ] **3. Implement app ownership and atomic credential storage.** Create the data directory and acquire its nonblocking exclusive fs2 app lock before opening/migrating SQLite, constructing config/runtime collaborators or running startup interruption. Retain its file through shutdown. A failed lock attempt returns before database/config/recovery writes with a local "data directory already in use" error. Test a second owner cannot migrate or interrupt the first owner's database.
 
 Lock each config/secret read-modify-write for its entire transaction across processes. DEK/keyring locking remains separate, ordered config→secret→DEK. Unique UUID temp filenames, create_new, complete write/fsync and atomic replace avoid existing PID-only collision. Reuse reviewed Windows MoveFileExW replacement behavior from export; never delete destination before replacement. Cleanup failed temp files, preserving the prior destination on pre-replace failure.
 
-Normalize backend references: Volc uses volcengine_secret_reference(config.id()) and existing provider service/key helpers; do not accept a reference to another profile. Validate Replace with provider credential format/size rules; Keep preserves, Clear deletes. No request Debug or secret-bearing URL/log. Config and secrets are separate files: validate/write encrypted secret first, then atomically save safe config; if config save fails report failure and retain a recoverable encrypted orphan, never claim cross-file crash atomicity. Delete profile then encrypted entry and report cleanup failure.
+Normalize backend references: Volc uses volcengine_secret_reference(config.id()) and existing provider service/key helpers; do not accept a reference to another profile. Validate Replace with provider credential format/size rules; Keep preserves, Clear deletes. No request Debug or secret-bearing URL/log. Config and secrets are separate files. Validate the whole request first. Keep saves only normalized config. Replace captures an opaque encrypted before-image (or absence) under the whole transaction, writes the secret, then atomically saves config; if config save fails, attempt one bounded restoration of that encrypted entry (or remove the new entry for prior absence). A deterministic existing-profile key is an overwrite, not an orphan. Clear first saves config with no secret reference, then deletes the encrypted entry. Delete removes config first, then its encrypted entry. Report cleanup/compensation failure explicitly as a safe partial-failure error; never claim cross-file crash atomicity or introduce a journal/reference-format change. configured means a valid normalized reference AND actual encrypted-entry presence, so unreferenced cleanup orphans are not shown as configured. Test existing-key replacement rollback, no-prior-entry rollback, Clear config failure preserving the key, Clear/delete orphan cleanup failure, and compensation failure without false success.
 
-Config updates apply to future sessions. An active session retains provider/language/device/config snapshot; explicit resume can reload credentials for the same profile ID but cannot alter selection. Reject deleting an active session's provider profile until stop.
+Config updates apply to future sessions. An active session retains provider/language/device/config snapshot; explicit resume can reload credentials for the same profile ID but cannot alter selection. Reject deleting an active/reserved session's provider profile until cleanup. AppState create_session holds the narrow admission gate across saved-config lookup and orchestrator.start; delete_provider_config holds it across uses_provider_config and config removal/secret cleanup. This linearizes create versus delete without an unlocked get/list scan. Keep direction workers and stop outside the gate. A timed-out delete transaction retains the owned admission guard inside its blocking closure until completion; do not release it while native mutation is still running. Test both race orders and caller cancellation; a losing create must not reach runtime preparation or open resources.
 
-Run blocking file/keyring transactions on a bounded blocking worker, not directly on the Tokio event/capture executor; clone safe saved configuration out before provider/audio awaits. This lock serializes configuration only, never both direction workers.
+Run blocking file/keyring transactions through ConfigIo, not directly on the Tokio event/capture executor; clone safe saved configuration out before provider/audio awaits. This lock serializes configuration only, never both direction workers.
 
-- [ ] **4. Implement owned bounded subscription forwarding.** Registry capacity16, keyed by (subscriber_id,session_id); subscriber_id is a <=64-character opaque token. Repeated key cancels/replaces the previous task. Each ticket gets a unique event name. Unsubscribe is idempotent and cancels/joins. Terminal stream, emit failure, deletion or app/window close removes the entry. A subscription never owns/prevents audio stop.
+- [ ] **4. Implement owned bounded subscription forwarding.** Registry capacity16, keyed by (subscriber_id,session_id); subscriber_id is a <=64-character opaque token. Repeated key cancels/joins the previous forwarder before starting its replacement, using one bounded owned registry mutation operation so caller cancellation cannot detach replacement cleanup. Each ticket gets a unique event name and generation UUID; a finishing wrapper removes an entry only when its UUID still matches. Copy/remove handles under the map mutex, then cancel/join outside it; never accumulate replacement forwarders beyond capacity. Unsubscribe is idempotent and cancels/joins. Terminal stream, emit failure, deletion or app/window close removes the entry. A subscription never owns/prevents audio stop. Expose close_all for window/app shutdown in lib.rs. For an already-terminal durable session (including restart or EventBus replay eviction), return a fresh ticket backed by its durable terminal Status and then close it; do not make this depend on the in-memory replay cache. Frontend still listens then snapshots/pages to recover any event emitted before listener registration. Add late-old-wrapper, cancelled replacement, close_all and post-restart terminal-ticket tests.
 
 Extract this testable boundary in commands/subscriptions.rs:
 
@@ -1035,7 +1079,7 @@ pub async fn forward_session_events(
 
 Select cancel alongside receive/emit; bound emit to1 s. RecvError::Lagged emits ResyncNeeded then continues; Closed exits. Use an injected bounded-mpsc emitter to force lag and assert ResyncNeeded, a newer final/status, and full durable recovery via SQLite pages. Do not retain the current while let Ok loop that silently ends on lag. Final rows de-duplicate by ID during snapshot recovery; interim display may clear after resync. Test replacement leaves one task, 17th distinct ticket rejects, unsubscribe repeats safely, and terminal/close releases all tasks.
 
-- [ ] **5. Register commands and update integration docs.** Add all commands to applicable debug/release invoke_handler lists in lib.rs; dev_audio_loopback remains debug-only. Document DTO/events, bounded history cursors, route IDs and explicit resume. Retain UI work for phase4. Update Linux utility/stream-drain gates and preserve signed Windows/macOS/actual-device/live-service gates as pending until tested.
+- [ ] **5. Register commands and update integration docs.** Add all commands to applicable debug/release invoke_handler lists in lib.rs; dev_audio_loopback remains debug-only. Document DTO/events, bounded history cursors, route IDs and explicit resume. Keep Tauri's default camelCase top-level argument keys (configId, sessionId, subscriberId, subscriptionId); DTO fields retain their Rust serde snake_case names. SaveProviderRequest is passed as request, SessionLaunch as launch. Pin JSON fixtures for these envelopes and new launch/outcome/credential tags. Preserve existing DriverStatus/AudioDirection/EndpointRole/AudioBackendKind serialization (PascalCase strings and externally tagged payload variants); do not silently rename stored/public values. ProviderCapabilities.native_chunk_duration uses serde Duration's {secs,nanos} object; pin an80ms fixture and normalize only in the future frontend bridge. Retain UI work for phase4. Update Linux utility/stream-drain gates and preserve signed Windows/macOS/actual-device/live-service gates as pending until tested.
 
 - [ ] **6. Run the phase gate and commit.**
 
