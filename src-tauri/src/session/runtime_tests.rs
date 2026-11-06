@@ -2602,3 +2602,281 @@ async fn rereview_fix2_final_accounting_failure_preserves_pending_latency() {
         }
     )));
 }
+
+#[tokio::test]
+async fn final_fix_invalid_transcript_and_sql_failure_keep_distinct_actor_categories() {
+    for (language, expected) in [
+        ("wrong-language", RuntimeFailureCode::InvalidEvent),
+        ("zh", RuntimeFailureCode::Storage),
+    ] {
+        let script = FixtureScript::with_output_audio(
+            PcmSpec::pcm16_mono(24_000),
+            [
+                FixtureStep::Emit(ProviderEvent::SessionStarted {
+                    metadata: metadata(),
+                }),
+                FixtureStep::ReceiveAudio { count: 1 },
+                FixtureStep::Emit(ProviderEvent::TranslationFinal {
+                    metadata: metadata(),
+                    text: final_text(language, "must not persist"),
+                }),
+                FixtureStep::WaitForFinish,
+            ],
+        )
+        .unwrap();
+        let h = RuntimeHarness::live(script).unwrap();
+        if expected == RuntimeFailureCode::Storage {
+            h.fail_transcript_writes();
+        }
+        let run = h
+            .runtime
+            .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+        wait_phase(&run, RuntimePhase::Running).await;
+        h.audio
+            .send_capture("live-input", capture(0, 1280, 1))
+            .await
+            .unwrap();
+        wait_phase(&run, RuntimePhase::Paused).await;
+        assert_eq!(
+            run.status().borrow().directions[0].failure,
+            Some(expected.clone())
+        );
+        assert!(
+            h.store
+                .transcript_page(h.id, None, 50)
+                .unwrap()
+                .rows
+                .is_empty()
+        );
+        assert_eq!(
+            run.stop().await,
+            RuntimeOutcome::Failed {
+                codes: vec![expected]
+            }
+        );
+    }
+}
+
+struct NativeRingBackend {
+    inventory: std::sync::Arc<super::test_support::FixtureAudioBackend>,
+    native: std::sync::Arc<crate::audio::playback::test_support::NativePlaybackFixture>,
+}
+#[async_trait::async_trait]
+impl crate::audio::runtime::AudioBackend for NativeRingBackend {
+    async fn inventory(
+        &self,
+    ) -> crate::error::AppResult<crate::audio::platform::inventory::AudioInventory> {
+        self.inventory.inventory().await
+    }
+    async fn open(
+        &self,
+        request: crate::audio::runtime::AudioOpenRequest,
+    ) -> crate::error::AppResult<crate::audio::runtime::AudioPorts> {
+        crate::audio::platform::native_io::open_with_factory(request, self.native.clone()).await
+    }
+}
+
+#[tokio::test]
+async fn final_fix_native_ring_overflow_replaces_only_affected_route_and_clears_carry() {
+    use crate::{
+        audio::playback::test_support::NativePlaybackFixture, config::SecretStore,
+        providers::factory::ProviderFactory,
+    };
+    use std::sync::Arc;
+    let output = |sample| ProviderEvent::Audio {
+        metadata: metadata(),
+        frame: AudioFrame::new(
+            AudioSource::Microphone,
+            0,
+            PcmSpec::pcm16_mono(24_000),
+            vec![sample; 1920],
+        )
+        .unwrap(),
+    };
+    let forward = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::ReceiveAudio { count: 1 },
+            FixtureStep::Delay(Duration::from_millis(100)),
+            // A single event splits into one router frame, far below native ingress capacity.
+            FixtureStep::Emit(output(2)),
+            FixtureStep::ReceiveAudio { count: 1 },
+            FixtureStep::Emit(output(9)),
+            FixtureStep::WaitForFinish,
+        ],
+    )
+    .unwrap();
+    let peer = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::Emit(output(4)),
+            FixtureStep::ReceiveAudio { count: 1 },
+            FixtureStep::Emit(output(6)),
+            FixtureStep::WaitForFinish,
+        ],
+    )
+    .unwrap();
+    let h = RuntimeHarness::call(forward, peer).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let factory = Arc::new(
+        ProviderFactory::new(Arc::new(SecretStore::for_tests(dir.path()).unwrap()))
+            .with_test_provider(h.provider.clone()),
+    );
+    let native = Arc::new(NativePlaybackFixture::default());
+    let runtime = super::TranslationRuntime::new(
+        factory,
+        Arc::new(NativeRingBackend {
+            inventory: h.audio.clone(),
+            native: native.clone(),
+        }),
+        h.store.clone(),
+        h.bus.clone(),
+    );
+    let run = runtime.start(runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    let old = native.probes("a-input")[0].clone();
+    let peer_port = native.probes("m2-capture")[0].clone();
+    old.capture.push_sync(capture(0, 1280, 1)).unwrap();
+    eventually(|| {
+        h.provider
+            .sent_sequences(SessionDirection::SourceToTarget)
+            .len()
+            == 1
+    })
+    .await;
+    old.capture.push_sync(capture(1, 640, 2)).unwrap();
+    let reopened = timeout(Duration::from_secs(1), async {
+        while native.probes("a-input").len() != 2
+            || run.status().borrow().directions[0].phase != DirectionPhase::Running
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    if reopened.is_err() {
+        // Settle the real worker/native owner even on the expected RED path.
+        let stopped = run.clone();
+        let stop = tokio::spawn(async move { stopped.stop().await });
+        while !stop.is_finished() {
+            for input in ["a-input", "m2-capture"] {
+                for p in native.probes(input) {
+                    p.consume();
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        let _ = stop.await;
+    }
+    assert!(
+        reopened.is_ok(),
+        "native ring loss must reopen audio even when router ingress never overflows"
+    );
+    assert_eq!(old.pending_samples(), 0);
+    assert!(old.capture.pop().await.is_none());
+    assert!(old.statistics().native.unwrap().discarded_mono_samples > 0);
+    assert!(peer_port.consume().iter().any(|&sample| sample == 4));
+    assert_eq!(native.probes("m2-capture").len(), 1);
+    assert_eq!(
+        run.status().borrow().directions[1].phase,
+        DirectionPhase::Running
+    );
+    assert!(
+        run.status()
+            .borrow()
+            .directions
+            .iter()
+            .all(|direction| direction.stream_epoch == 0)
+    );
+    let fresh = native.probes("a-input")[1].clone();
+    fresh.capture.push_sync(capture(2, 640, 9)).unwrap();
+    fresh.capture.push_sync(capture(3, 640, 9)).unwrap();
+    peer_port
+        .capture
+        .push_sync(
+            AudioFrame::new(
+                AudioSource::System,
+                0,
+                PcmSpec::pcm16_mono(16_000),
+                vec![6; 1280],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    eventually(|| {
+        fresh.pending_samples() > 0
+            && peer_port.statistics().accepted_for_processing_samples == 3840
+    })
+    .await;
+    let fresh_audio = fresh.consume();
+    assert!(fresh_audio.iter().any(|&sample| sample == 9));
+    assert!(
+        !fresh_audio.contains(&2),
+        "retired native output must not leak into the fresh route"
+    );
+    // Admission accounting precedes conversion; observe real callback output.
+    eventually(|| peer_port.consume().contains(&6)).await;
+    assert_eq!(
+        h.provider.sent_samples(SessionDirection::SourceToTarget),
+        vec![vec![1; 1280], vec![9; 1280]]
+    );
+    assert_eq!(h.provider.connect_counts(), [1, 1]);
+    assert_eq!(
+        native.probes("a-input").len(),
+        2,
+        "new port loss baseline must not trigger another replacement"
+    );
+    let stopped = run.clone();
+    let stop = tokio::spawn(async move { stopped.stop().await });
+    timeout(Duration::from_secs(2), async {
+        while !stop.is_finished() {
+            fresh.consume();
+            peer_port.consume();
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(stop.await.unwrap(), RuntimeOutcome::Completed);
+    assert!(
+        h.store
+            .diagnostic_page(h.id, None, 100)
+            .unwrap()
+            .rows
+            .iter()
+            .any(|row| matches!(
+                row.payload,
+                DiagnosticPayload::Gap {
+                    cause: GapCause::OutputOverflow,
+                    dropped_frames: 0
+                }
+            ))
+    );
+}
+
+#[tokio::test]
+async fn final_fix_periodic_playback_statistics_have_unknown_live_boundary() {
+    let h = RuntimeHarness::live(ready_script()).unwrap();
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    let live = timeout(Duration::from_millis(1500), async {
+        loop {
+            let rows = h.store.diagnostic_page(h.id, None, 100).unwrap().rows;
+            if rows.iter().any(|row| matches!(&row.payload, DiagnosticPayload::PlaybackAccounting { boundary: None, statistics } if !statistics.finalized && !statistics.tail_disposition_known)) { break; }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }).await;
+    let result = run.stop().await;
+    assert!(
+        live.is_ok(),
+        "live playback accounting must be published before cleanup"
+    );
+    assert_eq!(result, RuntimeOutcome::Completed);
+}

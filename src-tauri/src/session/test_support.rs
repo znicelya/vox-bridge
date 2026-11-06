@@ -1202,6 +1202,12 @@ impl RuntimeHarness {
         )
     }
 
+    pub(crate) fn fail_transcript_writes(&self) {
+        rusqlite::Connection::open(self._dir.path().join("vox-bridge.sqlite")).unwrap().execute_batch(
+            "CREATE TRIGGER reject_transcript BEFORE INSERT ON translation_segments BEGIN SELECT RAISE(FAIL, 'injected transcript write failure'); END;"
+        ).unwrap();
+    }
+
     pub(crate) fn fail_starting_insert(&self) {
         rusqlite::Connection::open(self._dir.path().join("vox-bridge.sqlite")).unwrap().execute_batch(
             "CREATE TRIGGER reject_starting BEFORE INSERT ON session_lifecycle WHEN NEW.status = 'starting' BEGIN SELECT RAISE(ABORT, 'injected starting failure'); END;"

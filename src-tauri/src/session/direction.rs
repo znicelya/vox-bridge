@@ -330,6 +330,7 @@ impl DirectionActor {
         let mut next_send_at = None;
         let mut in_flight: Option<Admission> = None;
         let mut capture_baseline = resources.ports.control.statistics().capture;
+        let mut playback_baseline = resources.ports.control.playback_overflow_generation();
         let mut diagnostic_tick = tokio::time::interval(Duration::from_secs(1));
         diagnostic_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
         diagnostic_tick.tick().await;
@@ -357,8 +358,25 @@ impl DirectionActor {
                         return ConnectedExit::Paused(RuntimeFailureCode::DeviceUnavailable);
                     }
                 }
+                _ = resources.ports.control.playback_overflow_changed(playback_baseline) => {
+                    // Native samples are not normalized frames: preserve their
+                    // units in accounting, and report the discontinuity with 0 frames.
+                    self.diagnostics.observe_gap(GapCause::OutputOverflow, 0);
+                    pending.clear(); packetizer.reset(); next_send_at = None; in_flight = None;
+                    self.publish(DirectionPhase::Reconnecting, None).await;
+                    match self.recover_same_stream(resources, false, true).await {
+                        Ok(next) => {
+                            resources = next;
+                            capture_baseline = resources.ports.control.statistics().capture;
+                            playback_baseline = resources.ports.control.playback_overflow_generation();
+                            self.publish(DirectionPhase::Running, None).await;
+                        }
+                        Err(code) => return ConnectedExit::Paused(code),
+                    }
+                }
                 _ = diagnostic_tick.tick() => {
-                    if self.flush_diagnostics(&resources, false, None).is_err() {
+                    let playback = resources.ports.control.statistics().playback;
+                    if self.flush_diagnostics(&resources, false, Some((None, playback))).is_err() {
                         self.abort_resources(resources).await;
                         return ConnectedExit::Paused(RuntimeFailureCode::Storage);
                     }
@@ -388,10 +406,11 @@ impl DirectionActor {
                             next_send_at = None;
                             self.publish(DirectionPhase::Reconnecting, None).await;
                             in_flight = None;
-                        match self.recover_same_stream(resources, false, false).await {
+                            match self.recover_same_stream(resources, false, false).await {
                                 Ok(next) => {
                                     resources = next;
                                     capture_baseline = resources.ports.control.statistics().capture;
+                                    playback_baseline = resources.ports.control.playback_overflow_generation();
                                     self.publish(DirectionPhase::Running, None).await;
                                 }
                                 Err(code) => return ConnectedExit::Paused(code),
@@ -419,13 +438,14 @@ impl DirectionActor {
                             }
                             self.publish(DirectionPhase::Reconnecting, None).await;
                             in_flight = None;
-                        match self.recover_same_stream(resources, true, false).await {
+                            match self.recover_same_stream(resources, true, false).await {
                                 Ok(next) => {
                                     resources = next;
                                     packetizer.reset();
                                     pending.clear();
                                     next_send_at = None;
                                     capture_baseline = resources.ports.control.statistics().capture;
+                                    playback_baseline = resources.ports.control.playback_overflow_generation();
                                     self.publish(DirectionPhase::Running, None).await;
                                 }
                                 Err(code) => return ConnectedExit::Paused(code),
@@ -437,13 +457,14 @@ impl DirectionActor {
                                     self.diagnostics.observe_gap(GapCause::OutputOverflow, 1);
                                     self.publish(DirectionPhase::Reconnecting, None).await;
                                     in_flight = None;
-                        match self.recover_same_stream(resources, false, true).await {
+                                    match self.recover_same_stream(resources, false, true).await {
                                         Ok(next) => {
                                             resources = next;
                                             packetizer.reset();
                                             pending.clear();
                                             next_send_at = None;
                                             capture_baseline = resources.ports.control.statistics().capture;
+                                            playback_baseline = resources.ports.control.playback_overflow_generation();
                                             self.publish(DirectionPhase::Running, None).await;
                                         }
                                         Err(code) => return ConnectedExit::Paused(code),
@@ -469,9 +490,9 @@ impl DirectionActor {
                             self.abort_resources(resources).await;
                             return ConnectedExit::Paused(code);
                         }
-                        Ok(Some(event)) => if self.handle_non_audio_event(&event).is_err() {
+                        Ok(Some(event)) => if let Err(code) = self.handle_non_audio_event(&event) {
                             self.abort_resources(resources).await;
-                            return ConnectedExit::Paused(RuntimeFailureCode::Storage);
+                            return ConnectedExit::Paused(code);
                         },
                         Ok(None) => {
                             self.abort_resources(resources).await;
@@ -501,6 +522,7 @@ impl DirectionActor {
                             Ok(next) => {
                                 resources = next;
                                 capture_baseline = resources.ports.control.statistics().capture;
+                                playback_baseline = resources.ports.control.playback_overflow_generation();
                                 self.publish(DirectionPhase::Running, None).await;
                                 continue;
                             }
@@ -519,7 +541,12 @@ impl DirectionActor {
                         pending.clear(); packetizer.reset(); next_send_at = None; in_flight = None;
                         self.publish(DirectionPhase::Reconnecting, None).await;
                         match self.recover_same_stream(resources, false, true).await {
-                            Ok(next) => { resources = next; capture_baseline = resources.ports.control.statistics().capture; self.publish(DirectionPhase::Running, None).await; }
+                            Ok(next) => {
+                                resources = next;
+                                capture_baseline = resources.ports.control.statistics().capture;
+                                playback_baseline = resources.ports.control.playback_overflow_generation();
+                                self.publish(DirectionPhase::Running, None).await;
+                            }
                             Err(code) => return ConnectedExit::Paused(code),
                         }
                         continue;
@@ -869,9 +896,10 @@ impl DirectionActor {
             | ProviderEvent::SourceFinal { .. }
             | ProviderEvent::TranslationInterim { .. }
             | ProviderEvent::TranslationFinal { .. } => {
-                self.sink
-                    .accept(event)
-                    .map_err(|_| RuntimeFailureCode::Storage)?;
+                self.sink.accept(event).map_err(|error| match error {
+                    AppError::InvalidRequest(_) => RuntimeFailureCode::InvalidEvent,
+                    _ => RuntimeFailureCode::Storage,
+                })?;
                 self.diagnostics
                     .observe_transcript_overflow(self.sink.take_dropped_interims());
                 Ok(())

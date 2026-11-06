@@ -35,6 +35,14 @@ pub struct PlaybackReport {
 pub trait AudioControl: Send + Sync {
     fn suppress_now(&self);
     fn statistics(&self) -> AudioStatistics;
+    /// Actual native ring loss, independent of expected suppression/cleanup discards.
+    /// Reading/waiting never enters the native owner's command queue or locks.
+    fn playback_overflow_generation(&self) -> u64 {
+        0
+    }
+    async fn playback_overflow_changed(&self, _observed: u64) {
+        std::future::pending::<()>().await;
+    }
     async fn stop_capture(&self) -> AppResult<()>;
     async fn discard_pending(&self) -> AppResult<()>;
     async fn drain_playback(&self) -> AppResult<PlaybackReport>;
@@ -67,6 +75,7 @@ pub(crate) struct AudioCounters {
     pub native_generated: AtomicU64,
     pub native_consumed: AtomicU64,
     pub native_discarded: AtomicU64,
+    pub playback_overflow_generation: AtomicU64,
     pub playback_finalized: AtomicBool,
     pub tail_known: AtomicBool,
 }

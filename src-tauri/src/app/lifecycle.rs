@@ -9,9 +9,15 @@ use std::{sync::Arc, time::Duration};
 use tokio::sync::{broadcast, watch};
 use uuid::Uuid;
 
+// Covers normal capture stop/drain (2+4s), provider finish (10s), playback
+// drain (5s), final cleanup (2s), and scheduling. This bounds observation only:
+// entered native work keeps its transaction guards and the one cleanup owner.
+const CLOSE_OBSERVATION_TIMEOUT: Duration = Duration::from_secs(30);
 type CloseResult = Option<Result<(), String>>;
 #[derive(Default)]
 pub(super) struct CloseState {
+    #[cfg(test)]
+    pub(super) observation_timeout: Option<Duration>,
     epoch: u64,
     closing: bool,
     close_succeeded: bool,
@@ -138,9 +144,23 @@ impl AppState {
     /// drains prior subscription work, and leaves admission closed until the host
     /// explicitly begins a new window lifecycle.
     /// Failure keeps admission closed; callers may retry and must observe success.
+    /// Observation timeout/cancellation never cancels the retained cleanup owner.
     pub async fn close_all(&self) -> AppResult<()> {
+        #[cfg(test)]
+        let observation_timeout = self
+            .close_state
+            .lock()
+            .unwrap()
+            .observation_timeout
+            .unwrap_or(CLOSE_OBSERVATION_TIMEOUT);
+        #[cfg(not(test))]
+        let observation_timeout = CLOSE_OBSERVATION_TIMEOUT;
+        let deadline = tokio::time::Instant::now() + observation_timeout;
         let mut completion = {
             let mut state = self.close_state.lock().unwrap();
+            if state.closing && state.close_succeeded {
+                return Ok(());
+            }
             if let Some(completion) = &state.completion {
                 completion.clone()
             } else {
@@ -176,14 +196,20 @@ impl AppState {
                 completion
             }
         };
-        loop {
-            if let Some(result) = completion.borrow_and_update().clone() {
-                return result.map_err(AppError::Internal);
+        tokio::time::timeout_at(deadline, async {
+            loop {
+                if let Some(result) = completion.borrow_and_update().clone() {
+                    return result.map_err(AppError::Internal);
+                }
+                completion
+                    .changed()
+                    .await
+                    .map_err(|_| AppError::Internal("window close owner stopped".into()))?;
             }
-            completion
-                .changed()
-                .await
-                .map_err(|_| AppError::Internal("window close owner stopped".into()))?;
-        }
+        })
+        .await
+        .map_err(|_| {
+            AppError::Internal("window close observation timed out; cleanup remains pending".into())
+        })?
     }
 }

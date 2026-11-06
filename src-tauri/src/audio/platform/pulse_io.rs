@@ -707,7 +707,7 @@ async fn capture_worker(
     }));
 }
 async fn playback_worker(
-    mut writer: std::pin::Pin<Box<dyn tokio::io::AsyncWrite + Send>>,
+    writer: std::pin::Pin<Box<dyn tokio::io::AsyncWrite + Send>>,
     control: Arc<dyn ProcessControl>,
     mut input: mpsc::Receiver<AudioFrame>,
     seal: Arc<AtomicBool>,
@@ -717,6 +717,7 @@ async fn playback_worker(
     eof: Arc<AtomicBool>,
     deadlines: Deadlines,
 ) {
+    let mut writer = Some(writer);
     let mut pipe_touched = false;
     let result: Result<(), AudioFailure> = async {
         loop {
@@ -738,7 +739,7 @@ async fn playback_worker(
                 let write = tokio::select! {
                     biased;
                     _ = shared.aborted() => Err(AudioFailure::new(RuntimeFailureCode::Interrupted,"Pulse playback aborted")),
-                    result = writer.write_all(&bytes) => result.map_err(|_| AudioFailure::device("Pulse playback write failed")),
+                    result = writer.as_mut().unwrap().write_all(&bytes) => result.map_err(|_| AudioFailure::device("Pulse playback write failed")),
                 };
                 if let Err(error) = write {
                     // A cancelled write can be partial. Count only untouched later input chunks.
@@ -750,8 +751,10 @@ async fn playback_worker(
         tokio::select! {
             biased;
             _ = shared.aborted() => return Err(AudioFailure::new(RuntimeFailureCode::Interrupted,"Pulse playback aborted")),
-            result = writer.shutdown() => result.map_err(|_| AudioFailure::device("Pulse playback EOF failed"))?,
+            result = writer.as_mut().unwrap().shutdown() => result.map_err(|_| AudioFailure::device("Pulse playback EOF failed"))?,
         };
+        // ChildStdin::shutdown is a no-op on Unix; dropping ownership closes the pipe.
+        drop(writer.take());
         eof.store(true, Ordering::Release);
         // EOF is not a drain acknowledgement; wait remains cancellable by close/loss.
         let exit = tokio::select! {
@@ -888,6 +891,30 @@ mod tests {
                 CLEANUP_ERROR => Err(audio_error("injected process termination failure")),
                 _ => self.inner.terminate().await,
             }
+        }
+    }
+    // Tokio ChildStdin acknowledges shutdown without closing its descriptor.
+    // Model that production contract: only dropping this writer delivers EOF.
+    struct ChildStdinLike(tokio::io::DuplexStream);
+    impl tokio::io::AsyncWrite for ChildStdinLike {
+        fn poll_write(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            bytes: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            std::pin::Pin::new(&mut self.0).poll_write(cx, bytes)
+        }
+        fn poll_flush(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::pin::Pin::new(&mut self.0).poll_flush(cx)
+        }
+        fn poll_shutdown(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
         }
     }
     struct Fixture {
@@ -1031,7 +1058,7 @@ mod tests {
                     stdin: if self.omit_stdin.load(Ordering::Acquire) {
                         None
                     } else {
-                        Some(Box::pin(pipe))
+                        Some(Box::pin(ChildStdinLike(pipe)))
                     },
                     stdout: None,
                     control: process_control,
@@ -1293,7 +1320,7 @@ mod tests {
         );
     }
     #[tokio::test]
-    async fn graceful_capture_stop_preserves_playback_and_drain_waits_for_exit_zero() {
+    async fn final_fix_real_stdin_eof_precedes_exit_zero_drain_acknowledgement() {
         let fixture = Fixture::new();
         let (_, _, ports) = ports(fixture.clone(), "mic", "VoxBridge_M1").await;
         let ports = ports.unwrap();

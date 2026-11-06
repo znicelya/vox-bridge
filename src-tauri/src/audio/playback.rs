@@ -74,10 +74,14 @@ impl PlaybackBuffer {
     fn replace_full(&self, sample: i16) {
         let overwritten = u64::from(self.ring.pop().is_some());
         let rejected = u64::from(self.ring.push(sample).is_err());
-        add(
-            &self.shared.counters.native_discarded,
-            overwritten + rejected,
-        );
+        let lost = overwritten + rejected;
+        add(&self.shared.counters.native_discarded, lost);
+        if lost != 0 {
+            // Count a discontinuity only if this racing operation really lost a
+            // sample. Suppression/discard paths intentionally never signal loss.
+            add(&self.shared.counters.playback_overflow_generation, 1);
+            self.shared.changed.notify_waiters();
+        }
     }
     fn pop(&self) -> Option<i16> {
         let sample = self.ring.pop();
@@ -537,8 +541,23 @@ mod tests {
         for n in 1..=3 {
             buffer.push(n);
         }
+        assert_eq!(
+            shared
+                .counters
+                .playback_overflow_generation
+                .load(Ordering::Acquire),
+            1
+        );
         assert_eq!(buffer.pop(), Some(2));
         buffer.discard();
+        assert_eq!(
+            shared
+                .counters
+                .playback_overflow_generation
+                .load(Ordering::Acquire),
+            1,
+            "cleanup discard is not overflow"
+        );
         let native = shared.statistics().playback.native.unwrap();
         assert_eq!(native.discarded_mono_samples, 2);
         assert_eq!(native.callback_consumed_mono_samples, 1);
@@ -571,6 +590,14 @@ mod runtime_regressions {
         );
         assert_eq!(output, [1]);
         ring.replace_full(2);
+        assert_eq!(
+            shared
+                .counters
+                .playback_overflow_generation
+                .load(Ordering::Acquire),
+            0,
+            "callback won the race; no discontinuity occurred"
+        );
         assert_eq!(ring.pop(), Some(2));
         assert_eq!(
             shared
@@ -782,3 +809,7 @@ mod runtime_regressions {
         assert_eq!(*ports.health.borrow(), AudioHealth::NeedsRestart);
     }
 }
+
+#[cfg(test)]
+#[path = "playback_test_support.rs"]
+pub(crate) mod test_support;

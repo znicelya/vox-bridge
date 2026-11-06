@@ -1216,10 +1216,19 @@ async fn tls_fixture_root_injection_cannot_change_a_remote_endpoint() {
 
 #[tokio::test]
 async fn blocked_credential_work_is_bounded_across_fresh_provider_instances() {
+    struct ReleaseOnDrop(Arc<(Mutex<bool>, Condvar)>);
+    impl Drop for ReleaseOnDrop {
+        fn drop(&mut self) {
+            let (lock, changed) = &*self.0;
+            *lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = true;
+            changed.notify_all();
+        }
+    }
     let dir = tempfile::tempdir().unwrap();
     let secrets = Arc::new(SecretStore::for_tests(dir.path()).unwrap());
     let gate = Arc::new(tokio::sync::Semaphore::new(2));
     let release = Arc::new((Mutex::new(false), Condvar::new()));
+    let release_on_drop = ReleaseOnDrop(release.clone());
     let active = Arc::new(AtomicUsize::new(0));
     let maximum = Arc::new(AtomicUsize::new(0));
     let lookup = {
@@ -1249,21 +1258,20 @@ async fn blocked_credential_work_is_bounded_across_fresh_provider_instances() {
     let second = providers[1].connect(config());
     let third = providers[2].connect(config());
     let results = tokio::join!(first, second, third);
-    assert!(matches!(results.0, Err(ProviderError::Timeout)));
-    assert!(matches!(results.1, Err(ProviderError::Timeout)));
-    assert!(matches!(results.2, Err(ProviderError::Timeout)));
-    assert_eq!(maximum.load(Ordering::SeqCst), 2);
-    assert_eq!(active.load(Ordering::SeqCst), 2);
-    {
-        let (lock, changed) = &*release;
-        *lock.lock().unwrap() = true;
-        changed.notify_all();
-    }
+    let observed_maximum = maximum.load(Ordering::SeqCst);
+    let observed_active = active.load(Ordering::SeqCst);
+    // Release even during unwinding; join the entered native work before assertions.
+    drop(release_on_drop);
     tokio::time::timeout(Duration::from_secs(1), async {
-        while active.load(Ordering::SeqCst) != 0 {
+        while active.load(Ordering::SeqCst) != 0 || gate.available_permits() != 2 {
             tokio::task::yield_now().await;
         }
     })
     .await
     .unwrap();
+    assert!(matches!(results.0, Err(ProviderError::Timeout)));
+    assert!(matches!(results.1, Err(ProviderError::Timeout)));
+    assert!(matches!(results.2, Err(ProviderError::Timeout)));
+    assert_eq!(observed_maximum, 2);
+    assert_eq!(observed_active, 2);
 }

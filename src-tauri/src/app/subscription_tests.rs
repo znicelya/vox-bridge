@@ -567,3 +567,41 @@ async fn cancelled_delete_caller_still_owns_cleanup_before_durable_removal() {
     ));
     app.close_all().await.unwrap();
 }
+
+#[tokio::test]
+async fn final_fix_close_deadline_covers_subscription_prerequisite_gate() {
+    use std::time::Duration;
+    let h = tests::fixture();
+    let dir = tempfile::tempdir().unwrap();
+    let app = tests::injected(
+        dir.path(),
+        &h,
+        Arc::new(SecretStore::for_tests(dir.path()).unwrap()),
+    );
+    app.close_state.lock().unwrap().observation_timeout = Some(Duration::from_millis(40));
+    let gate = app.subscription_mutation.lock().await;
+    let bounded = tokio::time::timeout(Duration::from_millis(250), app.close_all()).await;
+    let epoch = *app.close_epoch.borrow();
+    let denied_reopen = app.open_window().is_err();
+    let owner = app.clone();
+    let observer = tokio::spawn(async move { owner.close_all().await });
+    tokio::task::yield_now().await;
+    observer.abort();
+    let _ = observer.await;
+    let unchanged_epoch = *app.close_epoch.borrow() == epoch;
+    drop(gate);
+    app.close_all().await.unwrap();
+    assert!(
+        bounded.is_ok(),
+        "close observation must include subscription mutation admission"
+    );
+    assert!(
+        bounded
+            .unwrap()
+            .unwrap_err()
+            .to_string()
+            .contains("cleanup remains pending")
+    );
+    assert!(denied_reopen && unchanged_epoch);
+    app.open_window().unwrap();
+}

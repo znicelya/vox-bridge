@@ -273,7 +273,7 @@ async fn compensation_failure_is_explicit_and_never_returns_false_success() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn entered_cancelled_delete_retains_admission_and_process_owner_until_native_cleanup() {
+async fn final_fix_held_config_close_is_bounded_and_retains_one_cleanup_owner() {
     for cancel_caller in [false, true] {
         use fs2::FileExt;
         use std::{fs::OpenOptions, time::Duration};
@@ -323,12 +323,42 @@ async fn entered_cancelled_delete_retains_admission_and_process_owner_until_nati
             assert!(result.err().unwrap().to_string().contains("timed out"));
         }
         assert!(!create.is_finished());
+        app.close_state.lock().unwrap().observation_timeout = Some(Duration::from_millis(40));
+        let owner = app.clone();
+        let cancelled_close = tokio::spawn(async move { owner.close_all().await });
+        tests::eventually(|| app.admitted_epoch().is_err()).await;
+        let epoch = *app.close_epoch.borrow();
+        cancelled_close.abort();
+        let _ = cancelled_close.await;
+        let bounded = tokio::time::timeout(Duration::from_millis(250), app.close_all()).await;
+        let denied_reopen = app.open_window().is_err();
+        let same_owner_epoch = *app.close_epoch.borrow() == epoch;
         assert_eq!(h.audio.inventory_calls(), 0);
-        drop(app);
         assert!(AppState::new(dir.path().to_path_buf()).is_err());
-        // Release even if a later assertion fails; no leaked native latch.
+        // Native transaction ownership remains intact after caller cancellation/timeout.
         secret_lock.unlock().unwrap();
+        app.close_all().await.unwrap();
+        assert!(app.create_session(h.launch.clone()).await.is_err());
         assert!(create.await.unwrap().is_err());
+        assert_eq!(h.audio.open_calls(), 0);
+        assert!(
+            bounded.is_ok(),
+            "close observation must include the held app admission gate"
+        );
+        assert!(
+            bounded
+                .unwrap()
+                .unwrap_err()
+                .to_string()
+                .contains("cleanup remains pending")
+        );
+        assert!(denied_reopen);
+        assert!(
+            same_owner_epoch,
+            "timeout observers must not spawn duplicate close owners"
+        );
+        app.open_window().unwrap();
+        drop(app);
         assert_eq!(h.audio.inventory_calls(), 0);
         assert_eq!(h.audio.open_calls(), 0);
         tests::eventually(|| AppState::new(dir.path().to_path_buf()).is_ok()).await;
@@ -443,4 +473,68 @@ async fn partial_clear_then_keep_orphan_cannot_authenticate_fresh_volc_launch() 
     assert_eq!(lookups.load(Ordering::SeqCst), 1);
     assert_eq!(observed.load(Ordering::SeqCst), 1);
     assert_eq!(h.audio.open_ports(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn entered_cancelled_delete_retains_admission_and_process_owner_until_native_cleanup() {
+    for cancel_caller in [false, true] {
+        use fs2::FileExt;
+        use std::{fs::OpenOptions, time::Duration};
+        let dir = tempfile::tempdir().unwrap();
+        let h = tests::fixture();
+        let secrets = Arc::new(SecretStore::for_tests(dir.path()).unwrap());
+        let mut app = tests::injected(dir.path(), &h, secrets.clone());
+        let id = h.saved.id();
+        app.save_provider_config(SaveProviderRequest {
+            config: saved(id),
+            credential: CredentialChange::Replace {
+                api_key: "synthetic-prior".into(),
+            },
+        })
+        .await
+        .unwrap();
+        app.config_io = ConfigIo::with_runtime_for_tests(
+            ConfigStore::new(dir.path(), secrets.clone()).unwrap(),
+            Arc::new(tokio::sync::Semaphore::new(2)),
+            Duration::from_millis(500),
+        );
+        let secret_lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(dir.path().join("secrets.lock"))
+            .unwrap();
+        secret_lock.lock_exclusive().unwrap();
+        let owner = app.clone();
+        let delete = tokio::spawn(async move { owner.delete_provider_config(id).await });
+        // The config disappears before secret cleanup attempts its blocked lock.
+        tests::eventually(|| {
+            std::fs::read_to_string(dir.path().join("provider-configs.json"))
+                .ok()
+                .is_some_and(|v| v.trim() == "[]")
+        })
+        .await;
+        let owner = app.clone();
+        let launch = h.launch.clone();
+        let create = tokio::spawn(async move { owner.create_session(launch).await });
+        if cancel_caller {
+            delete.abort();
+            assert!(delete.await.unwrap_err().is_cancelled());
+        } else {
+            let result = delete.await.unwrap();
+            assert!(result.err().unwrap().to_string().contains("timed out"));
+        }
+        assert!(!create.is_finished());
+        assert_eq!(h.audio.inventory_calls(), 0);
+        drop(app);
+        assert!(AppState::new(dir.path().to_path_buf()).is_err());
+        // Release even if a later assertion fails; no leaked native latch.
+        secret_lock.unlock().unwrap();
+        assert!(create.await.unwrap().is_err());
+        assert_eq!(h.audio.inventory_calls(), 0);
+        assert_eq!(h.audio.open_calls(), 0);
+        tests::eventually(|| AppState::new(dir.path().to_path_buf()).is_ok()).await;
+        assert!(!secrets.contains(SECRET_SERVICE, &secret_key(id)).unwrap());
+    }
 }

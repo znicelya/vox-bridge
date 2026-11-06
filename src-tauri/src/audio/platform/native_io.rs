@@ -136,6 +136,23 @@ impl AudioControl for NativeControl {
     fn statistics(&self) -> AudioStatistics {
         self.shared.statistics()
     }
+    fn playback_overflow_generation(&self) -> u64 {
+        self.shared
+            .counters
+            .playback_overflow_generation
+            .load(Ordering::Acquire)
+    }
+    async fn playback_overflow_changed(&self, observed: u64) {
+        loop {
+            let changed = self.shared.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if self.playback_overflow_generation() != observed {
+                return;
+            }
+            changed.await;
+        }
+    }
     async fn stop_capture(&self) -> AppResult<()> {
         self.shared.stop_capture();
         self.request(Operation::Capture).await.map(|_| ())
