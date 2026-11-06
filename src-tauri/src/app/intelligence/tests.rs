@@ -1,4 +1,5 @@
 use super::*;
+mod child_operations;
 use crate::intelligence::{
     jobs::{JobContext, JobHandler},
     test_support::payload,

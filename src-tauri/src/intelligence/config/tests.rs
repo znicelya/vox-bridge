@@ -1,4 +1,5 @@
 use super::*;
+mod snapshot_credentials;
 use crate::{app::CredentialChange, intelligence::test_support::*};
 
 #[tokio::test]

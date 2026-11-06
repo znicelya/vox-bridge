@@ -290,6 +290,37 @@ impl ServiceConfigStore {
             .await
             .map_err(safe_config_error)
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Reserved for Task 5 immutable model credential execution"
+        )
+    )]
+    pub(crate) async fn resolve_snapshot_credentials(
+        &self,
+        expected: ModelProfile,
+    ) -> AppResult<SecretString> {
+        self.io
+            .run(move |tx| {
+                let doc = read(tx)?;
+                let saved = doc
+                    .profiles
+                    .iter()
+                    .find(|saved| saved.profile.id == expected.id)
+                    .ok_or_else(configuration)?;
+                if saved.profile != expected || !saved.referenced() {
+                    return Err(configuration());
+                }
+                let bytes = tx
+                    .secret_get(SERVICE, &key(expected.id))?
+                    .ok_or_else(configuration)?;
+                SecretString::from_store_bytes(bytes)
+            })
+            .await
+            .map_err(safe_config_error)
+    }
+
     /// Backend composition boundary for snapshot + job/result-version admission.
     /// The callback may capture an owned process/admission lease: ConfigIo keeps
     /// it until entered work really finishes even if the async observer goes away.

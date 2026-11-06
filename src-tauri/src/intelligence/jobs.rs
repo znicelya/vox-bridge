@@ -19,12 +19,35 @@ use std::{
 };
 use tokio::sync::{Notify, Semaphore, broadcast, mpsc, watch};
 use uuid::Uuid;
+mod child_operations;
+use child_operations::ChildOperations;
 pub struct JobContext {
     pub id: Uuid,
     pub cancel: watch::Receiver<bool>,
     fence: JobAdmissionFence,
+    children: ChildOperations,
 }
 impl JobContext {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Reserved for Task 5 native and index operation ownership"
+        )
+    )]
+    pub(crate) fn operation_owner(&self) -> AppResult<OperationLease> {
+        // Only control is held here. The returned token crosses config/index
+        // boundaries after this guard is released; never consult SQLite here.
+        let control = self.fence.control.lock().unwrap();
+        if control.stopping || self.fence.closed.load(Ordering::Acquire) {
+            return Err(error(IntelligenceErrorCode::Busy));
+        }
+        if *self.cancel.borrow() || !control.active.contains_key(&self.id) {
+            return Err(error(IntelligenceErrorCode::Cancelled));
+        }
+        self.children.try_acquire()
+    }
+
     /// Caller already owns SQLite; generation control is acquired only inside it.
     pub(crate) fn commit<T>(
         &self,
@@ -174,6 +197,7 @@ impl JobScheduler {
         let events = self.events.clone();
         let worker_control = control.clone();
         let closed = self.closed.clone();
+        let children = ChildOperations::new(&lease);
         runtime.spawn(async move {
             let _lease = lease;
             let (tx, rx) = mpsc::channel(2);
@@ -189,6 +213,7 @@ impl JobScheduler {
                     events.clone(),
                     stop.clone(),
                     closed.clone(),
+                    children.clone(),
                 ));
             }
             let mut stop = stop;
@@ -215,6 +240,7 @@ impl JobScheduler {
                     tokio::time::sleep(Duration::from_millis(20)).await;
                 }
             }
+            children.drain().await;
             drop(_lease);
             done.send_replace(true);
         });
@@ -503,6 +529,7 @@ async fn worker(
     events: broadcast::Sender<IntelligenceEvent>,
     mut stop: watch::Receiver<bool>,
     closed: Arc<AtomicBool>,
+    children: ChildOperations,
 ) {
     use futures_util::FutureExt;
     loop {
@@ -530,6 +557,7 @@ async fn worker(
                         closed: closed.clone(),
                         cancel: stop.clone(),
                     },
+                    children: children.clone(),
                 },
                 payload,
             ))

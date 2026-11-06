@@ -1,4 +1,5 @@
 use super::*;
+mod child_operations;
 mod documents;
 use crate::intelligence::test_support::*;
 use std::{

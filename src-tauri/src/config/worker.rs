@@ -201,6 +201,8 @@ impl ConfigTransaction<'_> {
     }
 
     pub(crate) fn secret_get(&mut self, service: &str, key: &str) -> AppResult<Option<Vec<u8>>> {
+        #[cfg(test)]
+        self.check_fault("get_secret")?;
         self.ensure_secret_lock()?;
         self.store.secret_store().get_locked(service, key)
     }
