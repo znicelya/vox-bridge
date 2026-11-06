@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, VecDeque},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -7,6 +7,7 @@ use std::{
 use tokio::{
     sync::{mpsc, oneshot, watch},
     task::{JoinHandle, JoinSet},
+    time::{Instant, MissedTickBehavior},
 };
 use uuid::Uuid;
 
@@ -27,29 +28,45 @@ use crate::{
             RuntimeSnapshot, SessionContext, SessionLaunch,
         },
         session::{SessionDirection, SessionMode},
-        transcript::{DiagnosticPayload, RuntimeDiagnostic, RuntimeFailureCode},
+        transcript::{
+            DiagnosticPayload, GapCause, PlaybackBoundary, RuntimeDiagnostic, RuntimeFailureCode,
+        },
     },
     error::{AppError, AppResult},
     events::{EventBus, SessionEvent},
     providers::{
         ProviderConnection, ProviderError, ProviderEvent,
-        factory::{PreparedProviderSession, ProviderFactory},
+        factory::{DirectedProviderStream, PreparedProviderSession, ProviderFactory},
     },
     storage::LocalStore,
 };
 
 use super::{
-    direction::{provider_failure, router_direction, split_provider_audio},
+    direction::{DiagnosticAccumulator, provider_failure, router_direction, split_provider_audio},
     transcript_sink::TranscriptSink,
 };
 
 const AUDIO_OPEN_TIMEOUT: Duration = Duration::from_secs(3);
 const PROVIDER_READY_TIMEOUT: Duration = Duration::from_secs(10);
 const CAPTURE_STOP_TIMEOUT: Duration = Duration::from_secs(2);
+#[cfg(not(test))]
+const CAPTURE_DRAIN_TIMEOUT: Duration = Duration::from_secs(4);
+#[cfg(test)]
+const CAPTURE_DRAIN_TIMEOUT: Duration = Duration::from_millis(400);
+#[cfg(not(test))]
 const PROVIDER_FINISH_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(test)]
+const PROVIDER_FINISH_TIMEOUT: Duration = Duration::from_millis(400);
+#[cfg(not(test))]
 const PLAYBACK_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(test)]
+const PLAYBACK_DRAIN_TIMEOUT: Duration = Duration::from_millis(400);
+#[cfg(not(test))]
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
+#[cfg(test)]
+const CLOSE_TIMEOUT: Duration = Duration::from_millis(400);
 const LATE_AUDIO_CLEANUP_TIMEOUT: Duration = Duration::from_secs(3);
+const PENDING_PACKET_CAPACITY: usize = 16;
 
 pub struct TranslationRuntime {
     factory: Arc<ProviderFactory>,
@@ -110,6 +127,7 @@ struct DirectionActor {
     sink: TranscriptSink,
     epoch: u64,
     failures: Vec<RuntimeFailureCode>,
+    diagnostics: DiagnosticAccumulator,
 }
 
 impl TranslationRuntime {
@@ -302,6 +320,7 @@ async fn supervise(
             sink,
             epoch: 0,
             failures: Vec::new(),
+            diagnostics: DiagnosticAccumulator::new(Instant::now()),
         };
         tasks.spawn(actor.run());
     }
@@ -391,6 +410,13 @@ impl DirectionActor {
     async fn run(mut self) -> ActorExit {
         let mut resources = match self.open_resources().await {
             Ok(resources) => resources,
+            Err(RuntimeFailureCode::Interrupted) if *self.stop.borrow() => {
+                self.publish(DirectionPhase::Stopped, None).await;
+                return ActorExit {
+                    direction: self.plan.direction,
+                    failure: None,
+                };
+            }
             Err(code) => {
                 self.fail(code.clone());
                 self.publish(DirectionPhase::Stopped, Some(code.clone()))
@@ -423,6 +449,9 @@ impl DirectionActor {
         loop {
             match self.run_connected(resources).await {
                 ConnectedExit::Stopped(failure) => {
+                    if let Some(code) = &failure {
+                        self.fail(code.clone());
+                    }
                     self.publish(DirectionPhase::Stopped, failure.clone()).await;
                     return ActorExit {
                         direction: self.plan.direction,
@@ -461,7 +490,7 @@ impl DirectionActor {
         }
     }
 
-    async fn open_resources(&self) -> Result<Resources, RuntimeFailureCode> {
+    async fn open_resources(&mut self) -> Result<Resources, RuntimeFailureCode> {
         let audio = self.audio.clone();
         let request = self.plan.request.clone();
         let mut audio_task = tokio::spawn(async move { audio.open(request).await });
@@ -469,39 +498,85 @@ impl DirectionActor {
         let direction = self.plan.direction;
         let mut provider_task =
             tokio::spawn(async move { provider.connect_direction(direction).await });
-        let audio_result = tokio::time::timeout(AUDIO_OPEN_TIMEOUT, &mut audio_task).await;
-        let provider_result =
-            tokio::time::timeout(PROVIDER_READY_TIMEOUT, &mut provider_task).await;
-        let ports = match audio_result {
-            Ok(Ok(Ok(ports))) => ports,
-            Ok(Ok(Err(error))) => return Err(audio_failure(&error)),
-            Ok(Err(_)) => return Err(RuntimeFailureCode::CleanupTimeout),
-            Err(_) => {
-                cleanup_late_audio(audio_task).await;
-                return Err(RuntimeFailureCode::StartupTimeout);
+        let audio_deadline = tokio::time::sleep(AUDIO_OPEN_TIMEOUT);
+        let provider_deadline = tokio::time::sleep(PROVIDER_READY_TIMEOUT);
+        tokio::pin!(audio_deadline, provider_deadline);
+        let mut ports = None;
+        let mut directed: Option<DirectedProviderStream> = None;
+        loop {
+            if ports.is_some() && directed.is_some() {
+                let ports = ports.take().expect("checked audio readiness");
+                let directed = directed.take().expect("checked provider readiness");
+                return Ok(Resources {
+                    stream: Arc::from(directed.stream),
+                    ports,
+                    output_sequence: 0,
+                });
             }
-        };
-        let directed = match provider_result {
-            Ok(Ok(Ok(stream))) => stream,
-            Ok(Ok(Err(error))) => {
-                close_ports(ports).await;
-                return Err(provider_failure(&error));
+            tokio::select! {
+                _ = self.stop.changed() => if *self.stop.borrow() {
+                    match ports.take() {
+                        Some(ports) => close_ports(ports).await,
+                        None => cleanup_late_audio(audio_task).await,
+                    }
+                    match directed.take() {
+                        Some(stream) => cleanup_directed(stream).await,
+                        None => cleanup_late_provider(provider_task).await,
+                    }
+                    return Err(RuntimeFailureCode::Interrupted);
+                },
+                result = &mut audio_task, if ports.is_none() => match result {
+                    Ok(Ok(opened)) => ports = Some(opened),
+                    Ok(Err(error)) => {
+                        match directed.take() {
+                            Some(stream) => cleanup_directed(stream).await,
+                            None => cleanup_late_provider(provider_task).await,
+                        }
+                        return Err(audio_failure(&error));
+                    }
+                    Err(_) => {
+                        match directed.take() {
+                            Some(stream) => cleanup_directed(stream).await,
+                            None => cleanup_late_provider(provider_task).await,
+                        }
+                        return Err(RuntimeFailureCode::CleanupTimeout);
+                    }
+                },
+                result = &mut provider_task, if directed.is_none() => match result {
+                    Ok(Ok(opened)) => directed = Some(opened),
+                    Ok(Err(error)) => {
+                        match ports.take() {
+                            Some(ports) => close_ports(ports).await,
+                            None => cleanup_late_audio(audio_task).await,
+                        }
+                        return Err(provider_failure(&error));
+                    }
+                    Err(_) => {
+                        match ports.take() {
+                            Some(ports) => close_ports(ports).await,
+                            None => cleanup_late_audio(audio_task).await,
+                        }
+                        return Err(RuntimeFailureCode::CleanupTimeout);
+                    }
+                },
+                _ = &mut audio_deadline, if ports.is_none() => {
+                    match directed.take() {
+                        Some(stream) => cleanup_directed(stream).await,
+                        None => cleanup_late_provider(provider_task).await,
+                    }
+                    cleanup_late_audio(audio_task).await;
+                    return Err(RuntimeFailureCode::StartupTimeout);
+                }
+                _ = &mut provider_deadline, if directed.is_none() => {
+                    match ports.take() {
+                        Some(ports) => close_ports(ports).await,
+                        None => cleanup_late_audio(audio_task).await,
+                    }
+                    provider_task.abort();
+                    return Err(RuntimeFailureCode::StartupTimeout);
+                }
             }
-            Ok(Err(_)) => {
-                close_ports(ports).await;
-                return Err(RuntimeFailureCode::CleanupTimeout);
-            }
-            Err(_) => {
-                provider_task.abort();
-                close_ports(ports).await;
-                return Err(RuntimeFailureCode::StartupTimeout);
-            }
-        };
-        Ok(Resources {
-            stream: Arc::from(directed.stream),
-            ports,
-            output_sequence: 0,
-        })
+        }
     }
 
     async fn await_started(&mut self, resources: &mut Resources) -> Result<(), RuntimeFailureCode> {
@@ -518,9 +593,16 @@ impl DirectionActor {
                 }
                 event = resources.stream.next_event() => match event {
                     Ok(Some(ProviderEvent::SessionStarted { .. })) => return Ok(()),
+                    Ok(Some(ProviderEvent::Failed { metadata, error })) => {
+                        self.fail_provider(&error, metadata.log_id.clone());
+                        return Err(provider_failure(&error));
+                    }
                     Ok(Some(event)) => self.handle_non_audio_event(&event)?,
                     Ok(None) => return Err(RuntimeFailureCode::Provider),
-                    Err(error) => return Err(provider_failure(&error)),
+                    Err(error) => {
+                        self.fail_provider(&error, None);
+                        return Err(provider_failure(&error));
+                    }
                 }
             }
         }
@@ -528,28 +610,84 @@ impl DirectionActor {
 
     async fn run_connected(&mut self, mut resources: Resources) -> ConnectedExit {
         let mut packetizer = AudioPacketizer::new(self.plan.request.source);
+        let mut pending = VecDeque::with_capacity(PENDING_PACKET_CAPACITY);
+        let mut next_send_at = None;
+        let mut capture_baseline = resources.ports.control.statistics().capture;
+        let mut diagnostic_tick = tokio::time::interval(Duration::from_secs(1));
+        diagnostic_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        diagnostic_tick.tick().await;
         loop {
             tokio::select! {
                 biased;
                 _ = self.stop.changed() => if *self.stop.borrow() {
-                    return ConnectedExit::Stopped(self.graceful_stop(resources, packetizer).await.err());
+                    return ConnectedExit::Stopped(self.graceful_stop(resources, packetizer, pending).await.err());
                 },
                 control = self.controls.recv() => if let Some(DirectionControl::Resume(result)) = control {
                     let _ = result.send(Err(AppError::InvalidRequest("direction is already running".into())));
                 },
                 changed = resources.ports.health.changed() => {
                     if changed.is_err() || *resources.ports.health.borrow() != crate::audio::runtime::AudioHealth::Ready {
+                        self.diagnostics.observe_gap(GapCause::DeviceLoss, 0);
+                        let _ = self.flush_diagnostics(&resources, true, None);
                         self.abort_resources(resources).await;
                         return ConnectedExit::Paused(RuntimeFailureCode::DeviceUnavailable);
                     }
                 }
+                _ = diagnostic_tick.tick() => {
+                    if self.flush_diagnostics(&resources, false, None).is_err() {
+                        self.abort_resources(resources).await;
+                        return ConnectedExit::Paused(RuntimeFailureCode::Storage);
+                    }
+                }
+                _ = wait_for_pacing(next_send_at), if !pending.is_empty() => {
+                    let packet = pending.pop_front().expect("pacing branch requires a packet");
+                    let duration = packet.duration();
+                    let captured_at = packet.captured_at();
+                    let result = resources.stream.send_audio(packet).await;
+                    let base = next_send_at.take().unwrap_or_else(Instant::now);
+                    next_send_at = Some(std::cmp::max(base, Instant::now()) + duration);
+                    match result {
+                        Ok(()) => {
+                            let capture_to_admission = SystemTime::now()
+                                .duration_since(captured_at)
+                                .ok()
+                                .and_then(|duration| u64::try_from(duration.as_millis()).ok());
+                            self.diagnostics.observe_latency(capture_to_admission, None);
+                        }
+                        Err(ProviderError::QueueFull) => {
+                            self.diagnostics.observe_gap(GapCause::CaptureOverflow, 1);
+                        }
+                        Err(ProviderError::NotStarted | ProviderError::Closed) => {
+                            pending.clear();
+                            packetizer.reset();
+                            next_send_at = None;
+                            self.publish(DirectionPhase::Reconnecting, None).await;
+                            match self.recover_same_stream(resources, false, false).await {
+                                Ok(next) => {
+                                    resources = next;
+                                    capture_baseline = resources.ports.control.statistics().capture;
+                                    self.publish(DirectionPhase::Running, None).await;
+                                }
+                                Err(code) => return ConnectedExit::Paused(code),
+                            }
+                        }
+                        Err(error) => {
+                            let code = provider_failure(&error);
+                            self.fail_provider(&error, None);
+                            self.abort_resources(resources).await;
+                            return ConnectedExit::Paused(code);
+                        }
+                    }
+                }
                 event = resources.stream.next_event() => {
+                    let received_at = Instant::now();
                     match event {
                         Ok(Some(ProviderEvent::SessionStarted { .. })) => {
                             self.abort_resources(resources).await;
                             return ConnectedExit::Paused(RuntimeFailureCode::InvalidEvent);
                         }
                         Ok(Some(ProviderEvent::Gap { .. })) => {
+                            self.diagnostics.observe_gap(GapCause::ProviderReconnect, 0);
                             if self.sink.advance_epoch().is_err() {
                                 self.abort_resources(resources).await;
                                 return ConnectedExit::Paused(RuntimeFailureCode::Storage);
@@ -560,6 +698,9 @@ impl DirectionActor {
                                 Ok(next) => {
                                     resources = next;
                                     packetizer.reset();
+                                    pending.clear();
+                                    next_send_at = None;
+                                    capture_baseline = resources.ports.control.statistics().capture;
                                     self.publish(DirectionPhase::Running, None).await;
                                 }
                                 Err(code) => return ConnectedExit::Paused(code),
@@ -568,11 +709,15 @@ impl DirectionActor {
                         Ok(Some(ProviderEvent::Audio { frame, .. })) => {
                             if let Err(code) = route_audio(&resources.ports, &frame, &mut resources.output_sequence) {
                                 if code == RuntimeFailureCode::DeviceUnavailable {
+                                    self.diagnostics.observe_gap(GapCause::OutputOverflow, 1);
                                     self.publish(DirectionPhase::Reconnecting, None).await;
                                     match self.recover_same_stream(resources, false, true).await {
                                         Ok(next) => {
                                             resources = next;
                                             packetizer.reset();
+                                            pending.clear();
+                                            next_send_at = None;
+                                            capture_baseline = resources.ports.control.statistics().capture;
                                             self.publish(DirectionPhase::Running, None).await;
                                         }
                                         Err(code) => return ConnectedExit::Paused(code),
@@ -581,14 +726,20 @@ impl DirectionActor {
                                     self.abort_resources(resources).await;
                                     return ConnectedExit::Paused(code);
                                 }
+                            } else {
+                                self.diagnostics.observe_latency(
+                                    None,
+                                    Some(u64::try_from(received_at.elapsed().as_millis()).unwrap_or(u64::MAX)),
+                                );
                             }
                         }
                         Ok(Some(ProviderEvent::Finished { .. })) => {
                             self.abort_resources(resources).await;
                             return ConnectedExit::Paused(RuntimeFailureCode::Interrupted);
                         }
-                        Ok(Some(ProviderEvent::Failed { error, .. })) => {
+                        Ok(Some(ProviderEvent::Failed { metadata, error })) => {
                             let code = provider_failure(&error);
+                            self.fail_provider(&error, metadata.log_id.clone());
                             self.abort_resources(resources).await;
                             return ConnectedExit::Paused(code);
                         }
@@ -609,6 +760,32 @@ impl DirectionActor {
                 }
                 frame = resources.ports.capture.recv() => {
                     let Some(frame) = frame else { continue; };
+                    let capture = resources.ports.control.statistics().capture;
+                    let lost = capture
+                        .dropped_native_blocks
+                        .saturating_sub(capture_baseline.dropped_native_blocks)
+                        .saturating_add(
+                            capture
+                                .dropped_normalized_frames
+                                .saturating_sub(capture_baseline.dropped_normalized_frames),
+                        );
+                    capture_baseline = capture;
+                    if lost != 0 {
+                        self.diagnostics.observe_gap(GapCause::CaptureOverflow, lost);
+                        pending.clear();
+                        packetizer.reset();
+                        next_send_at = None;
+                        self.publish(DirectionPhase::Reconnecting, None).await;
+                        match self.recover_same_stream(resources, false, true).await {
+                            Ok(next) => {
+                                resources = next;
+                                capture_baseline = resources.ports.control.statistics().capture;
+                                self.publish(DirectionPhase::Running, None).await;
+                                continue;
+                            }
+                            Err(code) => return ConnectedExit::Paused(code),
+                        }
+                    }
                     let packets = match packetizer.push(frame) {
                         Ok(packets) => packets,
                         Err(_) => {
@@ -617,26 +794,14 @@ impl DirectionActor {
                         }
                     };
                     for packet in packets {
-                        match resources.stream.send_audio(packet).await {
-                            Ok(()) | Err(ProviderError::QueueFull) => {}
-                            Err(ProviderError::NotStarted) => {
-                                packetizer.reset();
-                                self.publish(DirectionPhase::Reconnecting, None).await;
-                                match self.recover_same_stream(resources, false, false).await {
-                                    Ok(next) => {
-                                        resources = next;
-                                        self.publish(DirectionPhase::Running, None).await;
-                                    }
-                                    Err(code) => return ConnectedExit::Paused(code),
-                                }
-                                break;
-                            }
-                            Err(error) => {
-                                let code = provider_failure(&error);
-                                self.abort_resources(resources).await;
-                                return ConnectedExit::Paused(code);
-                            }
+                        if pending.len() == PENDING_PACKET_CAPACITY {
+                            pending.pop_front();
+                            self.diagnostics.observe_gap(GapCause::CaptureOverflow, 1);
                         }
+                        pending.push_back(packet);
+                    }
+                    if next_send_at.is_none() && !pending.is_empty() {
+                        next_send_at = Some(Instant::now());
                     }
                 }
             }
@@ -704,10 +869,16 @@ impl DirectionActor {
                         provider_ready = true;
                     }
                     Ok(Some(ProviderEvent::Audio { .. })) => {}
-                    Ok(Some(ProviderEvent::Failed { error, .. })) => return Err(provider_failure(&error)),
+                    Ok(Some(ProviderEvent::Failed { metadata, error })) => {
+                        self.fail_provider(&error, metadata.log_id.clone());
+                        return Err(provider_failure(&error));
+                    }
                     Ok(Some(ProviderEvent::Finished { .. })) | Ok(None) => return Err(RuntimeFailureCode::Provider),
                     Ok(Some(event)) => self.handle_non_audio_event(&event)?,
-                    Err(error) => return Err(provider_failure(&error)),
+                    Err(error) => {
+                        self.fail_provider(&error, None);
+                        return Err(provider_failure(&error));
+                    }
                 }
             }
         }
@@ -717,92 +888,234 @@ impl DirectionActor {
         &mut self,
         mut resources: Resources,
         mut packetizer: AudioPacketizer,
+        mut pending: VecDeque<crate::audio::AudioFrame>,
     ) -> Result<(), RuntimeFailureCode> {
-        tokio::time::timeout(CAPTURE_STOP_TIMEOUT, resources.ports.control.stop_capture())
-            .await
-            .map_err(|_| RuntimeFailureCode::CleanupTimeout)?
-            .map_err(|_| RuntimeFailureCode::DeviceUnavailable)?;
-        while let Some(frame) = resources.ports.capture.pop().await {
-            for packet in packetizer
-                .push(frame)
+        let stop_result =
+            tokio::time::timeout(CAPTURE_STOP_TIMEOUT, resources.ports.control.stop_capture())
+                .await;
+        let stop_failure = match stop_result {
+            Ok(Ok(())) => None,
+            Ok(Err(_)) => Some(RuntimeFailureCode::DeviceUnavailable),
+            Err(_) => Some(RuntimeFailureCode::CleanupTimeout),
+        };
+        if let Some(code) = stop_failure {
+            self.cancel_and_close(&resources).await;
+            return Err(code);
+        }
+
+        let drain_result = tokio::time::timeout(CAPTURE_DRAIN_TIMEOUT, async {
+            while let Some(frame) = resources.ports.capture.pop().await {
+                pending.extend(
+                    packetizer
+                        .push(frame)
+                        .map_err(|_| RuntimeFailureCode::InvalidEvent)?,
+                );
+            }
+            if let Some(tail) = packetizer
+                .flush()
                 .map_err(|_| RuntimeFailureCode::InvalidEvent)?
             {
-                match resources.stream.send_audio(packet).await {
-                    Ok(()) | Err(ProviderError::QueueFull) => {}
-                    Err(error) => return Err(provider_failure(&error)),
-                }
+                pending.push_back(tail);
+            }
+            while let Some(packet) = pending.front().cloned() {
+                self.admit_stop_packet(&mut resources, packet).await?;
+                pending.pop_front();
+            }
+            Ok::<(), RuntimeFailureCode>(())
+        })
+        .await;
+        match drain_result {
+            Ok(Ok(())) => {}
+            Ok(Err(code)) => {
+                self.cancel_and_close(&resources).await;
+                return Err(code);
+            }
+            Err(_) => {
+                let dropped = pending
+                    .len()
+                    .saturating_add(resources.ports.capture.clear());
+                self.diagnostics.observe_gap(
+                    GapCause::CaptureOverflow,
+                    u64::try_from(dropped.max(1)).unwrap_or(u64::MAX),
+                );
+                self.cancel_and_close(&resources).await;
+                return Err(RuntimeFailureCode::Interrupted);
             }
         }
-        if let Some(tail) = packetizer
-            .flush()
-            .map_err(|_| RuntimeFailureCode::InvalidEvent)?
-        {
-            match resources.stream.send_audio(tail).await {
-                Ok(()) | Err(ProviderError::QueueFull) => {}
-                Err(error) => return Err(provider_failure(&error)),
-            }
+
+        if let Err(error) = resources.stream.finish().await {
+            let code = provider_failure(&error);
+            self.fail_provider(&error, None);
+            self.cancel_and_close(&resources).await;
+            return Err(code);
         }
-        resources
-            .stream
-            .finish()
-            .await
-            .map_err(|error| provider_failure(&error))?;
-        let terminal = tokio::time::timeout(PROVIDER_FINISH_TIMEOUT, async {
+        let terminal_result = tokio::time::timeout(PROVIDER_FINISH_TIMEOUT, async {
             loop {
                 match resources.stream.next_event().await {
                     Ok(Some(ProviderEvent::Audio { frame, .. })) => {
                         route_audio(&resources.ports, &frame, &mut resources.output_sequence)?;
                     }
                     Ok(Some(ProviderEvent::Finished { .. })) => return Ok(()),
-                    Ok(Some(ProviderEvent::Failed { error, .. })) => {
+                    Ok(Some(ProviderEvent::Failed { metadata, error })) => {
+                        self.fail_provider(&error, metadata.log_id.clone());
                         return Err(provider_failure(&error));
                     }
                     Ok(Some(event)) => self.handle_non_audio_event(&event)?,
                     Ok(None) => return Err(RuntimeFailureCode::Provider),
-                    Err(error) => return Err(provider_failure(&error)),
-                }
-            }
-        })
-        .await
-        .map_err(|_| RuntimeFailureCode::FinishTimeout)??;
-        let _ = terminal;
-        tokio::time::timeout(
-            PLAYBACK_DRAIN_TIMEOUT,
-            resources.ports.control.drain_playback(),
-        )
-        .await
-        .map_err(|_| RuntimeFailureCode::PlaybackTimeout)?
-        .map_err(|_| RuntimeFailureCode::PlaybackTimeout)?;
-        tokio::time::timeout(CLOSE_TIMEOUT, resources.ports.control.close())
-            .await
-            .map_err(|_| RuntimeFailureCode::CleanupTimeout)?
-            .map_err(|_| RuntimeFailureCode::CleanupTimeout)?;
-        Ok(())
-    }
-
-    async fn abort_resources(&mut self, resources: Resources) {
-        resources.ports.control.suppress_now();
-        let _ = resources.stream.cancel().await;
-        let _ =
-            tokio::time::timeout(CLOSE_TIMEOUT, resources.ports.control.discard_pending()).await;
-        let _ = tokio::time::timeout(CLOSE_TIMEOUT, resources.ports.control.close()).await;
-        let _ = tokio::time::timeout(CLOSE_TIMEOUT, async {
-            loop {
-                match resources.stream.next_event().await {
-                    Ok(Some(
-                        event @ (ProviderEvent::SourceFinal { .. }
-                        | ProviderEvent::TranslationFinal { .. }),
-                    )) => {
-                        let _ = self.handle_non_audio_event(&event);
+                    Err(error) => {
+                        self.fail_provider(&error, None);
+                        return Err(provider_failure(&error));
                     }
-                    Ok(Some(ProviderEvent::Finished { .. } | ProviderEvent::Failed { .. }))
-                    | Ok(None)
-                    | Err(_) => break,
-                    Ok(Some(_)) => {}
                 }
             }
         })
         .await;
+        match terminal_result {
+            Ok(Ok(())) => {}
+            Ok(Err(code)) => {
+                self.cancel_and_close(&resources).await;
+                return Err(code);
+            }
+            Err(_) => {
+                self.cancel_and_close(&resources).await;
+                return Err(RuntimeFailureCode::FinishTimeout);
+            }
+        }
+
+        let playback_result = tokio::time::timeout(
+            PLAYBACK_DRAIN_TIMEOUT,
+            resources.ports.control.drain_playback(),
+        )
+        .await;
+        let playback = match playback_result {
+            Ok(Ok(playback)) => playback,
+            Ok(Err(_)) | Err(_) => {
+                self.cancel_and_close(&resources).await;
+                return Err(RuntimeFailureCode::PlaybackTimeout);
+            }
+        };
+
+        match tokio::time::timeout(CLOSE_TIMEOUT, resources.ports.control.close()).await {
+            Ok(Ok(())) => {
+                let statistics = resources.ports.control.statistics();
+                self.flush_diagnostics(
+                    &resources,
+                    true,
+                    Some((Some(playback.boundary), statistics.playback)),
+                )
+            }
+            Ok(Err(_)) | Err(_) => {
+                resources.ports.control.suppress_now();
+                let statistics = resources.ports.control.statistics();
+                let _ = self.flush_diagnostics(&resources, true, Some((None, statistics.playback)));
+                Err(RuntimeFailureCode::CleanupTimeout)
+            }
+        }
+    }
+
+    async fn abort_resources(&mut self, resources: Resources) {
+        self.cancel_and_close(&resources).await;
+    }
+
+    async fn admit_stop_packet(
+        &mut self,
+        resources: &mut Resources,
+        packet: crate::audio::AudioFrame,
+    ) -> Result<(), RuntimeFailureCode> {
+        let captured_at = packet.captured_at();
+        loop {
+            tokio::select! {
+                result = resources.stream.send_audio(packet.clone()) => {
+                    match result {
+                        Ok(()) => {
+                            let capture_to_admission = SystemTime::now()
+                                .duration_since(captured_at)
+                                .ok()
+                                .and_then(|duration| u64::try_from(duration.as_millis()).ok());
+                            self.diagnostics.observe_latency(capture_to_admission, None);
+                        }
+                        Err(ProviderError::QueueFull) => {
+                            self.diagnostics.observe_gap(GapCause::CaptureOverflow, 1);
+                        }
+                        Err(error) => {
+                            self.fail_provider(&error, None);
+                            return Err(provider_failure(&error));
+                        }
+                    }
+                    return Ok(());
+                }
+                event = resources.stream.next_event() => match event {
+                    Ok(Some(ProviderEvent::Audio { frame, .. })) => {
+                        route_audio(&resources.ports, &frame, &mut resources.output_sequence)?;
+                    }
+                    Ok(Some(ProviderEvent::Failed { metadata, error })) => {
+                        self.fail_provider(&error, metadata.log_id.clone());
+                        return Err(provider_failure(&error));
+                    }
+                    Ok(Some(ProviderEvent::Finished { .. })) | Ok(None) => {
+                        return Err(RuntimeFailureCode::Provider);
+                    }
+                    Ok(Some(event)) => self.handle_non_audio_event(&event)?,
+                    Err(error) => {
+                        self.fail_provider(&error, None);
+                        return Err(provider_failure(&error));
+                    }
+                }
+            }
+        }
+    }
+
+    async fn cancel_and_close(&mut self, resources: &Resources) {
+        resources.ports.control.suppress_now();
+        let cancel_ack = tokio::time::timeout(CLOSE_TIMEOUT, resources.stream.cancel()).await;
+        let control = resources.ports.control.clone();
+        let audio_cleanup = async move {
+            control.discard_pending().await?;
+            control.close().await
+        };
+        tokio::pin!(audio_cleanup);
+        let cleanup_ack = tokio::time::timeout(CLOSE_TIMEOUT, async {
+            let mut audio_done = false;
+            let mut terminal_done = false;
+            loop {
+                if audio_done && terminal_done {
+                    return true;
+                }
+                tokio::select! {
+                    result = &mut audio_cleanup, if !audio_done => {
+                        audio_done = true;
+                        if result.is_err() {
+                            return false;
+                        }
+                    }
+                    event = resources.stream.next_event(), if !terminal_done => match event {
+                        Ok(Some(event @ (ProviderEvent::SourceInterim { .. }
+                            | ProviderEvent::SourceFinal { .. }
+                            | ProviderEvent::TranslationInterim { .. }
+                            | ProviderEvent::TranslationFinal { .. }
+                            | ProviderEvent::Muted { .. }))) => {
+                            let _ = self.handle_non_audio_event(&event);
+                        }
+                        Ok(Some(ProviderEvent::Failed { metadata, error })) => {
+                            if error != ProviderError::Cancelled {
+                                self.fail_provider(&error, metadata.log_id.clone());
+                            }
+                            terminal_done = true;
+                        }
+                        Ok(Some(ProviderEvent::Finished { .. })) | Ok(None) | Err(_) => {
+                            terminal_done = true;
+                        }
+                        Ok(Some(_)) => {}
+                    }
+                }
+            }
+        })
+        .await
+        .unwrap_or(false);
+        let statistics = resources.ports.control.statistics();
+        let _ = self.flush_diagnostics(resources, true, Some((None, statistics.playback)));
+        let _ = cancel_ack;
+        let _ = cleanup_ack;
     }
 
     async fn resume(&mut self) -> AppResult<Resources> {
@@ -810,6 +1123,7 @@ impl DirectionActor {
         validate_request(&inventory, &self.plan.request)?;
         self.sink.advance_epoch()?;
         self.epoch = self.sink.epoch();
+        self.diagnostics.observe_gap(GapCause::ManualResume, 0);
         self.publish(DirectionPhase::Starting, None).await;
         let mut resources = self.open_resources().await.map_err(runtime_error)?;
         self.await_started(&mut resources)
@@ -824,11 +1138,14 @@ impl DirectionActor {
             ProviderEvent::SourceInterim { .. }
             | ProviderEvent::SourceFinal { .. }
             | ProviderEvent::TranslationInterim { .. }
-            | ProviderEvent::TranslationFinal { .. } => self
-                .sink
-                .accept(event)
-                .map(|_| ())
-                .map_err(|_| RuntimeFailureCode::Storage),
+            | ProviderEvent::TranslationFinal { .. } => {
+                self.sink
+                    .accept(event)
+                    .map_err(|_| RuntimeFailureCode::Storage)?;
+                self.diagnostics
+                    .observe_transcript_overflow(self.sink.take_dropped_interims());
+                Ok(())
+            }
             ProviderEvent::Muted { .. } => Ok(()),
             _ => Err(RuntimeFailureCode::InvalidEvent),
         }
@@ -839,6 +1156,28 @@ impl DirectionActor {
             return;
         }
         self.failures.push(code.clone());
+        self.persist_failure(code, None, None);
+    }
+
+    fn fail_provider(&mut self, error: &ProviderError, log_id: Option<String>) {
+        let code = provider_failure(error);
+        if self.failures.contains(&code) {
+            return;
+        }
+        self.failures.push(code.clone());
+        let provider_code = match error {
+            ProviderError::RemoteFailure { code } => Some(*code),
+            _ => None,
+        };
+        self.persist_failure(code, provider_code, log_id);
+    }
+
+    fn persist_failure(
+        &self,
+        code: RuntimeFailureCode,
+        provider_code: Option<i32>,
+        log_id: Option<String>,
+    ) {
         let diagnostic = RuntimeDiagnostic {
             id: Uuid::new_v4(),
             session_id: self.session_id,
@@ -847,15 +1186,75 @@ impl DirectionActor {
             occurred_at_ms: now_ms(),
             payload: DiagnosticPayload::Failure {
                 code: code.clone(),
-                provider_code: None,
-                log_id: None,
+                provider_code,
+                log_id,
             },
         };
         if self.store.append_diagnostic(&diagnostic).is_ok() {
             let _ = self
                 .bus
                 .publish(self.session_id, SessionEvent::Diagnostic { diagnostic });
+        } else {
+            let local = RuntimeDiagnostic {
+                id: Uuid::new_v4(),
+                session_id: self.session_id,
+                direction: Some(self.plan.direction),
+                stream_epoch: Some(self.epoch),
+                occurred_at_ms: now_ms(),
+                payload: DiagnosticPayload::Failure {
+                    code: RuntimeFailureCode::Storage,
+                    provider_code: None,
+                    log_id: None,
+                },
+            };
+            let _ = self.bus.publish(
+                self.session_id,
+                SessionEvent::Diagnostic { diagnostic: local },
+            );
         }
+    }
+
+    fn flush_diagnostics(
+        &mut self,
+        resources: &Resources,
+        force: bool,
+        playback: Option<(
+            Option<PlaybackBoundary>,
+            crate::domain::transcript::PlaybackStatistics,
+        )>,
+    ) -> Result<(), RuntimeFailureCode> {
+        for payload in self.diagnostics.take_due(Instant::now(), force) {
+            self.persist_diagnostic(payload)?;
+        }
+        let statistics = resources.ports.control.statistics();
+        self.persist_diagnostic(DiagnosticPayload::CaptureAccounting {
+            statistics: statistics.capture,
+        })?;
+        if let Some((boundary, statistics)) = playback {
+            self.persist_diagnostic(DiagnosticPayload::PlaybackAccounting {
+                boundary,
+                statistics,
+            })?;
+        }
+        Ok(())
+    }
+
+    fn persist_diagnostic(&self, payload: DiagnosticPayload) -> Result<(), RuntimeFailureCode> {
+        let diagnostic = RuntimeDiagnostic {
+            id: Uuid::new_v4(),
+            session_id: self.session_id,
+            direction: Some(self.plan.direction),
+            stream_epoch: Some(self.epoch),
+            occurred_at_ms: now_ms(),
+            payload,
+        };
+        self.store
+            .append_diagnostic(&diagnostic)
+            .map_err(|_| RuntimeFailureCode::Storage)?;
+        let _ = self
+            .bus
+            .publish(self.session_id, SessionEvent::Diagnostic { diagnostic });
+        Ok(())
     }
 
     async fn publish(&self, phase: DirectionPhase, failure: Option<RuntimeFailureCode>) {
@@ -1043,6 +1442,38 @@ async fn cleanup_late_audio(mut task: JoinHandle<AppResult<AudioPorts>>) {
         close_ports(ports).await;
     } else {
         task.abort();
+    }
+}
+
+async fn cleanup_late_provider(
+    mut task: JoinHandle<crate::providers::ProviderResult<DirectedProviderStream>>,
+) {
+    match tokio::time::timeout(CLOSE_TIMEOUT, &mut task).await {
+        Ok(Ok(Ok(stream))) => cleanup_directed(stream).await,
+        Ok(_) => {}
+        Err(_) => task.abort(),
+    }
+}
+
+async fn cleanup_directed(stream: DirectedProviderStream) {
+    let stream: Arc<dyn ProviderConnection> = Arc::from(stream.stream);
+    let _ = stream.cancel().await;
+    let _ = tokio::time::timeout(CLOSE_TIMEOUT, async {
+        loop {
+            match stream.next_event().await {
+                Ok(Some(ProviderEvent::Finished { .. } | ProviderEvent::Failed { .. }))
+                | Ok(None)
+                | Err(_) => break,
+                Ok(Some(_)) => {}
+            }
+        }
+    })
+    .await;
+}
+
+async fn wait_for_pacing(deadline: Option<Instant>) {
+    if let Some(deadline) = deadline {
+        tokio::time::sleep_until(deadline).await;
     }
 }
 

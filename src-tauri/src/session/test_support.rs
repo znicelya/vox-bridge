@@ -9,7 +9,10 @@ use std::{
 
 use async_trait::async_trait;
 use tempfile::TempDir;
-use tokio::sync::{Mutex as AsyncMutex, Notify, mpsc, watch};
+use tokio::{
+    sync::{Mutex as AsyncMutex, Notify, mpsc, oneshot, watch},
+    time::Instant,
+};
 use uuid::Uuid;
 
 use crate::{
@@ -26,7 +29,10 @@ use crate::{
     domain::{
         launch::{DeviceSelection, RuntimePhase, SessionLaunch},
         session::{LanguagePair, ProviderId, SessionConfig, SessionDirection},
-        transcript::{AudioStatistics, CaptureStatistics, PlaybackBoundary, PlaybackStatistics},
+        transcript::{
+            AudioStatistics, CaptureStatistics, PlaybackBoundary, PlaybackStatistics,
+            RuntimeFailureCode,
+        },
         translation::{TimedTranslation, Translation},
     },
     error::{AppError, AppResult},
@@ -84,6 +90,8 @@ struct FixtureAudioState {
     outputs: HashMap<String, Arc<PlaybackProbe>>,
     health: HashMap<String, watch::Sender<AudioHealth>>,
     ready: HashMap<String, bool>,
+    delayed_opens: HashMap<String, oneshot::Receiver<Result<(), RuntimeFailureCode>>>,
+    delayed_closes: HashMap<String, oneshot::Receiver<()>>,
 }
 
 struct PlaybackProbe {
@@ -99,6 +107,7 @@ pub(crate) struct FixtureAudioBackend {
     inventory: AudioInventory,
     state: Arc<Mutex<FixtureAudioState>>,
     open_ports: Arc<AtomicUsize>,
+    total_opens: Arc<AtomicUsize>,
 }
 
 impl FixtureAudioBackend {
@@ -141,6 +150,7 @@ impl FixtureAudioBackend {
                 ..Default::default()
             })),
             open_ports: Arc::new(AtomicUsize::new(0)),
+            total_opens: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -186,6 +196,33 @@ impl FixtureAudioBackend {
     pub(crate) fn open_ports(&self) -> usize {
         self.open_ports.load(Ordering::SeqCst)
     }
+
+    pub(crate) fn total_opens(&self) -> usize {
+        self.total_opens.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn delay_open(
+        &self,
+        input_id: &str,
+    ) -> oneshot::Sender<Result<(), RuntimeFailureCode>> {
+        let (release, wait) = oneshot::channel();
+        self.state
+            .lock()
+            .unwrap()
+            .delayed_opens
+            .insert(input_id.into(), wait);
+        release
+    }
+
+    pub(crate) fn delay_close(&self, input_id: &str) -> oneshot::Sender<()> {
+        let (release, wait) = oneshot::channel();
+        self.state
+            .lock()
+            .unwrap()
+            .delayed_closes
+            .insert(input_id.into(), wait);
+        release
+    }
 }
 
 struct FixtureControl {
@@ -195,6 +232,7 @@ struct FixtureControl {
     probe: Arc<PlaybackProbe>,
     backend: FixtureAudioBackend,
     closed: AtomicBool,
+    delayed_close: AsyncMutex<Option<oneshot::Receiver<()>>>,
 }
 
 impl FixtureControl {
@@ -262,6 +300,9 @@ impl AudioControl for FixtureControl {
     }
 
     async fn close(&self) -> AppResult<()> {
+        if let Some(wait) = self.delayed_close.lock().await.take() {
+            let _ = wait.await;
+        }
         self.close_once();
         Ok(())
     }
@@ -291,6 +332,29 @@ impl AudioBackend for FixtureAudioBackend {
     async fn open(&self, request: AudioOpenRequest) -> AppResult<AudioPorts> {
         if request.inventory_generation != self.inventory.generation {
             return Err(AppError::InvalidRequest("stale fixture inventory".into()));
+        }
+        let delayed = self
+            .state
+            .lock()
+            .unwrap()
+            .delayed_opens
+            .remove(&request.input_id);
+        if let Some(delayed) = delayed {
+            match delayed.await {
+                Ok(Ok(())) => {}
+                Ok(Err(code)) => {
+                    return Err(AppError::Audio {
+                        code,
+                        message: "injected fixture open failure",
+                    });
+                }
+                Err(_) => {
+                    return Err(AppError::Audio {
+                        code: RuntimeFailureCode::CleanupTimeout,
+                        message: "fixture open release was dropped",
+                    });
+                }
+            }
         }
         let mut state = self.state.lock().unwrap();
         if !state.ready.get(&request.input_id).copied().unwrap_or(false)
@@ -325,6 +389,8 @@ impl AudioBackend for FixtureAudioBackend {
             .insert(request.input_id.clone(), health.clone());
         state.health.insert(request.output_id.clone(), health);
         self.open_ports.fetch_add(1, Ordering::SeqCst);
+        self.total_opens.fetch_add(1, Ordering::SeqCst);
+        let delayed_close = state.delayed_closes.remove(&request.input_id);
         let control = Arc::new(FixtureControl {
             input_id: request.input_id,
             output_id: request.output_id,
@@ -332,6 +398,7 @@ impl AudioBackend for FixtureAudioBackend {
             probe,
             backend: self.clone(),
             closed: AtomicBool::new(false),
+            delayed_close: AsyncMutex::new(delayed_close),
         });
         Ok(AudioPorts {
             capture,
@@ -347,6 +414,34 @@ pub(crate) struct ObservedFixtureProvider {
     connects: Arc<[AtomicUsize; 2]>,
     finishes: Arc<[AtomicUsize; 2]>,
     sent: Arc<[Mutex<Vec<u64>>; 2]>,
+    sent_at: Arc<[Mutex<Vec<Instant>>; 2]>,
+    queue_full_next: Arc<[AtomicBool; 2]>,
+    queue_full_count: Arc<[AtomicUsize; 2]>,
+    not_started_count: Arc<[AtomicUsize; 2]>,
+    send_gates: Arc<[GapGate; 2]>,
+    gap_gates: Arc<[GapGate; 2]>,
+    terminal_gates: Arc<[GapGate; 2]>,
+}
+
+#[derive(Default)]
+struct GapGate {
+    blocked: AtomicBool,
+    released: AtomicBool,
+    changed: Notify,
+}
+
+pub(crate) struct GapRelease {
+    gate: Arc<[GapGate; 2]>,
+    direction: usize,
+}
+
+impl GapRelease {
+    pub(crate) fn release(self) {
+        self.gate[self.direction]
+            .released
+            .store(true, Ordering::SeqCst);
+        self.gate[self.direction].changed.notify_waiters();
+    }
 }
 
 impl ObservedFixtureProvider {
@@ -356,6 +451,13 @@ impl ObservedFixtureProvider {
             connects: Arc::new(std::array::from_fn(|_| AtomicUsize::new(0))),
             finishes: Arc::new(std::array::from_fn(|_| AtomicUsize::new(0))),
             sent: Arc::new(std::array::from_fn(|_| Mutex::new(Vec::new()))),
+            sent_at: Arc::new(std::array::from_fn(|_| Mutex::new(Vec::new()))),
+            queue_full_next: Arc::new(std::array::from_fn(|_| AtomicBool::new(false))),
+            queue_full_count: Arc::new(std::array::from_fn(|_| AtomicUsize::new(0))),
+            not_started_count: Arc::new(std::array::from_fn(|_| AtomicUsize::new(0))),
+            send_gates: Arc::new(std::array::from_fn(|_| GapGate::default())),
+            gap_gates: Arc::new(std::array::from_fn(|_| GapGate::default())),
+            terminal_gates: Arc::new(std::array::from_fn(|_| GapGate::default())),
         }
     }
 
@@ -369,6 +471,64 @@ impl ObservedFixtureProvider {
 
     pub(crate) fn sent_sequences(&self, direction: SessionDirection) -> Vec<u64> {
         self.sent[index(direction)].lock().unwrap().clone()
+    }
+
+    pub(crate) fn sent_at(&self, direction: SessionDirection) -> Vec<Instant> {
+        self.sent_at[index(direction)].lock().unwrap().clone()
+    }
+
+    pub(crate) fn queue_full_once(&self, direction: SessionDirection) {
+        self.queue_full_next[index(direction)].store(true, Ordering::SeqCst);
+    }
+
+    pub(crate) fn queue_full_count(&self, direction: SessionDirection) -> usize {
+        self.queue_full_count[index(direction)].load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn not_started_count(&self, direction: SessionDirection) -> usize {
+        self.not_started_count[index(direction)].load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn delay_send(&self, direction: SessionDirection) -> GapRelease {
+        let direction = index(direction);
+        self.send_gates[direction]
+            .released
+            .store(false, Ordering::SeqCst);
+        self.send_gates[direction]
+            .blocked
+            .store(true, Ordering::SeqCst);
+        GapRelease {
+            gate: self.send_gates.clone(),
+            direction,
+        }
+    }
+
+    pub(crate) fn delay_gap(&self, direction: SessionDirection) -> GapRelease {
+        let direction = index(direction);
+        self.gap_gates[direction]
+            .released
+            .store(false, Ordering::SeqCst);
+        self.gap_gates[direction]
+            .blocked
+            .store(true, Ordering::SeqCst);
+        GapRelease {
+            gate: self.gap_gates.clone(),
+            direction,
+        }
+    }
+
+    pub(crate) fn delay_terminal(&self, direction: SessionDirection) -> GapRelease {
+        let direction = index(direction);
+        self.terminal_gates[direction]
+            .released
+            .store(false, Ordering::SeqCst);
+        self.terminal_gates[direction]
+            .blocked
+            .store(true, Ordering::SeqCst);
+        GapRelease {
+            gate: self.terminal_gates.clone(),
+            direction,
+        }
     }
 }
 
@@ -393,6 +553,14 @@ impl TranslationProvider for ObservedFixtureProvider {
             direction,
             finishes: self.finishes.clone(),
             sent: self.sent.clone(),
+            sent_at: self.sent_at.clone(),
+            queue_full_next: self.queue_full_next.clone(),
+            queue_full_count: self.queue_full_count.clone(),
+            not_started_count: self.not_started_count.clone(),
+            send_gates: self.send_gates.clone(),
+            gap_gates: self.gap_gates.clone(),
+            terminal_gates: self.terminal_gates.clone(),
+            held_event: AsyncMutex::new(None),
         }))
     }
 }
@@ -402,14 +570,43 @@ struct ObservedConnection {
     direction: usize,
     finishes: Arc<[AtomicUsize; 2]>,
     sent: Arc<[Mutex<Vec<u64>>; 2]>,
+    sent_at: Arc<[Mutex<Vec<Instant>>; 2]>,
+    queue_full_next: Arc<[AtomicBool; 2]>,
+    queue_full_count: Arc<[AtomicUsize; 2]>,
+    not_started_count: Arc<[AtomicUsize; 2]>,
+    send_gates: Arc<[GapGate; 2]>,
+    gap_gates: Arc<[GapGate; 2]>,
+    terminal_gates: Arc<[GapGate; 2]>,
+    held_event: AsyncMutex<Option<ProviderEvent>>,
 }
 
 #[async_trait]
 impl ProviderConnection for ObservedConnection {
     async fn send_audio(&self, frame: AudioFrame) -> ProviderResult<()> {
+        let gate = &self.send_gates[self.direction];
+        loop {
+            let changed = gate.changed.notified();
+            if !gate.blocked.load(Ordering::SeqCst) || gate.released.load(Ordering::SeqCst) {
+                break;
+            }
+            changed.await;
+        }
+        if self.queue_full_next[self.direction].swap(false, Ordering::SeqCst) {
+            self.queue_full_count[self.direction].fetch_add(1, Ordering::SeqCst);
+            return Err(crate::providers::ProviderError::QueueFull);
+        }
         let sequence = frame.sequence();
-        self.inner.send_audio(frame).await?;
+        if let Err(error) = self.inner.send_audio(frame).await {
+            if error == crate::providers::ProviderError::NotStarted {
+                self.not_started_count[self.direction].fetch_add(1, Ordering::SeqCst);
+            }
+            return Err(error);
+        }
         self.sent[self.direction].lock().unwrap().push(sequence);
+        self.sent_at[self.direction]
+            .lock()
+            .unwrap()
+            .push(Instant::now());
         Ok(())
     }
 
@@ -423,7 +620,36 @@ impl ProviderConnection for ObservedConnection {
     }
 
     async fn next_event(&self) -> ProviderResult<Option<ProviderEvent>> {
-        self.inner.next_event().await
+        loop {
+            let mut held = self.held_event.lock().await;
+            if held.is_none() {
+                drop(held);
+                let event = self.inner.next_event().await?;
+                held = self.held_event.lock().await;
+                *held = event;
+            }
+            let gate = &self.gap_gates[self.direction];
+            let blocked_gap = matches!(held.as_ref(), Some(ProviderEvent::Gap { .. }))
+                && gate.blocked.load(Ordering::SeqCst)
+                && !gate.released.load(Ordering::SeqCst);
+            let terminal_gate = &self.terminal_gates[self.direction];
+            let blocked_terminal = matches!(
+                held.as_ref(),
+                Some(ProviderEvent::Finished { .. } | ProviderEvent::Failed { .. })
+            ) && terminal_gate.blocked.load(Ordering::SeqCst)
+                && !terminal_gate.released.load(Ordering::SeqCst);
+            if blocked_gap || blocked_terminal {
+                let changed = if blocked_gap {
+                    gate.changed.notified()
+                } else {
+                    terminal_gate.changed.notified()
+                };
+                drop(held);
+                changed.await;
+                continue;
+            }
+            return Ok(held.take());
+        }
     }
 }
 

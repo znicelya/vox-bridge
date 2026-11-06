@@ -5,14 +5,86 @@ use crate::{
     domain::{
         audio::PLAYBACK_SAMPLE_RATE_HZ,
         session::{SessionDirection, SessionMode},
-        transcript::RuntimeFailureCode,
+        transcript::{DiagnosticPayload, GapCause, RuntimeFailureCode},
     },
     error::{AppError, AppResult},
     providers::ProviderError,
 };
+use tokio::time::Instant;
 
 pub(crate) const MAX_PROVIDER_OUTPUT_SAMPLES: usize = 48_000;
 pub(crate) const PLAYBACK_FRAME_SAMPLES: usize = 1_920;
+
+pub(crate) struct DiagnosticAccumulator {
+    last_flush: Instant,
+    latency: Option<(Option<u64>, Option<u64>)>,
+    gaps: Vec<(GapCause, u64)>,
+    transcript_overflow: u64,
+}
+
+impl DiagnosticAccumulator {
+    pub(crate) fn new(now: Instant) -> Self {
+        Self {
+            last_flush: now,
+            latency: None,
+            gaps: Vec::new(),
+            transcript_overflow: 0,
+        }
+    }
+
+    pub(crate) fn observe_latency(
+        &mut self,
+        capture_to_admission_ms: Option<u64>,
+        response_to_enqueue_ms: Option<u64>,
+    ) {
+        let (capture, response) = self.latency.unwrap_or((None, None));
+        self.latency = Some((
+            capture_to_admission_ms.or(capture),
+            response_to_enqueue_ms.or(response),
+        ));
+    }
+
+    pub(crate) fn observe_gap(&mut self, cause: GapCause, dropped_frames: u64) {
+        if let Some((_, count)) = self.gaps.iter_mut().find(|(current, _)| *current == cause) {
+            *count = count.saturating_add(dropped_frames);
+        } else {
+            self.gaps.push((cause, dropped_frames));
+        }
+    }
+
+    pub(crate) fn observe_transcript_overflow(&mut self, dropped_interims: u64) {
+        self.transcript_overflow = self.transcript_overflow.saturating_add(dropped_interims);
+    }
+
+    pub(crate) fn take_due(&mut self, now: Instant, force: bool) -> Vec<DiagnosticPayload> {
+        if !force && now.duration_since(self.last_flush) < Duration::from_secs(1) {
+            return Vec::new();
+        }
+        self.last_flush = now;
+        let mut payloads = Vec::new();
+        if let Some((capture_to_send_ms, response_to_enqueue_ms)) = self.latency.take() {
+            payloads.push(DiagnosticPayload::Latency {
+                // This field ends at provider queue admission, not a wire send.
+                capture_to_send_ms,
+                response_to_enqueue_ms,
+                enqueue_to_callback_ms: None,
+                provider_processing_ms: None,
+            });
+        }
+        payloads.extend(self.gaps.drain(..).map(|(cause, dropped_frames)| {
+            DiagnosticPayload::Gap {
+                cause,
+                dropped_frames,
+            }
+        }));
+        if self.transcript_overflow != 0 {
+            payloads.push(DiagnosticPayload::TranscriptOverflow {
+                dropped_interims: std::mem::take(&mut self.transcript_overflow),
+            });
+        }
+        payloads
+    }
+}
 
 pub(crate) fn router_direction(
     mode: SessionMode,
@@ -85,7 +157,11 @@ pub(crate) fn split_provider_audio(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::audio::AudioSource;
+    use crate::domain::{
+        audio::AudioSource,
+        transcript::{DiagnosticPayload, GapCause},
+    };
+    use tokio::time::Instant;
 
     #[test]
     fn splits_maximum_provider_audio_without_truncation() {
@@ -123,5 +199,61 @@ mod tests {
         )
         .unwrap();
         assert!(split_provider_audio(&frame, &mut 0).is_err());
+    }
+
+    #[test]
+    fn diagnostics_coalesce_by_category_and_force_flush_pending_values() {
+        let start = Instant::now();
+        let mut diagnostics = DiagnosticAccumulator::new(start);
+        diagnostics.observe_latency(Some(10), Some(20));
+        diagnostics.observe_latency(Some(30), Some(40));
+        diagnostics.observe_gap(GapCause::CaptureOverflow, 2);
+        diagnostics.observe_gap(GapCause::CaptureOverflow, 3);
+        diagnostics.observe_transcript_overflow(4);
+
+        assert!(
+            diagnostics
+                .take_due(start + Duration::from_millis(999), false)
+                .is_empty()
+        );
+        let due = diagnostics.take_due(start + Duration::from_secs(1), false);
+        assert_eq!(due.len(), 3);
+        assert!(due.iter().any(|payload| matches!(
+            payload,
+            DiagnosticPayload::Latency {
+                capture_to_send_ms: Some(30),
+                response_to_enqueue_ms: Some(40),
+                ..
+            }
+        )));
+        assert!(due.iter().any(|payload| matches!(
+            payload,
+            DiagnosticPayload::Gap {
+                cause: GapCause::CaptureOverflow,
+                dropped_frames: 5
+            }
+        )));
+        assert!(due.iter().any(|payload| matches!(
+            payload,
+            DiagnosticPayload::TranscriptOverflow {
+                dropped_interims: 4
+            }
+        )));
+
+        diagnostics.observe_gap(GapCause::OutputOverflow, 1);
+        assert!(
+            diagnostics
+                .take_due(start + Duration::from_millis(1_500), false)
+                .is_empty()
+        );
+        assert!(matches!(
+            diagnostics
+                .take_due(start + Duration::from_millis(1_500), true)
+                .as_slice(),
+            [DiagnosticPayload::Gap {
+                cause: GapCause::OutputOverflow,
+                dropped_frames: 1
+            }]
+        ));
     }
 }
