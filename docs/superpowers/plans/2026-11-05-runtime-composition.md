@@ -67,7 +67,7 @@ Source paths below are under src-tauri/src; migrations are under src-tauri/migra
 | 5 | 4 | session/orchestrator, storage context/lifecycle | Durable state transitions and concurrent stop |
 | 6 | 5 | config, app, commands/subscriptions, commands, lib; acceptance docs | Configured desktop commands |
 
-Tasks 1 and 2 can be researched independently but module edits integrate sequentially. Later tasks execute sequentially. Test modules live beside the corresponding unit. Each task ends with its own test/review/commit gate.
+Tasks 1 and 2 can be researched independently but module edits integrate sequentially. Runtime/lifecycle/app integration executes in order. Task 6's configuration storage/worker foundation may execute as subtask 6A alongside Task 4: it owns only config/{mod,models,secret_store,secret_store_tests,worker,worker_tests}.rs and produces the unchanged ConfigStore/SecretStore/ConfigIo/ConfigTransaction APIs specified below. It has no runtime/lifecycle dependency; current ConfigStore constructor callers are config tests. Subtask 6B retains app ownership, command DTOs and credential-change policy/compensation, subscriptions, provider capability serialization, runtime display-name use and documentation after Task 5. Review 6A independently before its consumers use it, and review the completed Task 6 integration after 6B. Other concurrent workers must not touch 6A's config files. Test modules live beside the corresponding unit. Each task ends with its own test/review/commit gate.
 
 ### Task 1: Durable transcript boundary and audio-free events
 
