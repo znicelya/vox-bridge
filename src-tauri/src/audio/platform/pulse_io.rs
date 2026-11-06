@@ -549,10 +549,14 @@ async fn open_timed(
         .await;
         if matches!(clean, Ok(Ok(()))) {
             lease.release();
-        } else {
-            lease.quarantine();
+            return Err(error);
         }
-        return Err(error);
+        lease.quarantine();
+        return Err(AudioFailure::new(
+            RuntimeFailureCode::CleanupTimeout,
+            "Pulse failed-open cleanup was not acknowledged",
+        )
+        .into());
     }
     let mut capture_process = capture_process.unwrap();
     let mut playback_process = playback_process.unwrap();
@@ -852,7 +856,40 @@ mod tests {
     use super::super::process_io::{ProcessPipes, test_support::TestControl};
     use super::*;
     use crate::domain::audio::AudioSource;
-    use std::{collections::HashMap, sync::Mutex as StdMutex};
+    use std::{
+        collections::HashMap,
+        sync::{
+            Mutex as StdMutex,
+            atomic::{AtomicU8, Ordering as AtomicOrdering},
+        },
+    };
+    const CLEANUP_NORMAL: u8 = 0;
+    const CLEANUP_BLOCKED: u8 = 1;
+    const CLEANUP_ERROR: u8 = 2;
+    struct FixtureControl {
+        inner: Arc<TestControl>,
+        cleanup_mode: Arc<AtomicU8>,
+        cleanup_release: watch::Receiver<bool>,
+    }
+    #[async_trait]
+    impl ProcessControl for FixtureControl {
+        async fn wait(&self) -> AppResult<super::super::process_io::ProcessExit> {
+            self.inner.wait().await
+        }
+        async fn terminate(&self) -> AppResult<super::super::process_io::ProcessExit> {
+            match self.cleanup_mode.load(AtomicOrdering::Acquire) {
+                CLEANUP_BLOCKED => {
+                    let mut release = self.cleanup_release.clone();
+                    while !*release.borrow_and_update() {
+                        release.changed().await.unwrap();
+                    }
+                    self.inner.terminate().await
+                }
+                CLEANUP_ERROR => Err(audio_error("injected process termination failure")),
+                _ => self.inner.terminate().await,
+            }
+        }
+    }
     struct Fixture {
         rows: StdMutex<HashMap<String, Value>>,
         specs: StdMutex<Vec<ProcessSpec>>,
@@ -861,12 +898,15 @@ mod tests {
         playback: StdMutex<Option<tokio::io::DuplexStream>>,
         omit_stdin: AtomicBool,
         fail_playback: AtomicBool,
+        cleanup_mode: Arc<AtomicU8>,
+        cleanup_release: watch::Sender<bool>,
     }
     fn device(index: u32, name: &str, monitor: Option<u32>) -> Value {
         serde_json::json!({"index":index,"name":name,"description":name,"sample_specification":"s16le 2ch 48000Hz","monitor_of_sink":monitor})
     }
     impl Fixture {
         fn new() -> Arc<Self> {
+            let (cleanup_release, _) = watch::channel(false);
             let rows = HashMap::from([
                 (
                     "sources".into(),
@@ -902,6 +942,8 @@ mod tests {
                 playback: StdMutex::default(),
                 omit_stdin: AtomicBool::new(false),
                 fail_playback: AtomicBool::new(false),
+                cleanup_mode: Arc::new(AtomicU8::new(CLEANUP_NORMAL)),
+                cleanup_release,
             })
         }
         fn stream_child(&self, program: &str) -> Arc<TestControl> {
@@ -970,13 +1012,18 @@ mod tests {
                     control,
                 });
             }
+            let process_control: Arc<dyn ProcessControl> = Arc::new(FixtureControl {
+                inner: control.clone(),
+                cleanup_mode: self.cleanup_mode.clone(),
+                cleanup_release: self.cleanup_release.subscribe(),
+            });
             let (pipe, peer) = tokio::io::duplex(8192);
             if program == "parec" {
                 *self.capture.lock().unwrap() = Some(peer);
                 Ok(ProcessPipes {
                     stdin: None,
                     stdout: Some(Box::pin(pipe)),
-                    control,
+                    control: process_control,
                 })
             } else {
                 *self.playback.lock().unwrap() = Some(peer);
@@ -987,7 +1034,7 @@ mod tests {
                         Some(Box::pin(pipe))
                     },
                     stdout: None,
-                    control,
+                    control: process_control,
                 })
             }
         }
@@ -1010,6 +1057,41 @@ mod tests {
             source: AudioSource::System,
         };
         let result = backend.open(request.clone()).await;
+        (backend, request, result)
+    }
+    async fn failed_open_with_cleanup(
+        fixture: Arc<Fixture>,
+        close: Duration,
+    ) -> (
+        super::super::inventory::PlatformAudioBackend,
+        AudioOpenRequest,
+        AppResult<AudioPorts>,
+    ) {
+        fixture.omit_stdin.store(true, Ordering::Release);
+        let backend = super::super::inventory::PlatformAudioBackend::with_spawner(fixture.clone());
+        let inventory = backend.inventory().await.unwrap();
+        let request = AudioOpenRequest {
+            inventory_generation: inventory.generation,
+            input_id: "pulse:source:mic".into(),
+            output_id: "pulse:sink:VoxBridge_M1".into(),
+            source: AudioSource::Microphone,
+        };
+        let (_, _, lease) = backend.claim(&request).unwrap();
+        let result = open_timed(
+            request.clone(),
+            "mic".into(),
+            10,
+            "VoxBridge_M1".into(),
+            30,
+            fixture,
+            lease,
+            Deadlines {
+                open: Duration::from_millis(100),
+                close,
+                drain: Duration::from_millis(100),
+            },
+        )
+        .await;
         (backend, request, result)
     }
     #[tokio::test]
@@ -1120,7 +1202,13 @@ mod tests {
         let fixture = Fixture::new();
         fixture.omit_stdin.store(true, Ordering::Release);
         let (backend, req, result) = ports(fixture.clone(), "mic", "VoxBridge_M1").await;
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(crate::error::AppError::Audio {
+                code: RuntimeFailureCode::DeviceUnavailable,
+                ..
+            })
+        ));
         assert!(fixture.stream_child("parec").exited());
         assert!(fixture.stream_child("pacat").exited());
         fixture.omit_stdin.store(false, Ordering::Release);
@@ -1132,6 +1220,47 @@ mod tests {
             .close()
             .await
             .unwrap();
+    }
+    #[tokio::test]
+    async fn failed_open_cleanup_timeout_is_typed_and_quarantines_pair() {
+        let fixture = Fixture::new();
+        fixture
+            .cleanup_mode
+            .store(CLEANUP_BLOCKED, AtomicOrdering::Release);
+        let (backend, request, result) =
+            failed_open_with_cleanup(fixture.clone(), Duration::from_millis(30)).await;
+        let replacement_denied = backend.claim(&request).is_err();
+        // Release even on a regression so no injected termination remains blocked.
+        fixture.cleanup_release.send_replace(true);
+
+        assert!(matches!(
+            result,
+            Err(crate::error::AppError::Audio {
+                code: RuntimeFailureCode::CleanupTimeout,
+                ..
+            })
+        ));
+        assert!(replacement_denied);
+    }
+    #[tokio::test]
+    async fn failed_open_terminate_error_is_typed_and_quarantines_pair() {
+        let fixture = Fixture::new();
+        fixture
+            .cleanup_mode
+            .store(CLEANUP_ERROR, AtomicOrdering::Release);
+        let (backend, request, result) =
+            failed_open_with_cleanup(fixture.clone(), Duration::from_millis(100)).await;
+        let replacement_denied = backend.claim(&request).is_err();
+        fixture.cleanup_release.send_replace(true);
+
+        assert!(matches!(
+            result,
+            Err(crate::error::AppError::Audio {
+                code: RuntimeFailureCode::CleanupTimeout,
+                ..
+            })
+        ));
+        assert!(replacement_denied);
     }
     #[tokio::test]
     async fn abort_after_eof_cancels_server_wait_promptly() {
