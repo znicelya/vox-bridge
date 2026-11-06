@@ -1,0 +1,936 @@
+{
+  "liveLaunch": {
+    "config": {
+      "mode": "live",
+      "direction": "source_to_target",
+      "languages": {
+        "source": "en",
+        "target": "zh"
+      }
+    },
+    "provider_config_id": "00000000-0000-0000-0000-000000000001",
+    "devices": {
+      "mode": "live",
+      "input_id": "input",
+      "m1_output_id": "m1"
+    }
+  },
+  "callLaunch": {
+    "config": {
+      "mode": "call",
+      "direction": "bidirectional",
+      "languages": {
+        "source": "en",
+        "target": "zh"
+      }
+    },
+    "provider_config_id": "00000000-0000-0000-0000-000000000001",
+    "devices": {
+      "mode": "call",
+      "a_input_id": "input",
+      "m2_input_id": "m2",
+      "m1_output_id": "m1",
+      "physical_output_id": "physical"
+    }
+  },
+  "callRecord": {
+    "id": "00000000-0000-0000-0000-000000000002",
+    "started_at": 1730000000,
+    "ended_at": null,
+    "mode": "call",
+    "direction": "bidirectional",
+    "source_language": "en",
+    "target_language": "zh",
+    "status": "starting",
+    "context": {
+      "launch": {
+        "config": {
+          "mode": "call",
+          "direction": "bidirectional",
+          "languages": {
+            "source": "en",
+            "target": "zh"
+          }
+        },
+        "provider_config_id": "00000000-0000-0000-0000-000000000001",
+        "devices": {
+          "mode": "call",
+          "a_input_id": "input",
+          "m2_input_id": "m2",
+          "m1_output_id": "m1",
+          "physical_output_id": "physical"
+        }
+      },
+      "provider": "volcengine",
+      "provider_name": "Fixture provider",
+      "endpoints": [
+        {
+          "endpoint": {
+            "id": "input",
+            "display_name": "Microphone",
+            "direction": "Input",
+            "sample_rates": [16000, 24000, 48000],
+            "channels": 1,
+            "ready": true
+          },
+          "role": "Input",
+          "backend": "Cpal"
+        },
+        {
+          "endpoint": {
+            "id": "m1",
+            "display_name": "VoxBridge Input",
+            "direction": "Output",
+            "sample_rates": [16000, 24000, 48000],
+            "channels": 1,
+            "ready": true
+          },
+          "role": "M1Render",
+          "backend": "Pulse"
+        },
+        {
+          "endpoint": {
+            "id": "m2",
+            "display_name": "VoxBridge Output",
+            "direction": "Input",
+            "sample_rates": [16000, 24000, 48000],
+            "channels": 1,
+            "ready": true
+          },
+          "role": "M2Capture",
+          "backend": "Pulse"
+        },
+        {
+          "endpoint": {
+            "id": "physical",
+            "display_name": "Speakers",
+            "direction": "Output",
+            "sample_rates": [16000, 24000, 48000],
+            "channels": 1,
+            "ready": true
+          },
+          "role": "PhysicalOutput",
+          "backend": "Cpal"
+        }
+      ]
+    },
+    "runtime": {
+      "phase": "starting",
+      "directions": [
+        {
+          "direction": "source_to_target",
+          "phase": "starting",
+          "stream_epoch": 0,
+          "failure": null
+        },
+        {
+          "direction": "target_to_source",
+          "phase": "starting",
+          "stream_epoch": 0,
+          "failure": null
+        }
+      ],
+      "outcome": null
+    }
+  },
+  "terminalRecord": {
+    "id": "00000000-0000-0000-0000-000000000002",
+    "started_at": 1730000000,
+    "ended_at": 1730000010,
+    "mode": "call",
+    "direction": "bidirectional",
+    "source_language": "en",
+    "target_language": "zh",
+    "status": "failed",
+    "context": {
+      "launch": {
+        "config": {
+          "mode": "call",
+          "direction": "bidirectional",
+          "languages": {
+            "source": "en",
+            "target": "zh"
+          }
+        },
+        "provider_config_id": "00000000-0000-0000-0000-000000000001",
+        "devices": {
+          "mode": "call",
+          "a_input_id": "input",
+          "m2_input_id": "m2",
+          "m1_output_id": "m1",
+          "physical_output_id": "physical"
+        }
+      },
+      "provider": "volcengine",
+      "provider_name": "Fixture provider",
+      "endpoints": [
+        {
+          "endpoint": {
+            "id": "input",
+            "display_name": "Microphone",
+            "direction": "Input",
+            "sample_rates": [16000, 24000, 48000],
+            "channels": 1,
+            "ready": true
+          },
+          "role": "Input",
+          "backend": "Cpal"
+        },
+        {
+          "endpoint": {
+            "id": "m1",
+            "display_name": "VoxBridge Input",
+            "direction": "Output",
+            "sample_rates": [16000, 24000, 48000],
+            "channels": 1,
+            "ready": true
+          },
+          "role": "M1Render",
+          "backend": "Pulse"
+        },
+        {
+          "endpoint": {
+            "id": "m2",
+            "display_name": "VoxBridge Output",
+            "direction": "Input",
+            "sample_rates": [16000, 24000, 48000],
+            "channels": 1,
+            "ready": true
+          },
+          "role": "M2Capture",
+          "backend": "Pulse"
+        },
+        {
+          "endpoint": {
+            "id": "physical",
+            "display_name": "Speakers",
+            "direction": "Output",
+            "sample_rates": [16000, 24000, 48000],
+            "channels": 1,
+            "ready": true
+          },
+          "role": "PhysicalOutput",
+          "backend": "Cpal"
+        }
+      ]
+    },
+    "runtime": null
+  },
+  "legacyRecord": {
+    "id": "00000000-0000-0000-0000-000000000002",
+    "started_at": 1730000000,
+    "ended_at": 1730000010,
+    "mode": "call",
+    "direction": "bidirectional",
+    "source_language": "en",
+    "target_language": "zh",
+    "status": "failed",
+    "context": null,
+    "runtime": null
+  },
+  "reverseSourceInterim": {
+    "id": "00000000-0000-0000-0000-000000000010",
+    "session_id": "00000000-0000-0000-0000-000000000002",
+    "direction": "target_to_source",
+    "sequence": 1,
+    "occurred_at_ms": 1730000000123,
+    "language": "zh",
+    "text": "泵",
+    "is_final": false,
+    "details": {
+      "kind": "source",
+      "provider": "volcengine",
+      "provider_config_id": "00000000-0000-0000-0000-000000000001",
+      "stream_epoch": 2,
+      "provider_event_type": "650",
+      "provider_timestamp_ms": null,
+      "sentence_id": null,
+      "local_correlation_id": 7,
+      "log_id": null,
+      "start_ms": null,
+      "end_ms": null
+    }
+  },
+  "reverseSourceFinal": {
+    "id": "00000000-0000-0000-0000-000000000010",
+    "session_id": "00000000-0000-0000-0000-000000000002",
+    "direction": "target_to_source",
+    "sequence": 1,
+    "occurred_at_ms": 1730000000123,
+    "language": "zh",
+    "text": "泵",
+    "is_final": true,
+    "details": {
+      "kind": "source",
+      "provider": "volcengine",
+      "provider_config_id": "00000000-0000-0000-0000-000000000001",
+      "stream_epoch": 2,
+      "provider_event_type": "650",
+      "provider_timestamp_ms": null,
+      "sentence_id": null,
+      "local_correlation_id": 7,
+      "log_id": null,
+      "start_ms": null,
+      "end_ms": null
+    }
+  },
+  "reverseTranslationFinal": {
+    "id": "00000000-0000-0000-0000-000000000011",
+    "session_id": "00000000-0000-0000-0000-000000000002",
+    "direction": "target_to_source",
+    "sequence": 2,
+    "occurred_at_ms": 1730000000123,
+    "language": "en",
+    "text": "pump",
+    "is_final": true,
+    "details": {
+      "kind": "translation",
+      "provider": "volcengine",
+      "provider_config_id": "00000000-0000-0000-0000-000000000001",
+      "stream_epoch": 2,
+      "provider_event_type": "652",
+      "provider_timestamp_ms": null,
+      "sentence_id": null,
+      "local_correlation_id": 7,
+      "log_id": null,
+      "start_ms": null,
+      "end_ms": null
+    }
+  },
+  "legacyRow": {
+    "id": "00000000-0000-0000-0000-000000000012",
+    "session_id": "00000000-0000-0000-0000-000000000002",
+    "direction": "target_to_source",
+    "sequence": 1,
+    "occurred_at_ms": 1730000000000,
+    "language": "zh",
+    "text": "Legacy",
+    "is_final": true,
+    "details": null
+  },
+  "diagnostics": [
+    {
+      "id": "00000000-0000-0000-0000-000000000020",
+      "session_id": "00000000-0000-0000-0000-000000000002",
+      "direction": "target_to_source",
+      "stream_epoch": 2,
+      "occurred_at_ms": 1730000000123,
+      "payload": {
+        "capture_accounting": {
+          "statistics": {
+            "dropped_native_blocks": 2,
+            "dropped_normalized_frames": 3,
+            "finalized": true
+          }
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000021",
+      "session_id": "00000000-0000-0000-0000-000000000002",
+      "direction": "target_to_source",
+      "stream_epoch": 2,
+      "occurred_at_ms": 1730000000123,
+      "payload": {
+        "playback_accounting": {
+          "boundary": null,
+          "statistics": {
+            "input_sample_rate_hz": 24000,
+            "accepted_for_processing_samples": 240,
+            "discarded_before_conversion_samples": 24,
+            "native": {
+              "sample_rate_hz": 48000,
+              "generated_mono_samples": 480,
+              "callback_consumed_mono_samples": 400,
+              "discarded_mono_samples": 80
+            },
+            "finalized": true,
+            "tail_disposition_known": false
+          }
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000022",
+      "session_id": "00000000-0000-0000-0000-000000000002",
+      "direction": "target_to_source",
+      "stream_epoch": 2,
+      "occurred_at_ms": 1730000000123,
+      "payload": {
+        "gap": {
+          "cause": "provider_reconnect",
+          "dropped_frames": 4
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000023",
+      "session_id": "00000000-0000-0000-0000-000000000002",
+      "direction": "target_to_source",
+      "stream_epoch": 2,
+      "occurred_at_ms": 1730000000123,
+      "payload": {
+        "transcript_overflow": {
+          "dropped_interims": 5
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000024",
+      "session_id": "00000000-0000-0000-0000-000000000002",
+      "direction": null,
+      "stream_epoch": null,
+      "occurred_at_ms": 1730000000123,
+      "payload": {
+        "failure": {
+          "code": "provider",
+          "provider_code": -17,
+          "log_id": "synthetic-log"
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000025",
+      "session_id": "00000000-0000-0000-0000-000000000002",
+      "direction": "target_to_source",
+      "stream_epoch": 2,
+      "occurred_at_ms": 1730000000123,
+      "payload": {
+        "latency": {
+          "capture_to_send_ms": null,
+          "response_to_enqueue_ms": 3,
+          "enqueue_to_callback_ms": null,
+          "provider_processing_ms": null
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000026",
+      "session_id": "00000000-0000-0000-0000-000000000002",
+      "direction": "target_to_source",
+      "stream_epoch": 2,
+      "occurred_at_ms": 1730000000123,
+      "payload": {
+        "playback": {
+          "boundary": "callback_consumed",
+          "accepted_samples": 240,
+          "discarded_samples": 24
+        }
+      }
+    }
+  ],
+  "events": [
+    {
+      "type": "status",
+      "event_id": "00000000-0000-0000-0000-000000000030",
+      "session_id": "00000000-0000-0000-0000-000000000002",
+      "occurred_at": {
+        "secs_since_epoch": 1730000000,
+        "nanos_since_epoch": 123000000
+      },
+      "status": "running"
+    },
+    {
+      "type": "audio_state",
+      "event_id": "00000000-0000-0000-0000-000000000031",
+      "session_id": "00000000-0000-0000-0000-000000000002",
+      "occurred_at": {
+        "secs_since_epoch": 1730000000,
+        "nanos_since_epoch": 123000000
+      },
+      "state": {
+        "state": "paused",
+        "reason": "Fixture pause"
+      }
+    },
+    {
+      "type": "transcript",
+      "update": {
+        "id": "00000000-0000-0000-0000-000000000010",
+        "session_id": "00000000-0000-0000-0000-000000000002",
+        "direction": "target_to_source",
+        "sequence": 1,
+        "occurred_at_ms": 1730000000123,
+        "language": "zh",
+        "text": "泵",
+        "is_final": true,
+        "details": {
+          "kind": "source",
+          "provider": "volcengine",
+          "provider_config_id": "00000000-0000-0000-0000-000000000001",
+          "stream_epoch": 2,
+          "provider_event_type": "650",
+          "provider_timestamp_ms": null,
+          "sentence_id": null,
+          "local_correlation_id": 7,
+          "log_id": null,
+          "start_ms": null,
+          "end_ms": null
+        }
+      }
+    },
+    {
+      "type": "diagnostic",
+      "diagnostic": {
+        "id": "00000000-0000-0000-0000-000000000024",
+        "session_id": "00000000-0000-0000-0000-000000000002",
+        "direction": null,
+        "stream_epoch": null,
+        "occurred_at_ms": 1730000000123,
+        "payload": {
+          "failure": {
+            "code": "provider",
+            "provider_code": -17,
+            "log_id": "synthetic-log"
+          }
+        }
+      }
+    },
+    {
+      "type": "resync_needed",
+      "session_id": "00000000-0000-0000-0000-000000000002",
+      "missed_events": 513
+    }
+  ],
+  "inventory": {
+    "generation": "00000000-0000-0000-0000-000000000040",
+    "driver": "Ready",
+    "endpoints": [
+      {
+        "endpoint": {
+          "id": "input",
+          "display_name": "Microphone",
+          "direction": "Input",
+          "sample_rates": [16000, 24000, 48000],
+          "channels": 1,
+          "ready": true
+        },
+        "role": "Input",
+        "backend": "Cpal"
+      },
+      {
+        "endpoint": {
+          "id": "m1",
+          "display_name": "VoxBridge Input",
+          "direction": "Output",
+          "sample_rates": [16000, 24000, 48000],
+          "channels": 1,
+          "ready": true
+        },
+        "role": "M1Render",
+        "backend": "Pulse"
+      },
+      {
+        "endpoint": {
+          "id": "m2",
+          "display_name": "VoxBridge Output",
+          "direction": "Input",
+          "sample_rates": [16000, 24000, 48000],
+          "channels": 1,
+          "ready": true
+        },
+        "role": "M2Capture",
+        "backend": "Pulse"
+      },
+      {
+        "endpoint": {
+          "id": "physical",
+          "display_name": "Speakers",
+          "direction": "Output",
+          "sample_rates": [16000, 24000, 48000],
+          "channels": 1,
+          "ready": true
+        },
+        "role": "PhysicalOutput",
+        "backend": "Cpal"
+      }
+    ]
+  },
+  "driverStatuses": [
+    "NeedsPrivileges",
+    {
+      "NeedsApproval": "Approve fixture driver"
+    },
+    "NeedsRestart",
+    {
+      "Failed": "Fixture unavailable"
+    },
+    "Ready"
+  ],
+  "ticket": {
+    "id": "00000000-0000-0000-0000-000000000003",
+    "event_name": "voxbridge://session/00000000-0000-0000-0000-000000000003"
+  },
+  "transcriptPage": {
+    "rows": [
+      {
+        "id": "00000000-0000-0000-0000-000000000010",
+        "session_id": "00000000-0000-0000-0000-000000000002",
+        "direction": "target_to_source",
+        "sequence": 1,
+        "occurred_at_ms": 1730000000123,
+        "language": "zh",
+        "text": "泵",
+        "is_final": true,
+        "details": {
+          "kind": "source",
+          "provider": "volcengine",
+          "provider_config_id": "00000000-0000-0000-0000-000000000001",
+          "stream_epoch": 2,
+          "provider_event_type": "650",
+          "provider_timestamp_ms": null,
+          "sentence_id": null,
+          "local_correlation_id": 7,
+          "log_id": null,
+          "start_ms": null,
+          "end_ms": null
+        }
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000011",
+        "session_id": "00000000-0000-0000-0000-000000000002",
+        "direction": "target_to_source",
+        "sequence": 2,
+        "occurred_at_ms": 1730000000123,
+        "language": "en",
+        "text": "pump",
+        "is_final": true,
+        "details": {
+          "kind": "translation",
+          "provider": "volcengine",
+          "provider_config_id": "00000000-0000-0000-0000-000000000001",
+          "stream_epoch": 2,
+          "provider_event_type": "652",
+          "provider_timestamp_ms": null,
+          "sentence_id": null,
+          "local_correlation_id": 7,
+          "log_id": null,
+          "start_ms": null,
+          "end_ms": null
+        }
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000012",
+        "session_id": "00000000-0000-0000-0000-000000000002",
+        "direction": "target_to_source",
+        "sequence": 1,
+        "occurred_at_ms": 1730000000000,
+        "language": "zh",
+        "text": "Legacy",
+        "is_final": true,
+        "details": null
+      }
+    ],
+    "next_cursor": 200
+  },
+  "diagnosticPage": {
+    "rows": [
+      {
+        "id": "00000000-0000-0000-0000-000000000020",
+        "session_id": "00000000-0000-0000-0000-000000000002",
+        "direction": "target_to_source",
+        "stream_epoch": 2,
+        "occurred_at_ms": 1730000000123,
+        "payload": {
+          "capture_accounting": {
+            "statistics": {
+              "dropped_native_blocks": 2,
+              "dropped_normalized_frames": 3,
+              "finalized": true
+            }
+          }
+        }
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000021",
+        "session_id": "00000000-0000-0000-0000-000000000002",
+        "direction": "target_to_source",
+        "stream_epoch": 2,
+        "occurred_at_ms": 1730000000123,
+        "payload": {
+          "playback_accounting": {
+            "boundary": null,
+            "statistics": {
+              "input_sample_rate_hz": 24000,
+              "accepted_for_processing_samples": 240,
+              "discarded_before_conversion_samples": 24,
+              "native": {
+                "sample_rate_hz": 48000,
+                "generated_mono_samples": 480,
+                "callback_consumed_mono_samples": 400,
+                "discarded_mono_samples": 80
+              },
+              "finalized": true,
+              "tail_disposition_known": false
+            }
+          }
+        }
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000022",
+        "session_id": "00000000-0000-0000-0000-000000000002",
+        "direction": "target_to_source",
+        "stream_epoch": 2,
+        "occurred_at_ms": 1730000000123,
+        "payload": {
+          "gap": {
+            "cause": "provider_reconnect",
+            "dropped_frames": 4
+          }
+        }
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000023",
+        "session_id": "00000000-0000-0000-0000-000000000002",
+        "direction": "target_to_source",
+        "stream_epoch": 2,
+        "occurred_at_ms": 1730000000123,
+        "payload": {
+          "transcript_overflow": {
+            "dropped_interims": 5
+          }
+        }
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000024",
+        "session_id": "00000000-0000-0000-0000-000000000002",
+        "direction": null,
+        "stream_epoch": null,
+        "occurred_at_ms": 1730000000123,
+        "payload": {
+          "failure": {
+            "code": "provider",
+            "provider_code": -17,
+            "log_id": "synthetic-log"
+          }
+        }
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000025",
+        "session_id": "00000000-0000-0000-0000-000000000002",
+        "direction": "target_to_source",
+        "stream_epoch": 2,
+        "occurred_at_ms": 1730000000123,
+        "payload": {
+          "latency": {
+            "capture_to_send_ms": null,
+            "response_to_enqueue_ms": 3,
+            "enqueue_to_callback_ms": null,
+            "provider_processing_ms": null
+          }
+        }
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000026",
+        "session_id": "00000000-0000-0000-0000-000000000002",
+        "direction": "target_to_source",
+        "stream_epoch": 2,
+        "occurred_at_ms": 1730000000123,
+        "payload": {
+          "playback": {
+            "boundary": "callback_consumed",
+            "accepted_samples": 240,
+            "discarded_samples": 24
+          }
+        }
+      }
+    ],
+    "next_cursor": null
+  },
+  "capabilities": {
+    "language_pairs": [
+      {
+        "source": "en",
+        "target": "zh"
+      }
+    ],
+    "input_audio": {
+      "sample_rate": 16000,
+      "channels": 1,
+      "sample_format": "i16"
+    },
+    "output_audio": {
+      "sample_rate": 24000,
+      "channels": 1,
+      "sample_format": "i16"
+    },
+    "native_chunk_duration": {
+      "secs": 0,
+      "nanos": 80000000
+    },
+    "supports_tts": true,
+    "supports_bidirectional": true,
+    "ready": true,
+    "unavailable_reason": null
+  },
+  "outcomes": [
+    {
+      "status": "completed"
+    },
+    {
+      "status": "failed",
+      "codes": ["provider", "cleanup_timeout"]
+    }
+  ],
+  "enumVariants": {
+    "sessionStatus": [
+      "created",
+      "starting",
+      "running",
+      "stopping",
+      "paused",
+      "failed",
+      "completed"
+    ],
+    "directionPhase": [
+      "starting",
+      "running",
+      "reconnecting",
+      "paused",
+      "stopped"
+    ],
+    "runtimePhase": ["starting", "running", "paused", "stopping", "stopped"],
+    "failureCode": [
+      "provider",
+      "storage",
+      "device_unavailable",
+      "audio_backend_unavailable",
+      "startup_timeout",
+      "finish_timeout",
+      "playback_timeout",
+      "cleanup_timeout",
+      "interrupted",
+      "invalid_event"
+    ],
+    "gapCause": [
+      "provider_reconnect",
+      "capture_overflow",
+      "output_overflow",
+      "device_loss",
+      "manual_resume"
+    ],
+    "playbackBoundary": [
+      "callback_consumed",
+      "pulse_server_drained",
+      "discarded"
+    ],
+    "sampleFormat": ["i16", "f32"],
+    "exportFormat": ["markdown", "json", "plain_text"],
+    "audioState": [
+      {
+        "state": "running"
+      },
+      {
+        "state": "paused",
+        "reason": "Fixture pause"
+      }
+    ]
+  },
+  "providerConfigView": {
+    "config": {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "provider": "volcengine",
+      "display_name": "Fixture provider",
+      "endpoint": "wss://openspeech.bytedance.com/api/v4/ast/v2/translate",
+      "llm": {
+        "model": "fixture-model",
+        "resource_id": null
+      },
+      "embedding": {
+        "model": "fixture-embedding",
+        "dimensions": 1024
+      },
+      "tavily": {
+        "endpoint": "https://example.invalid/search",
+        "search_depth": null
+      },
+      "language_capabilities": ["en", "zh"],
+      "secret_reference": null
+    },
+    "credential_configured": false
+  },
+  "launchValidation": {
+    "context": {
+      "launch": {
+        "config": {
+          "mode": "call",
+          "direction": "bidirectional",
+          "languages": {
+            "source": "en",
+            "target": "zh"
+          }
+        },
+        "provider_config_id": "00000000-0000-0000-0000-000000000001",
+        "devices": {
+          "mode": "call",
+          "a_input_id": "input",
+          "m2_input_id": "m2",
+          "m1_output_id": "m1",
+          "physical_output_id": "physical"
+        }
+      },
+      "provider": "volcengine",
+      "provider_name": "Fixture provider",
+      "endpoints": [
+        {
+          "endpoint": {
+            "id": "input",
+            "display_name": "Microphone",
+            "direction": "Input",
+            "sample_rates": [16000, 24000, 48000],
+            "channels": 1,
+            "ready": true
+          },
+          "role": "Input",
+          "backend": "Cpal"
+        },
+        {
+          "endpoint": {
+            "id": "m1",
+            "display_name": "VoxBridge Input",
+            "direction": "Output",
+            "sample_rates": [16000, 24000, 48000],
+            "channels": 1,
+            "ready": true
+          },
+          "role": "M1Render",
+          "backend": "Pulse"
+        },
+        {
+          "endpoint": {
+            "id": "m2",
+            "display_name": "VoxBridge Output",
+            "direction": "Input",
+            "sample_rates": [16000, 24000, 48000],
+            "channels": 1,
+            "ready": true
+          },
+          "role": "M2Capture",
+          "backend": "Pulse"
+        },
+        {
+          "endpoint": {
+            "id": "physical",
+            "display_name": "Speakers",
+            "direction": "Output",
+            "sample_rates": [16000, 24000, 48000],
+            "channels": 1,
+            "ready": true
+          },
+          "role": "PhysicalOutput",
+          "backend": "Cpal"
+        }
+      ]
+    },
+    "input_audio": {
+      "sample_rate": 16000,
+      "channels": 1,
+      "sample_format": "i16"
+    },
+    "output_audio": {
+      "sample_rate": 24000,
+      "channels": 1,
+      "sample_format": "i16"
+    }
+  }
+}

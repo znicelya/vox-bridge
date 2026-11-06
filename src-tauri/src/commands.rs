@@ -223,3 +223,7 @@ pub async fn subscribe_session(
 #[cfg(test)]
 #[path = "commands_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "commands/wire_contract_tests.rs"]
+mod wire_contract_tests;
