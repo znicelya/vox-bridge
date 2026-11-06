@@ -1,3 +1,5 @@
+pub(crate) mod subscriptions;
+
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
