@@ -150,7 +150,7 @@ fn legacy_database_migrates_once_preserving_original_rows() {
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        2
+        3
     );
 }
 #[test]
@@ -192,6 +192,80 @@ fn unknown_newer_schema_is_rejected_without_creating_tables() {
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
         99
+    );
+}
+
+#[test]
+fn intelligence_migration_from_v2_reopens_twice_and_preserves_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let connection = rusqlite::Connection::open(dir.path().join("vox-bridge.sqlite")).unwrap();
+    connection
+        .execute_batch(include_str!("../../migrations/0001_session_foundation.sql"))
+        .unwrap();
+    connection
+        .execute_batch(include_str!("../../migrations/0002_runtime.sql"))
+        .unwrap();
+    connection.pragma_update(None, "user_version", 2).unwrap();
+    connection
+        .execute(
+            "INSERT INTO documents (id,sha256,uri,created_at) VALUES ('keep','hash','file',1)",
+            [],
+        )
+        .unwrap();
+    for _ in 0..2 {
+        drop(LocalStore::open(dir.path()).unwrap());
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+                .unwrap(),
+            3
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT count(*) FROM intelligence_jobs", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT id FROM documents", [], |r| r.get::<_, String>(0))
+                .unwrap(),
+            "keep"
+        );
+    }
+}
+
+#[test]
+fn intelligence_migration_failure_rolls_back_all_new_tables_and_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let connection = rusqlite::Connection::open(dir.path().join("vox-bridge.sqlite")).unwrap();
+    connection
+        .execute_batch(include_str!("../../migrations/0001_session_foundation.sql"))
+        .unwrap();
+    connection
+        .execute_batch(include_str!("../../migrations/0002_runtime.sql"))
+        .unwrap();
+    connection.pragma_update(None, "user_version", 2).unwrap();
+    connection.execute_batch("CREATE TABLE service_probes (conflict TEXT); INSERT INTO service_probes VALUES ('keep');").unwrap();
+    assert!(LocalStore::open(dir.path()).is_err());
+    assert_eq!(
+        connection
+            .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+            .unwrap(),
+        2
+    );
+    assert!(
+        connection
+            .prepare("SELECT id FROM intelligence_jobs")
+            .is_err()
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT conflict FROM service_probes", [], |r| r
+                .get::<_, String>(0))
+            .unwrap(),
+        "keep"
     );
 }
 

@@ -4,6 +4,8 @@ pub type AppResult<T> = Result<T, AppError>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
+    #[error("{0}")]
+    Intelligence(crate::intelligence::types::IntelligenceErrorCode),
     #[error("invalid request: {0}")]
     InvalidRequest(String),
     #[error("storage error: {0}")]
@@ -24,6 +26,7 @@ pub enum AppError {
 impl AppError {
     pub fn code(&self) -> &'static str {
         match self {
+            Self::Intelligence(_) => "INTELLIGENCE_ERROR",
             Self::InvalidRequest(_) => "INVALID_REQUEST",
             Self::Storage(_) => "STORAGE_ERROR",
             Self::Configuration(_) => "CONFIGURATION_ERROR",

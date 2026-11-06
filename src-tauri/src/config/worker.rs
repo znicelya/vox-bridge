@@ -161,15 +161,15 @@ impl ConfigTransaction<'_> {
         Ok(())
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Reserved for the approved service-config transaction consumer"
-        )
-    )]
     pub(crate) fn data_dir(&self) -> &Path {
         self.store.data_dir()
+    }
+
+    /// Same whole-transaction config lock and atomic replacement as runtime profiles.
+    pub(crate) fn save_service_configs(&mut self, bytes: &[u8]) -> AppResult<()> {
+        #[cfg(test)]
+        self.check_fault("save_service_config")?;
+        super::atomic_write(&self.data_dir().join("service-configs.json"), bytes)
     }
 
     pub(crate) fn load_provider_config(&mut self, id: Uuid) -> AppResult<ProviderConfig> {
@@ -194,7 +194,7 @@ impl ConfigTransaction<'_> {
         not(test),
         expect(
             dead_code,
-            reason = "Reserved for the approved intelligence credential transaction consumer"
+            reason = "Reserved for Task 3B service and scheduler composition"
         )
     )]
     pub(crate) fn secret_get(&mut self, service: &str, key: &str) -> AppResult<Option<Vec<u8>>> {

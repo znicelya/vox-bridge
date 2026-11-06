@@ -17,8 +17,11 @@ use crate::{
 };
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
-fn command_error(error: AppError) -> String {
-    format!("[{}] {}", error.code(), error)
+pub(crate) fn command_error(error: AppError) -> String {
+    match error {
+        AppError::Intelligence(code) => format!("[INTELLIGENCE_ERROR][{}] {}", code.as_str(), code),
+        other => format!("[{}] {}", other.code(), other),
+    }
 }
 
 #[cfg(debug_assertions)]

@@ -47,22 +47,43 @@ impl LocalStore {
     }
     fn initialize(mut conn: Connection) -> AppResult<Self> {
         let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
-        if version > 2 {
+        const MIGRATIONS: &[&str] = &[
+            include_str!("../../migrations/0001_session_foundation.sql"),
+            include_str!("../../migrations/0002_runtime.sql"),
+            include_str!("../../migrations/0003_intelligence.sql"),
+        ];
+        if version > MIGRATIONS.len() as i64 {
             return Err(AppError::InvalidRequest(
                 "database schema is newer than this application".into(),
             ));
         }
         conn.pragma_update(None, "foreign_keys", true)?;
-        if version < 2 {
+        if version < MIGRATIONS.len() as i64 {
             let tx = conn.transaction()?;
-            tx.execute_batch(include_str!("../../migrations/0001_session_foundation.sql"))?;
-            tx.execute_batch(include_str!("../../migrations/0002_runtime.sql"))?;
-            tx.pragma_update(None, "user_version", 2)?;
+            for (index, migration) in MIGRATIONS.iter().enumerate().skip(version as usize) {
+                tx.execute_batch(migration)?;
+                tx.pragma_update(None, "user_version", index + 1)?;
+            }
             tx.commit()?;
         }
         Ok(Self {
             connection: Mutex::new(conn),
         })
+    }
+    /// The existing SQLite owner is the only authority. The closure must never
+    /// call ConfigIo: cross-store operations acquire config before SQLite.
+    pub(crate) fn transaction<T>(
+        &self,
+        operation: impl FnOnce(&rusqlite::Transaction<'_>) -> AppResult<T>,
+    ) -> AppResult<T> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| AppError::Internal("database lock unavailable".into()))?;
+        let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let value = operation(&tx)?;
+        tx.commit()?;
+        Ok(value)
     }
     pub fn create_session(&self, s: &StoredSession) -> AppResult<()> {
         let mut c = self.connection.lock().unwrap();

@@ -6,6 +6,7 @@ pub mod domain;
 pub mod error;
 pub mod events;
 pub mod export;
+pub mod intelligence;
 pub mod providers;
 pub mod session;
 pub mod storage;
