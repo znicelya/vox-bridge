@@ -26,7 +26,7 @@
 
 ## Prerequisites and verified decisions
 
-Execute after all six tasks of [runtime composition](2026-11-05-runtime-composition.md) are reviewed. Its Task 6 is the API prerequisite, not the repository's older template command signatures. Reconcile the final runtime code once before dispatching this plan and record any differences in its ledger.
+Runtime bridge and feature integration execute after all six tasks of [runtime composition](2026-11-05-runtime-composition.md) are reviewed. The dependency-independent Task1 shell/tooling subset (1A) may execute via [frontend shell](2026-11-06-frontend-shell.md) while backend work continues; Task1B retains the complete bridge/wire/recovery requirements and Task1 is incomplete until both subsets pass. Its Task 6 is the API prerequisite, not the repository's older template command signatures. Reconcile the final runtime code once before dispatching this plan and record any differences in its ledger.
 
 Runtime references include transcript commit a6ad766 and accounting-interface correction 2a1390b; read their final reviewed implementations before deriving frontend wire fixtures.
 
