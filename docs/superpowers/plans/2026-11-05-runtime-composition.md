@@ -374,7 +374,7 @@ Commit Task 2 paths: feat: preserve bounded audio continuity per direction.
 
 ### Task 3: Real audio ports and exact platform mappings
 
-**Files:** Create audio/{runtime,runtime_tests}.rs and audio/platform/{inventory,native_io,pulse_io,process_io}.rs with focused tests. Modify audio/{mod,capture,playback}.rs, audio/platform/mod.rs, domain/transcript.rs (additive audio-free accounting types), Cargo.toml/Cargo.lock and tests/platform-audio/README.md.
+**Files:** Create audio/{runtime,runtime_tests}.rs and audio/platform/{inventory,native_io,pulse_io,process_io}.rs with focused tests. Modify audio/{mod,capture,playback}.rs, audio/platform/mod.rs, domain/transcript.rs (additive audio-free accounting types), error.rs (typed audio failure classification), Cargo.toml/Cargo.lock and tests/platform-audio/README.md.
 
 **Consumes:** Task 2 queue/frames, existing AudioDriverManager/status and capture/playback DSP. Extend existing lifecycle code rather than duplicating resampling/callback code.
 
@@ -433,6 +433,8 @@ impl PlatformAudioBackend {
     pub fn new() -> Self;
 }
 ~~~
+
+AudioBackend/AudioControl failure paths preserve a typed RuntimeFailureCode through AppError (add a narrow audio variant with a safe local message). Missing utilities map AudioBackendUnavailable, lost devices DeviceUnavailable, and open/drain/close deadlines StartupTimeout/PlaybackTimeout/CleanupTimeout. Runtime must not parse message substrings. Invalid launch/frame validation can remain InvalidRequest. Cover error categories in injected tests; no raw process/OS payload is surfaced.
 
 PlatformAudioBackend implements AudioBackend and privately owns current inventory/locators, endpoint leases and quarantined owners. new performs no OS call. AudioHealth/PlaybackReport are Clone/Debug/PartialEq/Eq; ports are Send channel handles, never CPAL handles. Claim both endpoint leases atomically; at most two pairs for the desktop's one active session. Reject stale/unknown IDs and duplicate leases. Keep generation stable across unchanged sorted endpoint/locator/readiness sets; advance it on actual changes, not a read-only UI refresh. Test unchanged refresh versus genuinely stale opens. Inventory refresh alone never resumes lost audio.
 
