@@ -521,3 +521,83 @@ async fn replayed_storage_failure_is_the_same_diagnostic_as_durable_history() {
     let page = h.store.diagnostic_page(id, None, 100).unwrap();
     assert!(page.rows.contains(&diagnostic));
 }
+
+// Instance-scoped scheduling instrumentation. A failed test drops the release
+// sender; the timeout also bounds the worker-thread wait if that path regresses.
+pub(super) struct PhaseWriteGate {
+    entered: tokio::sync::oneshot::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+}
+
+impl PhaseWriteGate {
+    pub(super) fn wait(self) {
+        let _ = self.entered.send(());
+        let _ = self.release.recv_timeout(Duration::from_secs(5));
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn admitted_starting_stop_suppresses_inflight_running_publication() {
+    let h = RuntimeHarness::live(script()).unwrap();
+    let o = h.orchestrator();
+    let finish_gate = h.provider.delay_finish(SessionDirection::SourceToTarget);
+    let (entered, waiting) = tokio::sync::oneshot::channel();
+    let (release, blocked) = std::sync::mpsc::channel();
+    *o.phase_write_gate.lock().unwrap() = Some(PhaseWriteGate {
+        entered,
+        release: blocked,
+    });
+    let id = o.start(h.launch.clone(), h.saved.clone()).await.unwrap().id;
+    let events = o.subscribe(id).await;
+    let entered = tokio::time::timeout(Duration::from_secs(5), waiting).await;
+    let before_stop = o.get(id).await;
+    let stop = o.stop_session(id);
+    tokio::pin!(stop);
+    // A Pending poll attaches this caller after electing stop. Record the result
+    // rather than asserting while the lifecycle observer is still blocked.
+    let first_poll = poll_fn(|cx| Poll::Ready(stop.as_mut().poll(cx))).await;
+    let attached = first_poll.is_pending();
+    let released = release.send(());
+    drop(release);
+    let finish_entered =
+        tokio::time::timeout(Duration::from_secs(5), finish_gate.wait_entered()).await;
+    let during_stop = o.get(id).await;
+    finish_gate.release();
+    let terminal = match first_poll {
+        Poll::Ready(result) => Ok(result),
+        Poll::Pending => tokio::time::timeout(Duration::from_secs(5), stop).await,
+    };
+    // The barrier has been released and cleanup driven before checking results.
+    let terminal = terminal.unwrap().unwrap();
+    assert!(matches!(entered, Ok(Ok(()))));
+    assert!(released.is_ok());
+    assert_eq!(
+        before_stop.unwrap().unwrap().status,
+        SessionStatus::Starting
+    );
+    assert!(
+        attached,
+        "stop did not attach to the blocked lifecycle operation"
+    );
+    assert_eq!(terminal.status, SessionStatus::Completed);
+    assert!(matches!(finish_entered, Ok(true)));
+    let during_stop = during_stop.unwrap().unwrap();
+    assert_eq!(during_stop.status, SessionStatus::Stopping);
+    assert_eq!(
+        during_stop.runtime.unwrap().phase,
+        crate::domain::launch::RuntimePhase::Stopping
+    );
+    assert_eq!(h.audio.open_ports(), 0);
+    assert_eq!(h.provider.finish_counts(), [1, 0]);
+    let mut observed = Vec::new();
+    let mut events = events.unwrap();
+    while let Ok(event) = events.try_recv() {
+        if let SessionEvent::Status { status, .. } = event {
+            observed.push(status);
+        }
+    }
+    assert!(
+        !observed.iter().any(|status| status == "running"),
+        "Running published after stop was admitted while durable state was Starting: {observed:?}"
+    );
+}

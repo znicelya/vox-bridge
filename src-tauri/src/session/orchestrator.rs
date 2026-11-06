@@ -168,6 +168,8 @@ pub struct SessionOrchestrator {
     event_bus: EventBus,
     active: ActiveState,
     runtime: Arc<super::TranslationRuntime>,
+    #[cfg(test)]
+    pub(super) phase_write_gate: Arc<Mutex<Option<super::orchestrator_tests::PhaseWriteGate>>>,
 }
 
 impl std::fmt::Debug for SessionOrchestrator {
@@ -189,6 +191,8 @@ impl SessionOrchestrator {
             event_bus,
             active: Arc::new(Mutex::new(None)),
             runtime,
+            #[cfg(test)]
+            phase_write_gate: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -322,6 +326,9 @@ impl SessionOrchestrator {
         let mut storage_failed = false;
         let outcome = loop {
             if *stop.borrow_and_update() {
+                if let Some(snapshot) = &mut record.runtime {
+                    snapshot.phase = RuntimePhase::Stopping;
+                }
                 if self
                     .persist_phase(&mut record, SessionStatus::Stopping)
                     .is_err()
@@ -343,12 +350,11 @@ impl SessionOrchestrator {
                 RuntimePhase::Stopping => SessionStatus::Stopping,
                 RuntimePhase::Stopped => unreachable!(),
             };
+            record.runtime = Some(snapshot);
             if self.persist_phase(&mut record, phase).is_err() {
                 storage_failed = true;
                 break running.stop().await;
             }
-            record.runtime = Some(snapshot);
-            self.update_active_record(&record);
             tokio::select! {
                 biased;
                 _ = stop.changed() => {},
@@ -410,32 +416,46 @@ impl SessionOrchestrator {
     }
 
     fn persist_phase(&self, record: &mut SessionRecord, status: SessionStatus) -> AppResult<()> {
-        if record.status == status {
-            return Ok(());
+        let status_changed = record.status != status;
+        if status_changed {
+            #[cfg(test)]
+            if status == SessionStatus::Running {
+                let gate = self.phase_write_gate.lock().unwrap().take();
+                if let Some(gate) = gate {
+                    gate.wait();
+                }
+            }
+            // SQLite may block, so stop admission stays available during this
+            // write. The observed phase is not published until the fence below.
+            self.store
+                .update_session_lifecycle(&StoredSessionLifecycle {
+                    session_id: record.id,
+                    status: status.as_str().into(),
+                    ended_at: None,
+                })?;
+            record.status = status;
         }
-        self.store
-            .update_session_lifecycle(&StoredSessionLifecycle {
-                session_id: record.id,
-                status: status.as_str().into(),
-                ended_at: None,
-            })?;
-        record.status = status;
-        self.update_active_record(record);
-        let _ = self
-            .event_bus
-            .publish(record.id, SessionEvent::status(record.id, status.as_str()));
-        Ok(())
-    }
-
-    fn update_active_record(&self, record: &SessionRecord) {
         let mut active = self.active.lock().unwrap();
         if let Some(session) = active
             .as_mut()
             .filter(|op| op.id == record.id)
             .and_then(|op| op.attached.as_mut())
         {
+            // This check, active snapshot update and event publication share
+            // stop_session's election mutex. If stop won during persistence,
+            // suppress the stale phase; the observer next persists Stopping and
+            // drives cleanup. No SQL or runtime wait occurs in this section.
+            if status != SessionStatus::Stopping && *session.stop.borrow() {
+                return Ok(());
+            }
             session.record = record.clone();
+            if status_changed {
+                let _ = self
+                    .event_bus
+                    .publish(record.id, SessionEvent::status(record.id, status.as_str()));
+            }
         }
+        Ok(())
     }
 
     pub async fn get(&self, id: Uuid) -> AppResult<Option<SessionRecord>> {
