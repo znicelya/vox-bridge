@@ -289,6 +289,11 @@ impl SessionOrchestrator {
         Ok(record)
     }
 
+    /// Includes unattached preparation reservations and cleanup ownership.
+    pub(crate) fn has_active_operation(&self) -> bool {
+        self.active.lock().unwrap().is_some()
+    }
+
     pub(crate) async fn uses_provider_config(&self, config_id: Uuid) -> bool {
         self.active
             .lock()

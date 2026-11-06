@@ -274,7 +274,7 @@ fn duplicate_exact_modules_are_reconciled_but_similarly_named_modules_are_kept()
             .iter()
             .map(|(_, args, _)| args[1].as_str())
             .collect::<Vec<_>>(),
-        ["7", "8", "9", "10"]
+        ["9", "7", "8", "10"]
     );
 }
 
@@ -316,6 +316,6 @@ fn linux_uninstall_uses_module_ids_and_only_removes_voxbridge_modules() {
         .filter(|(_, args, _)| args.first().is_some_and(|arg| arg == "unload-module"))
         .collect::<Vec<_>>();
     assert_eq!(unloads.len(), 2);
-    assert_eq!(unloads[0].1, ["unload-module", "7"]);
-    assert_eq!(unloads[1].1, ["unload-module", "8"]);
+    assert_eq!(unloads[0].1, ["unload-module", "8"]);
+    assert_eq!(unloads[1].1, ["unload-module", "7"]);
 }

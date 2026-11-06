@@ -87,7 +87,7 @@ impl<R: CommandRunner> AudioDriverManager for LinuxAudioDriver<R> {
                 "load-module",
                 "module-null-sink",
                 "sink_name=VoxBridge_M1",
-                "sink_properties=device.description=VoxBridge M1 Backend",
+                r#"sink_properties="device.description='VoxBridge M1 Backend'""#,
             ],
         )?;
         if let Some(status) = command_failed(&output, "pactl load-module M1 backend") {
@@ -101,7 +101,7 @@ impl<R: CommandRunner> AudioDriverManager for LinuxAudioDriver<R> {
                 "module-remap-source",
                 "master=VoxBridge_M1.monitor",
                 "source_name=VoxBridge_Input",
-                "source_properties=device.description=VoxBridge Input",
+                r#"source_properties="device.description='VoxBridge Input'""#,
             ],
         )?;
         if let Some(status) = command_failed(&output, "pactl load-module M1 source") {
@@ -114,7 +114,7 @@ impl<R: CommandRunner> AudioDriverManager for LinuxAudioDriver<R> {
                 "load-module",
                 "module-null-sink",
                 "sink_name=VoxBridge_Output",
-                "sink_properties=device.description=VoxBridge Output",
+                r#"sink_properties="device.description='VoxBridge Output'""#,
             ],
         )?;
         if let Some(status) = command_failed(&output, "pactl load-module M2 output") {
@@ -210,7 +210,8 @@ fn parse_pulse(text: &str, direction: AudioDirection) -> Vec<AudioEndpoint> {
 }
 
 fn module_ids(text: &str) -> Vec<String> {
-    text.lines()
+    let mut modules = text
+        .lines()
         .filter_map(|line| {
             let mut fields = line.split_whitespace();
             let id = fields.next()?;
@@ -219,9 +220,13 @@ fn module_ids(text: &str) -> Vec<String> {
             (id.bytes().all(|byte| byte.is_ascii_digit())
                 && !id.is_empty()
                 && is_voxbridge_module(name, &args))
-            .then(|| id.to_owned())
+            .then(|| (name != "module-remap-source", id.to_owned()))
         })
-        .collect()
+        .collect::<Vec<_>>();
+    // M1 remapped source depends on the backing sink. Preserve relative order
+    // within each class, but always detach dependent sources first.
+    modules.sort_by_key(|(is_sink, _)| *is_sink);
+    modules.into_iter().map(|(_, id)| id).collect()
 }
 
 fn is_voxbridge_module(name: &str, args: &[&str]) -> bool {

@@ -39,6 +39,7 @@ pub fn run() {
             commands::dev_audio_loopback,
             commands::list_audio_endpoints,
             commands::audio_driver_status,
+            commands::driver::manage_audio_driver,
             commands::list_provider_configs,
             commands::save_provider_config,
             commands::delete_provider_config,

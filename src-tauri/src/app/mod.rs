@@ -5,6 +5,9 @@ use crate::{
         PcmSpec,
         platform::{
             DriverStatus,
+            driver::{
+                DriverController, DriverOperation, DriverOperations, UnavailableDriverOperations,
+            },
             inventory::{AudioInventory, PlatformAudioBackend},
         },
         runtime::AudioBackend,
@@ -54,9 +57,12 @@ pub struct AppState {
     orchestrator: SessionOrchestrator,
     config_io: ConfigIo,
     audio: Arc<dyn AudioBackend>,
+    driver: Arc<dyn DriverOperations>,
     factory: Arc<ProviderFactory>,
     runtime: Arc<TranslationRuntime>,
     admission: Arc<Mutex<()>>,
+    driver_active: watch::Sender<bool>,
+    driver_observation_timeout: std::time::Duration,
     subscriptions: SubscriptionRegistry,
     subscription_admission: Arc<Semaphore>,
     subscription_mutation: Arc<Mutex<()>>,
@@ -70,13 +76,9 @@ impl AppState {
         let lock = Self::lock_data_dir(&data_dir)?;
         let secrets = Arc::new(SecretStore::new(&data_dir)?);
         let factory = Arc::new(ProviderFactory::new(secrets.clone()));
-        Self::compose(
-            data_dir,
-            lock,
-            secrets,
-            Arc::new(PlatformAudioBackend::new()),
-            factory,
-        )
+        let audio = Arc::new(PlatformAudioBackend::new());
+        let driver = Arc::new(DriverController::new(audio.clone())?);
+        Self::compose(data_dir, lock, secrets, audio, factory, driver)
     }
     pub fn with_dependencies(
         data_dir: PathBuf,
@@ -84,8 +86,58 @@ impl AppState {
         audio: Arc<dyn AudioBackend>,
         factory: Arc<ProviderFactory>,
     ) -> AppResult<Self> {
+        Self::with_driver_dependencies(
+            data_dir,
+            secrets,
+            audio,
+            factory,
+            Arc::new(UnavailableDriverOperations),
+        )
+    }
+    pub fn with_driver_dependencies(
+        data_dir: PathBuf,
+        secrets: Arc<SecretStore>,
+        audio: Arc<dyn AudioBackend>,
+        factory: Arc<ProviderFactory>,
+        driver: Arc<dyn DriverOperations>,
+    ) -> AppResult<Self> {
         let lock = Self::lock_data_dir(&data_dir)?;
-        Self::compose(data_dir, lock, secrets, audio, factory)
+        Self::compose(data_dir, lock, secrets, audio, factory, driver)
+    }
+    pub async fn manage_audio_driver(&self, operation: DriverOperation) -> AppResult<DriverStatus> {
+        use crate::audio::platform::driver::{busy_error, safe_result};
+        let epoch = self.admitted_epoch()?;
+        // No pending mutex waiters or queued mutations: one accepted operation.
+        let admission = self
+            .admission
+            .clone()
+            .try_lock_owned()
+            .map_err(|_| busy_error())?;
+        self.check_epoch(epoch)?;
+        if self.orchestrator.has_active_operation() {
+            return Err(busy_error());
+        }
+        self.driver_active.send_replace(true);
+        let owner = self.clone();
+        let work = tokio::spawn(async move {
+            let _admission = admission;
+            let result = match owner.check_epoch(epoch) {
+                Ok(()) => safe_result(owner.driver.perform(operation).await),
+                Err(error) => Err(error),
+            };
+            owner.driver_active.send_replace(false);
+            result
+        });
+        // The task retains AppState/process ownership and admission after a caller
+        // disconnects or times out. close_all observes that same admission barrier.
+        tokio::time::timeout(self.driver_observation_timeout, work)
+            .await
+            .map_err(|_| {
+                AppError::Internal(
+                    "driver maintenance observation timed out; completion remains pending".into(),
+                )
+            })?
+            .map_err(|_| AppError::Internal("driver maintenance owner stopped".into()))?
     }
     fn lock_data_dir(data_dir: &Path) -> AppResult<File> {
         std::fs::create_dir_all(data_dir)
@@ -107,6 +159,7 @@ impl AppState {
         secrets: Arc<SecretStore>,
         audio: Arc<dyn AudioBackend>,
         factory: Arc<ProviderFactory>,
+        driver: Arc<dyn DriverOperations>,
     ) -> AppResult<Self> {
         let store = Arc::new(LocalStore::open(&data_dir)?);
         let now = SystemTime::now()
@@ -132,9 +185,12 @@ impl AppState {
             orchestrator,
             config_io,
             audio,
+            driver,
             factory,
             runtime,
             admission: Arc::new(Mutex::new(())),
+            driver_active: watch::channel(false).0,
+            driver_observation_timeout: std::time::Duration::from_secs(20),
             subscriptions: SubscriptionRegistry::new(),
             subscription_admission: Arc::new(Semaphore::new(16)),
             subscription_mutation: Arc::new(Mutex::new(())),
@@ -191,10 +247,15 @@ impl AppState {
     }
     pub async fn create_session(&self, launch: SessionLaunch) -> AppResult<SessionRecord> {
         let mut closed = self.close_epoch.subscribe();
+        let mut driver = self.driver_active.subscribe();
+        if *driver.borrow_and_update() {
+            return Err(crate::audio::platform::driver::busy_error());
+        }
         let epoch = self.admitted_epoch()?;
         tokio::select! {
             biased;
             _ = closed.changed() => Err(lifecycle::closing_error()),
+            _ = driver.changed() => Err(crate::audio::platform::driver::busy_error()),
             result = async {
                 let _guard = self.admission.lock().await;
                 self.check_epoch(epoch)?;
@@ -277,3 +338,13 @@ mod profiles_tests;
 mod subscription_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(crate) mod driver_test_support {
+    use super::*;
+    pub(crate) fn short_observation(app: &mut AppState) {
+        app.driver_observation_timeout = std::time::Duration::from_millis(30);
+        app.close_state.lock().unwrap().observation_timeout =
+            Some(std::time::Duration::from_millis(30));
+    }
+}

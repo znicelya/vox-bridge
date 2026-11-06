@@ -72,8 +72,23 @@ struct Snapshot {
 #[derive(Default)]
 struct State {
     snapshot: Option<Snapshot>,
+    maintenance: Option<Uuid>,
     leases: HashMap<String, Uuid>,
     quarantined: HashSet<Uuid>,
+}
+/// Dropping an unacknowledged maintenance lease intentionally keeps admission closed.
+pub(crate) struct MaintenanceLease {
+    state: Arc<Mutex<State>>,
+    id: Uuid,
+}
+impl MaintenanceLease {
+    pub(crate) fn complete(self) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.maintenance == Some(self.id) {
+            state.maintenance = None;
+            state.snapshot = None;
+        }
+    }
 }
 pub(crate) struct Lease {
     state: Arc<Mutex<State>>,
@@ -131,6 +146,20 @@ impl PlatformAudioBackend {
             ..Self::new()
         }
     }
+    pub(crate) fn begin_maintenance(&self) -> AppResult<MaintenanceLease> {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.maintenance.is_some() || !state.leases.is_empty() || !state.quarantined.is_empty()
+        {
+            return Err(super::driver::busy_error());
+        }
+        let id = Uuid::new_v4();
+        state.maintenance = Some(id);
+        state.snapshot = None;
+        Ok(MaintenanceLease {
+            state: self.state.clone(),
+            id,
+        })
+    }
     fn record(&self, driver: DriverStatus, rows: InventoryRows) -> AppResult<AudioInventory> {
         let mut entries = BTreeMap::new();
         let mut locators = BTreeMap::new();
@@ -143,6 +172,9 @@ impl PlatformAudioBackend {
         }
         let endpoints = entries.into_values().collect::<Vec<_>>();
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.maintenance.is_some() {
+            return Err(super::driver::busy_error());
+        }
         let unchanged = state.snapshot.as_ref().is_some_and(|s| {
             s.inventory.driver == driver
                 && s.inventory.endpoints == endpoints
@@ -167,6 +199,9 @@ impl PlatformAudioBackend {
         request: &AudioOpenRequest,
     ) -> AppResult<(Locator, Locator, Arc<Lease>)> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.maintenance.is_some() {
+            return Err(super::driver::busy_error());
+        }
         let snapshot = state
             .snapshot
             .as_ref()
@@ -512,7 +547,7 @@ impl NativeOwner for CpalOwner {
 mod tests {
     use super::*;
     use crate::domain::audio::AudioSource;
-    fn rows() -> InventoryRows {
+    pub(super) fn rows() -> InventoryRows {
         [
             ("microphone", AudioDirection::Input, EndpointRole::Input),
             ("m1", AudioDirection::Output, EndpointRole::M1Render),
@@ -548,7 +583,11 @@ mod tests {
         })
         .collect()
     }
-    fn request(inventory: &AudioInventory, input: &str, output: &str) -> AudioOpenRequest {
+    pub(super) fn request(
+        inventory: &AudioInventory,
+        input: &str,
+        output: &str,
+    ) -> AudioOpenRequest {
         AudioOpenRequest {
             inventory_generation: inventory.generation,
             input_id: input.into(),
@@ -696,5 +735,20 @@ mod tests {
         assert_eq!(dropped.load(Ordering::Acquire), 1);
         let (_, _, lease) = backend.claim(&req).unwrap();
         lease.release();
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod driver_test_support {
+    use super::*;
+    pub(crate) fn seed(backend: &PlatformAudioBackend) -> AudioOpenRequest {
+        let inventory = backend.record(DriverStatus::Ready, tests::rows()).unwrap();
+        tests::request(&inventory, "microphone", "m1")
+    }
+    pub(crate) fn claim(
+        backend: &PlatformAudioBackend,
+        request: &AudioOpenRequest,
+    ) -> AppResult<Arc<Lease>> {
+        backend.claim(request).map(|(_, _, lease)| lease)
     }
 }
