@@ -19,10 +19,11 @@ pub struct TavilyConfig {
     pub search_depth: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct ProviderConfig {
     id: Uuid,
     provider: String,
+    display_name: String,
     endpoint: String,
     pub llm: Option<LlmConfig>,
     pub embedding: Option<EmbeddingConfig>,
@@ -35,12 +36,52 @@ pub struct ProviderConfig {
 pub struct PublicProviderConfig {
     id: Uuid,
     provider: String,
+    display_name: String,
     endpoint: String,
     pub llm: Option<LlmConfig>,
     pub embedding: Option<EmbeddingConfig>,
     pub tavily: Option<TavilyConfig>,
     language_capabilities: Vec<String>,
     secret_reference: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ProviderConfigWire {
+    id: Uuid,
+    provider: String,
+    #[serde(default)]
+    display_name: Option<String>,
+    endpoint: String,
+    llm: Option<LlmConfig>,
+    embedding: Option<EmbeddingConfig>,
+    tavily: Option<TavilyConfig>,
+    language_capabilities: Vec<String>,
+    secret_reference: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for ProviderConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = ProviderConfigWire::deserialize(deserializer)?;
+        let display_name = wire
+            .display_name
+            .unwrap_or_else(|| wire.provider.clone())
+            .trim()
+            .to_owned();
+        Ok(Self {
+            id: wire.id,
+            provider: wire.provider,
+            display_name,
+            endpoint: wire.endpoint,
+            llm: wire.llm,
+            embedding: wire.embedding,
+            tavily: wire.tavily,
+            language_capabilities: wire.language_capabilities,
+            secret_reference: wire.secret_reference,
+        })
+    }
 }
 
 impl ProviderConfig {
@@ -53,9 +94,11 @@ impl ProviderConfig {
         language_capabilities: Vec<String>,
         secret_reference: Option<String>,
     ) -> AppResult<Self> {
+        let provider = provider.into();
         let value = Self {
             id,
-            provider: provider.into(),
+            display_name: provider.trim().to_owned(),
+            provider,
             endpoint: endpoint.into(),
             llm: model.map(|model| LlmConfig { model, resource_id }),
             embedding: None,
@@ -72,16 +115,29 @@ impl ProviderConfig {
     pub fn provider(&self) -> &str {
         &self.provider
     }
+    pub fn display_name(&self) -> &str {
+        &self.display_name
+    }
     pub fn secret_reference(&self) -> Option<&str> {
         self.secret_reference.as_deref()
     }
     pub fn endpoint(&self) -> &str {
         &self.endpoint
     }
+    pub fn with_display_name(mut self, name: String) -> AppResult<Self> {
+        self.display_name = name.trim().to_owned();
+        self.validate()?;
+        Ok(self)
+    }
+    pub fn with_secret_reference(mut self, reference: Option<String>) -> Self {
+        self.secret_reference = reference;
+        self
+    }
     pub fn public_view(&self) -> PublicProviderConfig {
         PublicProviderConfig {
             id: self.id,
             provider: self.provider.clone(),
+            display_name: self.display_name.clone(),
             endpoint: self.endpoint.clone(),
             llm: self.llm.clone(),
             embedding: self.embedding.clone(),
@@ -93,6 +149,12 @@ impl ProviderConfig {
     pub fn validate(&self) -> AppResult<()> {
         if self.provider.trim().is_empty() {
             return Err(AppError::Configuration("provider is required".into()));
+        }
+        let name_len = self.display_name.chars().count();
+        if !(1..=80).contains(&name_len) {
+            return Err(AppError::Configuration(
+                "provider display name must contain 1 to 80 characters".into(),
+            ));
         }
         if self.endpoint.trim().is_empty() {
             return Err(AppError::Configuration("endpoint is required".into()));
@@ -166,6 +228,9 @@ fn validate_remote_url(value: &str, allow_wss: bool) -> AppResult<()> {
 }
 
 impl PublicProviderConfig {
+    pub fn display_name(&self) -> &str {
+        &self.display_name
+    }
     pub fn secret_reference(&self) -> Option<&str> {
         self.secret_reference.as_deref()
     }

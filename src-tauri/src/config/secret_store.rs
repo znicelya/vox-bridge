@@ -63,14 +63,18 @@ impl KeyBackend for MemoryKeyring {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct EncryptedValue {
     nonce: String,
     ciphertext: String,
 }
+pub(crate) struct EncryptedSecretSnapshot(Option<EncryptedValue>);
+
 pub struct SecretStore {
+    data_dir: PathBuf,
     path: PathBuf,
-    lock_path: PathBuf,
+    transaction_lock_path: PathBuf,
+    dek_lock_path: PathBuf,
     backend: Arc<dyn KeyBackend>,
 }
 impl SecretStore {
@@ -78,10 +82,12 @@ impl SecretStore {
         Self::with_backend(data_dir, Arc::new(OsKeyring))
     }
     fn with_backend(data_dir: impl AsRef<Path>, backend: Arc<dyn KeyBackend>) -> AppResult<Self> {
-        fs::create_dir_all(data_dir.as_ref()).map_err(config_error)?;
+        let data_dir = data_dir.as_ref().to_path_buf();
         Ok(Self {
-            path: data_dir.as_ref().join("secrets.json"),
-            lock_path: data_dir.as_ref().join("secrets.dek.lock"),
+            path: data_dir.join("secrets.json"),
+            transaction_lock_path: data_dir.join("secrets.lock"),
+            dek_lock_path: data_dir.join("secrets.dek.lock"),
+            data_dir,
             backend,
         })
     }
@@ -105,14 +111,43 @@ impl SecretStore {
     }
     #[cfg(test)]
     pub(super) fn backend_key_for_tests(&self) -> AppResult<Vec<u8>> {
-        self.backend.load_or_create(&self.lock_path)
+        self.backend.load_or_create(&self.dek_lock_path)
     }
     pub fn config_path(&self) -> &Path {
         &self.path
     }
     pub fn set(&self, service: &str, key: &str, value: &[u8]) -> AppResult<()> {
-        let mut values = self.read_values()?;
-        let cipher = Aes256Gcm::new_from_slice(&self.backend.load_or_create(&self.lock_path)?)
+        let _lock = self.acquire_transaction_lock()?;
+        self.set_locked(service, key, value)
+    }
+    pub fn get(&self, service: &str, key: &str) -> AppResult<Option<Vec<u8>>> {
+        let _lock = self.acquire_transaction_lock()?;
+        self.get_locked(service, key)
+    }
+    pub fn contains(&self, service: &str, key: &str) -> AppResult<bool> {
+        let _lock = self.acquire_transaction_lock()?;
+        self.contains_locked(service, key)
+    }
+    pub fn delete(&self, service: &str, key: &str) -> AppResult<()> {
+        let _lock = self.acquire_transaction_lock()?;
+        self.delete_locked(service, key)
+    }
+
+    pub(super) fn acquire_transaction_lock(&self) -> AppResult<fs::File> {
+        fs::create_dir_all(&self.data_dir).map_err(config_error)?;
+        let lock = fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(&self.transaction_lock_path)
+            .map_err(config_error)?;
+        fs2::FileExt::lock_exclusive(&lock).map_err(config_error)?;
+        Ok(lock)
+    }
+
+    pub(super) fn set_locked(&self, service: &str, key: &str, value: &[u8]) -> AppResult<()> {
+        let mut values = self.read_values_locked()?;
+        let cipher = Aes256Gcm::new_from_slice(&self.backend.load_or_create(&self.dek_lock_path)?)
             .map_err(config_error)?;
         let mut nonce = [0u8; 12];
         OsRng.fill_bytes(&mut nonce);
@@ -131,8 +166,8 @@ impl SecretStore {
             &serde_json::to_vec_pretty(&values).map_err(config_error)?,
         )
     }
-    pub fn get(&self, service: &str, key: &str) -> AppResult<Option<Vec<u8>>> {
-        let values = self.read_values()?;
+    pub(super) fn get_locked(&self, service: &str, key: &str) -> AppResult<Option<Vec<u8>>> {
+        let values = self.read_values_locked()?;
         let Some(value) = values.get(&entry_key(service, key)) else {
             return Ok(None);
         };
@@ -143,19 +178,69 @@ impl SecretStore {
             ));
         }
         let ciphertext = STANDARD.decode(&value.ciphertext).map_err(config_error)?;
-        let cipher = Aes256Gcm::new_from_slice(&self.backend.load_or_create(&self.lock_path)?)
+        let cipher = Aes256Gcm::new_from_slice(&self.backend.load_or_create(&self.dek_lock_path)?)
             .map_err(config_error)?;
         cipher
             .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
             .map(Some)
             .map_err(config_error)
     }
-    fn read_values(&self) -> AppResult<HashMap<String, EncryptedValue>> {
+    pub(super) fn contains_locked(&self, service: &str, key: &str) -> AppResult<bool> {
+        Ok(self
+            .read_values_locked()?
+            .contains_key(&entry_key(service, key)))
+    }
+
+    pub(super) fn delete_locked(&self, service: &str, key: &str) -> AppResult<()> {
+        let mut values = self.read_values_locked()?;
+        values.remove(&entry_key(service, key));
+        self.write_values_locked(&values)
+    }
+
+    pub(super) fn snapshot_locked(
+        &self,
+        service: &str,
+        key: &str,
+    ) -> AppResult<EncryptedSecretSnapshot> {
+        Ok(EncryptedSecretSnapshot(
+            self.read_values_locked()?
+                .get(&entry_key(service, key))
+                .cloned(),
+        ))
+    }
+
+    pub(super) fn restore_locked(
+        &self,
+        service: &str,
+        key: &str,
+        prior: EncryptedSecretSnapshot,
+    ) -> AppResult<()> {
+        let mut values = self.read_values_locked()?;
+        let entry = entry_key(service, key);
+        match prior.0 {
+            Some(value) => {
+                values.insert(entry, value);
+            }
+            None => {
+                values.remove(&entry);
+            }
+        }
+        self.write_values_locked(&values)
+    }
+
+    fn read_values_locked(&self) -> AppResult<HashMap<String, EncryptedValue>> {
         match fs::read(&self.path) {
             Ok(bytes) => serde_json::from_slice(&bytes).map_err(config_error),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(HashMap::new()),
             Err(e) => Err(config_error(e)),
         }
+    }
+
+    fn write_values_locked(&self, values: &HashMap<String, EncryptedValue>) -> AppResult<()> {
+        super::atomic_write(
+            &self.path,
+            &serde_json::to_vec_pretty(values).map_err(config_error)?,
+        )
     }
 }
 fn entry_key(service: &str, key: &str) -> String {
