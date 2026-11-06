@@ -4,7 +4,7 @@
 
 **Goal:** Deliver the approved Vox Bridge live translation workbench in dependency order while keeping each subsystem independently testable.
 
-**Architecture:** Execute four plans in sequence: session foundation, platform audio, provider adapters, then the React workbench and intelligence tools. The foundation provides the event/storage contracts; audio and providers plug into the orchestrator; the final plan binds the contracts to the UI and local research features.
+**Architecture:** Execute five plans in sequence: session foundation, platform audio, provider adapters, runtime composition, then the React workbench and intelligence tools. The foundation provides the event/storage contracts; runtime composition connects audio and providers to durable session ownership; the final plan binds the reviewed desktop contracts to the UI and local research features.
 
 **Tech Stack:** Tauri 2, Rust 1.99, Tokio, cpal, rubato, tokio-tungstenite, prost, rusqlite, SrvDB, React 19, Vite, shadcn/ui, Tailwind CSS v4, TypeScript.
 
@@ -28,9 +28,10 @@
 
 ```markdown
 1. Session Foundation: creates typed state, storage, secrets, commands, and exports.
-2. Platform Audio: creates real M1/M2 devices and canonical PCM routing.
+2. Platform Audio: creates M1/M2 platform adapters, canonical PCM routing, and the real-platform acceptance harness.
 3. Provider Adapters: connects canonical audio to Volcengine and fixture providers.
-4. Workbench And Intelligence: renders the UI and adds SrvDB, summaries, and Tavily.
+4. Runtime Composition: connects exact audio endpoints, independent provider directions, durable lifecycle, configured commands, and recoverable subscriptions.
+5. Workbench And Intelligence: renders the UI and adds SrvDB, summaries, and Tavily.
 ```
 
 - [ ] **Step 2: Record release gates.**
@@ -50,6 +51,7 @@ git commit -m "docs: record live translation release gates"
 - Read: `docs/superpowers/plans/2026-11-04-session-foundation.md`
 - Read: `docs/superpowers/plans/2026-11-04-platform-audio.md`
 - Read: `docs/superpowers/plans/2026-11-04-provider-adapters.md`
+- Read: `docs/superpowers/plans/2026-11-05-runtime-composition.md`
 - Read: `docs/superpowers/plans/2026-11-04-workbench-intelligence.md`
 
 - [ ] **Step 1: Finish and verify Session Foundation.**
@@ -58,13 +60,17 @@ Run its full Rust and TypeScript checks before starting audio work. Verify a ses
 
 - [ ] **Step 2: Finish and verify Platform Audio.**
 
-Run the platform acceptance harness on all three supported OSes. Do not continue to provider integration until M1/M2 installation and loopback are recorded as passing.
+Run the available software and synthetic checks. Record actual installation and loopback acceptance separately on all three supported OSes. Implementation may proceed while hardware, signing, and minimum-OS evidence remain pending, as specified in release-gates.md; that evidence still blocks a release claim.
 
 - [ ] **Step 3: Finish and verify Provider Adapters.**
 
-Run fixture tests for all adapters and the opt-in Volcengine test. Verify one real 2-second audio fixture produces final source text, final translation text, and TTS audio.
+Run fixture and offline protocol tests for all adapters. Keep the paid Volcengine test ignored in default runs; with operator credentials and explicit invocation, verify the deterministic speech fixture produces final source text, final translation text, TTS audio, and successful terminal completion. Record live acceptance as pending until that evidence exists.
 
-- [ ] **Step 4: Finish and verify Workbench And Intelligence.**
+- [ ] **Step 4: Finish and verify Runtime Composition.**
+
+Execute its six tasks and review gates. Verify exact endpoint preflight, independent live/call runtime, durable final text/context, concurrent stop, credential configuration, and recoverable event subscriptions with injected offline dependencies. Run the complete Rust gate and frontend build before handing the final command contracts to the workbench plan.
+
+- [ ] **Step 5: Finish and verify Workbench And Intelligence.**
 
 Run UI smoke, Rust, build, and app-screen inspection checks. Verify the UI stays usable with no provider, no index, no Tavily result, a disconnected device, and a failed summary.
 
