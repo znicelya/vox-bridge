@@ -21,6 +21,11 @@ pub struct ProcessSpec {
 pub struct ProcessExit {
     pub code: Option<i32>,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProcessResourceLimits {
+    pub memory_bytes: u64,
+    pub cpu_seconds: u32,
+}
 #[async_trait]
 pub trait ProcessControl: Send + Sync {
     async fn wait(&self) -> AppResult<ProcessExit>;
@@ -34,7 +39,19 @@ pub struct ProcessPipes {
 #[async_trait]
 pub trait ProcessSpawner: Send + Sync {
     async fn spawn(&self, spec: ProcessSpec) -> AppResult<ProcessPipes>;
+    /// Returns pipes only after OS limits are installed. Cleanup errors are not
+    /// child-exit acknowledgements; the limited owner retains reap responsibility.
+    async fn spawn_limited(
+        &self,
+        _spec: ProcessSpec,
+        _limits: ProcessResourceLimits,
+    ) -> AppResult<ProcessPipes> {
+        Err(crate::error::AppError::Intelligence(
+            crate::intelligence::types::IntelligenceErrorCode::Configuration,
+        ))
+    }
 }
+mod limited;
 pub struct SystemProcessSpawner;
 type ExitResult = Result<ProcessExit, AudioFailure>;
 struct Control {
@@ -95,6 +112,13 @@ fn supervise(mut child: Box<dyn OwnedChild>, reap_timeout: Duration) -> Arc<dyn 
 }
 #[async_trait]
 impl ProcessSpawner for SystemProcessSpawner {
+    async fn spawn_limited(
+        &self,
+        spec: ProcessSpec,
+        limits: ProcessResourceLimits,
+    ) -> AppResult<ProcessPipes> {
+        limited::spawn(spec, limits).await
+    }
     async fn spawn(&self, spec: ProcessSpec) -> AppResult<ProcessPipes> {
         let mut command = tokio::process::Command::new(spec.program);
         command

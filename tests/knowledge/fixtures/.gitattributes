@@ -1,0 +1,5 @@
+# Synthetic parser inputs are byte-exact; source lives in ../generate_fixtures.py.
+*.pdf binary
+*.docx binary
+*.txt -text -diff
+*.md -text

@@ -1,0 +1,3 @@
+泵  24V / 1.25A
+
+English	value: 3,200.5

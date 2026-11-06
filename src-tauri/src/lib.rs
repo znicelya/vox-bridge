@@ -7,6 +7,7 @@ pub mod error;
 pub mod events;
 pub mod export;
 pub mod intelligence;
+pub mod knowledge;
 pub mod providers;
 pub mod session;
 pub mod storage;
@@ -139,4 +140,16 @@ pub fn run() {
             });
         }
     });
+}
+
+/// Binary headless entry. The executable must install its startup allocation
+/// budget before calling this; the parent installs OS limits before sending stdin.
+/// This path deliberately initializes no Tauri state or asynchronous runtime.
+#[doc(hidden)]
+pub fn run_document_parse_worker() -> i32 {
+    knowledge::parser_worker::serve(
+        std::io::stdin().lock(),
+        std::io::stdout().lock(),
+        knowledge::MAX_OUTPUT_BYTES,
+    )
 }
