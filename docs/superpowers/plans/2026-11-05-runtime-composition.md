@@ -822,7 +822,7 @@ Commit Task4 paths: feat: compose independent live and call runtimes.
 
 ### Task 5: Durable lifecycle and replayable stop
 
-**Files:** Modify session/{orchestrator,orchestrator_tests,mod}.rs, storage/{sqlite,models,mod}.rs and app/{mod,tests}.rs; minimally adapt commands.rs create_session to keep the public launch path compiling against the new lifecycle API.
+**Files:** Modify session/{orchestrator,orchestrator_tests,mod,test_support}.rs, storage/{sqlite,models,mod}.rs and app/{mod,tests}.rs; minimally adapt commands.rs create_session to keep the public launch path compiling against the new lifecycle API.
 
 **Consumes:** Task4 launch/context/runtime. Replace production NoopSessionStartup/SessionStartup with actual runtime ownership.
 
@@ -911,7 +911,7 @@ Commit Task5 paths: feat: coordinate durable lifecycle and idempotent stop.
 
 ### Task 6: Configuration, app commands and recoverable subscriptions
 
-**Files:** Modify app/{mod,tests}.rs, commands.rs, lib.rs, config/{mod,models,secret_store,secret_store_tests}.rs. Create commands_tests.rs, commands/subscriptions.rs and config/worker.rs. Update README.md, docs/superpowers/plans/release-gates.md and tests/platform-audio/README.md.
+**Files:** Modify app/{mod,tests}.rs, commands.rs, lib.rs, config/{mod,models,secret_store,secret_store_tests}.rs, providers/types.rs (safe capability serialization) and session/runtime.rs (saved provider display name). Create commands_tests.rs, commands/subscriptions.rs and config/worker.rs. Update README.md, docs/superpowers/plans/release-gates.md and tests/platform-audio/README.md.
 
 **Consumes:** All earlier APIs. App construction creates local objects/storage only; credential operations access keyring as needed, explicit launch opens capture/network.
 
