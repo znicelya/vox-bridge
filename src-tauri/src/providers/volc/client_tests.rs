@@ -1275,3 +1275,62 @@ async fn blocked_credential_work_is_bounded_across_fresh_provider_instances() {
     assert_eq!(observed_maximum, 2);
     assert_eq!(observed_active, 2);
 }
+
+#[tokio::test]
+async fn intelligence_translation_owned_lookup_retains_lease_after_connect_timeout() {
+    let dir = tempfile::tempdir().unwrap();
+    let secrets = Arc::new(SecretStore::for_tests(dir.path()).unwrap());
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release = Arc::new(Mutex::new(release_rx));
+    let provider = VolcengineProvider::new(secrets)
+        .with_test_timeouts()
+        .with_test_credential_lookup(
+            Arc::new(tokio::sync::Semaphore::new(1)),
+            Arc::new(move |_, _| {
+                entered_tx.send(()).unwrap();
+                release.lock().unwrap().recv().unwrap();
+                Ok(None)
+            }),
+        );
+    let owner = Arc::new(());
+    let weak = Arc::downgrade(&owner);
+    let result = provider.connect_owned(config(), owner).await;
+    entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let retained = weak.upgrade().is_some();
+    release_tx.send(()).unwrap();
+    timeout(Duration::from_secs(1), async {
+        while weak.upgrade().is_some() {
+            tokio::task::yield_now().await
+        }
+    })
+    .await
+    .unwrap();
+    assert!(matches!(result, Err(ProviderError::Timeout)));
+    assert!(
+        retained,
+        "lookup must retain the process/probe lease after observer timeout"
+    );
+}
+#[tokio::test]
+async fn intelligence_translation_wait_closed_joins_cancelled_handshake_socket() {
+    let (listener, provider, cfg, _dir) = fixture().await;
+    let (entered_tx, entered_rx) = oneshot::channel();
+    let server = tokio::spawn(async move {
+        let mut ws = accept(&listener).await;
+        assert_eq!(wire_event(&mut ws).await.event, 100);
+        entered_tx.send(()).unwrap();
+        let _ = ws.next().await;
+    });
+    let stream = provider.connect(cfg).await.unwrap();
+    entered_rx.await.unwrap();
+    stream.cancel().await.unwrap();
+    let joined = timeout(Duration::from_secs(1), stream.wait_closed())
+        .await
+        .unwrap();
+    timeout(Duration::from_secs(1), server)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(joined.is_ok());
+}

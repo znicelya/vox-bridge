@@ -526,6 +526,7 @@ impl SessionOrchestrator {
                 .and_then(|op| op.attached.as_ref())
                 .map(|session| {
                     if !*session.stop.borrow() {
+                        session.runtime.request_stop();
                         session.stop.send_replace(true);
                     }
                     session.completion.clone()

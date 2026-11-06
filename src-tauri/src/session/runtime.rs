@@ -209,8 +209,14 @@ impl RunningSession {
         self.status.clone()
     }
 
-    pub async fn stop(&self) -> RuntimeOutcome {
+    /// Cancellation request only. The existing runtime owner still performs and
+    /// acknowledges all cleanup through the shared completion receiver.
+    pub(crate) fn request_stop(&self) {
         self.stop.send_replace(true);
+    }
+
+    pub async fn stop(&self) -> RuntimeOutcome {
+        self.request_stop();
         let mut completion = self.completion.clone();
         loop {
             if let Some(outcome) = completion.borrow_and_update().clone() {

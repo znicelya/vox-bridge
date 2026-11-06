@@ -28,6 +28,17 @@ pub(super) fn closing_error() -> AppError {
 }
 
 impl AppState {
+    pub(super) fn with_open_epoch<T>(
+        &self,
+        operation: impl FnOnce() -> AppResult<T>,
+    ) -> AppResult<T> {
+        let state = self.close_state.lock().unwrap();
+        if state.closing {
+            return Err(closing_error());
+        }
+        operation()
+    }
+
     pub(super) fn admitted_epoch(&self) -> AppResult<u64> {
         let state = self.close_state.lock().unwrap();
         if state.closing {
@@ -170,9 +181,13 @@ impl AppState {
                 self.close_epoch.send_replace(state.epoch);
                 let (finished, completion) = watch::channel(None);
                 state.completion = Some(completion.clone());
+                // Signal intelligence/probes before waiting for any config or
+                // driver admission; prompt audio stop starts in the same owner.
+                self.jobs.signal_shutdown();
+                self.probes.request_shutdown();
                 let owner = self.clone();
                 tokio::spawn(async move {
-                    let (audio, frontend) = tokio::join!(
+                    let (audio, frontend, intelligence) = tokio::join!(
                         async {
                             // Stop promptly even if unrelated native config work
                             // retains admission; a second pass fences a late start.
@@ -184,9 +199,26 @@ impl AppState {
                         async {
                             let _mutation = owner.subscription_mutation.lock().await;
                             owner.close_registry(None).await
+                        },
+                        async {
+                            let (jobs, probes, subscriptions) = tokio::join!(
+                                owner.jobs.shutdown(),
+                                owner.probes.shutdown(),
+                                owner.intelligence_subscriptions.close_all()
+                            );
+                            let _operations = owner
+                                .intelligence_operations
+                                .clone()
+                                .acquire_many_owned(16)
+                                .await
+                                .map_err(|_| closing_error())?;
+                            jobs.and(probes).and(subscriptions)
                         }
                     );
-                    let result = audio.and(frontend).map_err(|error| error.to_string());
+                    let result = audio
+                        .and(frontend)
+                        .and(intelligence)
+                        .map_err(|error| error.to_string());
                     let mut state = owner.close_state.lock().unwrap();
                     state.closing = true;
                     state.close_succeeded = result.is_ok();

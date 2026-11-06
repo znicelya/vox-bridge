@@ -16,6 +16,8 @@ pub(super) struct StoredProfile {
     pub profile: ModelProfile,
     #[serde(default)]
     pub credential_reference: Option<String>,
+    #[serde(default)]
+    pub revision: Uuid,
 }
 impl StoredProfile {
     pub fn referenced(&self) -> bool {

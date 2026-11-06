@@ -12,23 +12,12 @@ pub(crate) fn validate_secret(value: &[u8]) -> AppResult<()> {
     Ok(())
 }
 impl SecretString {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Reserved for Task 3B service and scheduler composition"
-        )
-    )]
     pub(crate) fn from_store_bytes(value: Vec<u8>) -> AppResult<Self> {
         validate_secret(&value)?;
         String::from_utf8(value)
             .map(Self)
             .map_err(|_| AppError::Intelligence(IntelligenceErrorCode::Configuration))
     }
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "Concrete HTTP adapter is composed in Task 3B")
-    )]
     fn authorization_header(&self) -> Result<reqwest::header::HeaderValue, IntelligenceErrorCode> {
         let mut header = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.0))
             .map_err(|_| IntelligenceErrorCode::Configuration)?;
@@ -111,3 +100,156 @@ mod tests {
         assert!(SecretString::from_store_bytes(vec![b'!'; 4096]).is_ok());
     }
 }
+
+pub struct ReqwestJsonHttp {
+    client: reqwest::Client,
+}
+impl ReqwestJsonHttp {
+    pub fn new() -> AppResult<Self> {
+        Self::with_roots(rustls::RootCertStore::from_iter(
+            webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
+        ))
+    }
+    fn with_roots(roots: rustls::RootCertStore) -> AppResult<Self> {
+        let tls = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .map_err(|_| AppError::Configuration("HTTP TLS configuration failed".into()))?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+        let client = reqwest::Client::builder()
+            .use_preconfigured_tls(tls)
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(120))
+            .build()
+            .map_err(|_| AppError::Configuration("HTTP client configuration failed".into()))?;
+        Ok(Self { client })
+    }
+}
+#[async_trait::async_trait]
+impl JsonHttp for ReqwestJsonHttp {
+    async fn post(
+        &self,
+        request: JsonRequest,
+        mut cancel: watch::Receiver<bool>,
+    ) -> Result<JsonResponse, IntelligenceErrorCode> {
+        use IntelligenceErrorCode as E;
+        use futures_util::StreamExt;
+        let url = &request.endpoint;
+        let local = match url.host() {
+            Some(url::Host::Domain(name)) => name == "localhost",
+            Some(url::Host::Ipv4(ip)) => ip.octets() == [127, 0, 0, 1],
+            Some(url::Host::Ipv6(ip)) => ip == std::net::Ipv6Addr::LOCALHOST,
+            None => false,
+        };
+        if url.host().is_none()
+            || !(url.scheme() == "https" || url.scheme() == "http" && local)
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || request.timeout.is_zero()
+            || request.timeout > Duration::from_secs(120)
+            || request.max_response_bytes == 0
+            || request.max_response_bytes > 8 * 1024 * 1024
+        {
+            return Err(E::Configuration);
+        }
+        let deadline = tokio::time::Instant::now() + request.timeout;
+        let authorization = request.bearer.authorization_header()?;
+        let operation = async {
+            for attempt in 0..2 {
+                let response = self
+                    .client
+                    .post(request.endpoint.clone())
+                    .header(reqwest::header::AUTHORIZATION, authorization.clone())
+                    .json(&request.body)
+                    .timeout(request.timeout)
+                    .send()
+                    .await
+                    .map_err(http_error)?;
+                let status = response.status().as_u16();
+                if attempt == 0
+                    && request.retry_policy == HttpRetryPolicy::OnceTransient
+                    && matches!(status, 429 | 503)
+                {
+                    let delay = response
+                        .headers()
+                        .get(reqwest::header::RETRY_AFTER)
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(retry_delay);
+                    if let Some(delay) =
+                        delay.filter(|delay| tokio::time::Instant::now() + *delay < deadline)
+                    {
+                        drop(response);
+                        tokio::time::sleep(delay).await;
+                        continue;
+                    }
+                }
+                if !(200..300).contains(&status) {
+                    return Err(match status {
+                        401 | 403 => E::Authentication,
+                        429 => E::RateLimited,
+                        _ => E::Network,
+                    });
+                }
+                if response
+                    .content_length()
+                    .is_some_and(|n| n > request.max_response_bytes as u64)
+                {
+                    return Err(E::ResponseTooLarge);
+                }
+                let mut stream = response.bytes_stream();
+                let mut body = Vec::new();
+                while let Some(chunk) = stream.next().await {
+                    let chunk = chunk.map_err(http_error)?;
+                    if chunk.len() > request.max_response_bytes - body.len() {
+                        return Err(E::ResponseTooLarge);
+                    }
+                    body.extend_from_slice(&chunk);
+                }
+                serde_json::from_slice::<serde_json::Value>(&body)
+                    .map_err(|_| E::InvalidResponse)?;
+                return Ok(JsonResponse { status, body });
+            }
+            Err(E::Network)
+        };
+        tokio::select! {biased;
+            _=cancelled(&mut cancel)=>Err(E::Cancelled),
+            result=tokio::time::timeout_at(deadline,operation)=>result.unwrap_or(Err(E::Timeout)),
+        }
+    }
+}
+fn retry_delay(value: &str) -> Option<Duration> {
+    let delay = if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
+        Duration::from_secs(value.parse().ok()?)
+    } else {
+        httpdate::parse_http_date(value)
+            .ok()?
+            .duration_since(std::time::SystemTime::now())
+            .unwrap_or_default()
+    };
+    (delay <= Duration::from_secs(5)).then_some(delay)
+}
+fn http_error(error: reqwest::Error) -> IntelligenceErrorCode {
+    if error.is_timeout() {
+        IntelligenceErrorCode::Timeout
+    } else {
+        IntelligenceErrorCode::Network
+    }
+}
+pub(crate) async fn cancelled(cancel: &mut watch::Receiver<bool>) {
+    loop {
+        if *cancel.borrow_and_update() {
+            return;
+        }
+        if cancel.changed().await.is_err() {
+            return;
+        }
+    }
+}
+#[cfg(test)]
+#[path = "http_tests.rs"]
+mod transport_tests;

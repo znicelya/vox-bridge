@@ -159,6 +159,22 @@ impl PreparedProviderSession {
         self.provider.id()
     }
 
+    pub(crate) async fn connect_probe_owned(
+        self,
+        owner: Arc<dyn Send + Sync>,
+    ) -> ProviderResult<DirectedProviderStream> {
+        if !self.provider.supports_owned_cleanup() || self.configs.len() != 1 {
+            return Err(ProviderError::Unavailable);
+        }
+        let config = self
+            .configs
+            .into_iter()
+            .next()
+            .ok_or(ProviderError::InvalidConfiguration)?;
+        let stream = self.provider.connect_owned(config.clone(), owner).await?;
+        Ok(DirectedProviderStream { config, stream })
+    }
+
     pub async fn connect_direction(
         self,
         direction: SessionDirection,

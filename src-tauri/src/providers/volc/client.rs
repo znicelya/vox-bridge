@@ -231,19 +231,30 @@ impl TranslationProvider for VolcengineProvider {
     /// only after upgrade + StartSession; subsequent connection failures are
     /// terminal Failed events. Missing/invalid credentials fail this call.
     async fn connect(&self, config: ProviderSessionConfig) -> ProviderResult<ProviderStream> {
+        self.connect_owned(config, Arc::new(())).await
+    }
+    fn supports_owned_cleanup(&self) -> bool {
+        true
+    }
+    async fn connect_owned(
+        &self,
+        config: ProviderSessionConfig,
+        owner: Arc<dyn Send + Sync>,
+    ) -> ProviderResult<ProviderStream> {
         self.capabilities().validate(&config)?;
         let start = encode_start_session(&config, &self.options)?;
         let secrets = self.secrets.clone();
         let key = secret_key(config.provider_config_id);
         let gate = self.credential_gate.clone();
         let lookup = self.secret_lookup();
+        let lookup_owner = owner.clone();
         let api_key = timeout(self.timing.connect, async move {
             let permit = gate
                 .acquire_owned()
                 .await
                 .map_err(|_| ProviderError::Timeout)?;
             tokio::task::spawn_blocking(move || {
-                let _permit = permit;
+                let (_permit, _owner) = (permit, lookup_owner);
                 lookup(secrets, key)
             })
             .await
@@ -273,14 +284,19 @@ impl TranslationProvider for VolcengineProvider {
             control: control_rx,
             pending: VecDeque::new(),
         };
-        let task = tokio::spawn(actor.run());
+        let task = tokio::spawn(async move {
+            let _owner = owner;
+            actor.run().await
+        });
+        let abort = task.abort_handle();
         Ok(Box::new(Connection {
             state,
             config,
             audio: audio_tx,
             events: AsyncMutex::new(events_rx),
             control: control_tx,
-            task,
+            task: AsyncMutex::new(Some(task)),
+            abort,
         }))
     }
 }
@@ -314,11 +330,12 @@ struct Connection {
     audio: mpsc::Sender<AudioFrame>,
     events: AsyncMutex<mpsc::Receiver<ProviderEvent>>,
     control: watch::Sender<Control>,
-    task: JoinHandle<()>,
+    task: AsyncMutex<Option<JoinHandle<()>>>,
+    abort: tokio::task::AbortHandle,
 }
 impl Drop for Connection {
     fn drop(&mut self) {
-        self.task.abort();
+        self.abort.abort();
     }
 }
 #[async_trait]
@@ -360,8 +377,16 @@ impl ProviderConnection for Connection {
             self.control.send_replace(Control::Cancel);
             // Abort also interrupts connect, TLS, writes and a blocked output
             // queue without waiting for any socket or actor-held async lock.
-            self.task.abort();
+            self.abort.abort();
         }
+        Ok(())
+    }
+    async fn wait_closed(&self) -> ProviderResult<()> {
+        let mut task = self.task.lock().await;
+        if let Some(handle) = task.as_mut() {
+            let _ = handle.await;
+        }
+        *task = None;
         Ok(())
     }
     async fn next_event(&self) -> ProviderResult<Option<ProviderEvent>> {

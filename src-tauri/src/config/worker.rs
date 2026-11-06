@@ -17,6 +17,7 @@ pub(crate) struct ConfigIo {
     permits: Arc<Semaphore>,
     data_dir: PathBuf,
     deadline: Duration,
+    operation_owner: Option<Arc<dyn Send + Sync>>,
     #[cfg(test)]
     faults: Arc<Mutex<std::collections::HashSet<&'static str>>>,
 }
@@ -61,6 +62,7 @@ impl ConfigIo {
             permits,
             data_dir,
             deadline,
+            operation_owner: None,
             #[cfg(test)]
             faults: Arc::default(),
         }
@@ -82,6 +84,13 @@ impl ConfigIo {
         self.faults.lock().unwrap().insert(operation);
     }
 
+    pub(crate) fn with_operation_owner(&self, owner: Arc<dyn Send + Sync>) -> Self {
+        Self {
+            operation_owner: Some(owner),
+            ..self.clone()
+        }
+    }
+
     pub(crate) fn data_dir(&self) -> &Path {
         &self.data_dir
     }
@@ -91,6 +100,7 @@ impl ConfigIo {
         T: Send + 'static,
         F: for<'a> FnOnce(&mut ConfigTransaction<'a>) -> AppResult<T> + Send + 'static,
     {
+        let operation_owner = self.operation_owner.clone();
         let state = Arc::new(Mutex::new(EntryState::Queued));
         let cancel = CancelBeforeEntry {
             state: Arc::clone(&state),
@@ -105,7 +115,7 @@ impl ConfigIo {
                 .await
                 .map_err(|_| AppError::Internal("configuration worker gate closed".into()))?;
             let task = tokio::task::spawn_blocking(move || {
-                let _permit = permit;
+                let (_permit, _operation_owner) = (permit, operation_owner);
                 let mut store = store
                     .lock()
                     .map_err(|error| AppError::Internal(error.to_string()))?;
@@ -190,13 +200,6 @@ impl ConfigTransaction<'_> {
         self.store.delete_provider_config_locked(id)
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Reserved for Task 3B service and scheduler composition"
-        )
-    )]
     pub(crate) fn secret_get(&mut self, service: &str, key: &str) -> AppResult<Option<Vec<u8>>> {
         self.ensure_secret_lock()?;
         self.store.secret_store().get_locked(service, key)

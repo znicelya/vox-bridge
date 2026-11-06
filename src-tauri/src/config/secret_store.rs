@@ -63,11 +63,12 @@ impl KeyBackend for MemoryKeyring {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct EncryptedValue {
     nonce: String,
     ciphertext: String,
 }
+#[derive(PartialEq, Eq)]
 pub(crate) struct EncryptedSecretSnapshot(Option<EncryptedValue>);
 
 pub struct SecretStore {

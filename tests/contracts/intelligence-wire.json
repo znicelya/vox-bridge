@@ -1,0 +1,201 @@
+{
+  "profiles": [
+    {
+      "profile": {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "kind": "llm",
+        "name": "Fixture llm",
+        "base_url": "http://127.0.0.1:12345/v1",
+        "model": "fixture-model",
+        "timeout_ms": 1000,
+        "max_context_tokens": 4096,
+        "max_output_tokens": 512,
+        "dimensions": null
+      },
+      "credential_configured": true,
+      "last_probe": null
+    },
+    {
+      "profile": {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "kind": "embedding",
+        "name": "Fixture embedding",
+        "base_url": "http://127.0.0.1:12345/v1",
+        "model": "fixture-model",
+        "timeout_ms": 1000,
+        "max_context_tokens": null,
+        "max_output_tokens": null,
+        "dimensions": 128
+      },
+      "credential_configured": true,
+      "last_probe": null
+    },
+    {
+      "profile": {
+        "id": "00000000-0000-0000-0000-000000000003",
+        "kind": "tavily",
+        "name": "Fixture tavily",
+        "base_url": "http://127.0.0.1:12345/v1",
+        "model": null,
+        "timeout_ms": 1000,
+        "max_context_tokens": null,
+        "max_output_tokens": null,
+        "dimensions": null
+      },
+      "credential_configured": true,
+      "last_probe": null
+    }
+  ],
+  "settings": {
+    "summary_profile_id": "00000000-0000-0000-0000-000000000001",
+    "embedding_profile_id": "00000000-0000-0000-0000-000000000002",
+    "tavily_profile_id": "00000000-0000-0000-0000-000000000003",
+    "automatic_summary": true
+  },
+  "managedDataLocation": {
+    "data_dir": "/fixture/empty-library"
+  },
+  "page": {
+    "rows": [
+      {
+        "id": "00000000-0000-0000-0000-00000000000a",
+        "kind": "import",
+        "status": "queued",
+        "session_id": null,
+        "object_id": "00000000-0000-0000-0000-000000000032",
+        "completed_units": 0,
+        "total_units": null,
+        "error": null,
+        "created_at_ms": 1730000000123,
+        "updated_at_ms": 1730000000456
+      },
+      {
+        "id": "00000000-0000-0000-0000-00000000000b",
+        "kind": "reindex",
+        "status": "running",
+        "session_id": null,
+        "object_id": "00000000-0000-0000-0000-000000000033",
+        "completed_units": 0,
+        "total_units": null,
+        "error": null,
+        "created_at_ms": 1730000000123,
+        "updated_at_ms": 1730000000456
+      },
+      {
+        "id": "00000000-0000-0000-0000-00000000000c",
+        "kind": "delete_document",
+        "status": "succeeded",
+        "session_id": null,
+        "object_id": "00000000-0000-0000-0000-000000000034",
+        "completed_units": 0,
+        "total_units": null,
+        "error": null,
+        "created_at_ms": 1730000000123,
+        "updated_at_ms": 1730000000456
+      },
+      {
+        "id": "00000000-0000-0000-0000-00000000000d",
+        "kind": "summary",
+        "status": "failed",
+        "session_id": "00000000-0000-0000-0000-00000000001e",
+        "object_id": "00000000-0000-0000-0000-000000000035",
+        "completed_units": 0,
+        "total_units": null,
+        "error": "invalid_response",
+        "created_at_ms": 1730000000123,
+        "updated_at_ms": 1730000000456
+      },
+      {
+        "id": "00000000-0000-0000-0000-00000000000e",
+        "kind": "research",
+        "status": "cancelled",
+        "session_id": null,
+        "object_id": "00000000-0000-0000-0000-000000000036",
+        "completed_units": 0,
+        "total_units": null,
+        "error": "cancelled",
+        "created_at_ms": 1730000000123,
+        "updated_at_ms": 1730000000456
+      },
+      {
+        "id": "00000000-0000-0000-0000-00000000000f",
+        "kind": "research_overview",
+        "status": "interrupted",
+        "session_id": null,
+        "object_id": "00000000-0000-0000-0000-000000000037",
+        "completed_units": 0,
+        "total_units": null,
+        "error": "interrupted",
+        "created_at_ms": 1730000000123,
+        "updated_at_ms": 1730000000456
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000010",
+        "kind": "summary",
+        "status": "succeeded",
+        "session_id": "00000000-0000-0000-0000-00000000001e",
+        "object_id": "00000000-0000-0000-0000-000000000038",
+        "completed_units": 0,
+        "total_units": null,
+        "error": null,
+        "created_at_ms": 1730000000123,
+        "updated_at_ms": 1730000000456
+      }
+    ],
+    "next_cursor": null
+  },
+  "probes": [
+    {
+      "checked_at_ms": 1730000000123,
+      "ok": true,
+      "latency_ms": 12,
+      "error": null
+    },
+    {
+      "checked_at_ms": 1730000000456,
+      "ok": false,
+      "latency_ms": null,
+      "error": "timeout"
+    }
+  ],
+  "events": [
+    {
+      "kind": "job_changed",
+      "job": {
+        "id": "00000000-0000-0000-0000-00000000000c",
+        "kind": "delete_document",
+        "status": "succeeded",
+        "session_id": null,
+        "object_id": "00000000-0000-0000-0000-000000000034",
+        "completed_units": 0,
+        "total_units": null,
+        "error": null,
+        "created_at_ms": 1730000000123,
+        "updated_at_ms": 1730000000456
+      }
+    },
+    {
+      "kind": "resync_needed",
+      "missed_events": 17
+    }
+  ],
+  "errorCodes": [
+    "configuration",
+    "busy",
+    "cancelled",
+    "interrupted",
+    "timeout",
+    "network",
+    "authentication",
+    "rate_limited",
+    "response_too_large",
+    "invalid_response",
+    "context_too_large",
+    "unsupported_document",
+    "parse_failed",
+    "resource_limit",
+    "index_repair_required",
+    "no_final_text",
+    "storage"
+  ]
+}

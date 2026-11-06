@@ -32,32 +32,39 @@ pub fn run() {
                     "failed to initialize application state: {error}"
                 ))
             })?;
+            tauri::async_runtime::block_on(app_state.start_intelligence())?;
             app.manage(app_state);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            #[cfg(debug_assertions)]
-            commands::dev_audio_loopback,
-            commands::list_audio_endpoints,
-            commands::audio_driver_status,
-            commands::driver::manage_audio_driver,
-            commands::list_provider_configs,
-            commands::save_provider_config,
-            commands::delete_provider_config,
-            commands::provider_capabilities,
-            commands::validate_session_launch,
-            commands::resume_session_direction,
-            commands::get_session_transcript,
-            commands::get_session_diagnostics,
-            commands::unsubscribe_session,
-            commands::create_session,
-            commands::stop_session,
-            commands::list_sessions,
-            commands::get_session,
-            commands::delete_session,
-            commands::subscribe_session,
-            commands::export_session
-        ])
+        .invoke_handler(|invoke| {
+            if commands::intelligence::COMMANDS.contains(&invoke.message.command()) {
+                return commands::intelligence::handle(invoke);
+            }
+            let runtime_handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
+                #[cfg(debug_assertions)]
+                commands::dev_audio_loopback,
+                commands::list_audio_endpoints,
+                commands::audio_driver_status,
+                commands::driver::manage_audio_driver,
+                commands::list_provider_configs,
+                commands::save_provider_config,
+                commands::delete_provider_config,
+                commands::provider_capabilities,
+                commands::validate_session_launch,
+                commands::resume_session_direction,
+                commands::get_session_transcript,
+                commands::get_session_diagnostics,
+                commands::unsubscribe_session,
+                commands::create_session,
+                commands::stop_session,
+                commands::list_sessions,
+                commands::get_session,
+                commands::delete_session,
+                commands::subscribe_session,
+                commands::export_session,
+            ];
+            runtime_handler(invoke)
+        })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
@@ -81,6 +88,33 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
     app.run(move |handle, event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen {
+            has_visible_windows: false,
+            ..
+        } = &event
+        {
+            let handle = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Some(window) = handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    return;
+                }
+                let state = handle.state::<app::AppState>().inner().clone();
+                if state.reopen_window().await.is_ok() {
+                    if let Some(config) = handle.config().app.windows.first() {
+                        if tauri::WebviewWindowBuilder::from_config(&handle, config)
+                            .and_then(|builder| builder.build())
+                            .is_err()
+                        {
+                            let _ = state.close_all().await;
+                        }
+                    }
+                }
+            });
+        }
+
         if let tauri::RunEvent::ExitRequested { api, .. } = event {
             if exit_ready.load(Ordering::Acquire) {
                 return;

@@ -550,3 +550,6 @@ export type TranscriptPage = Decoded<typeof decodeTranscriptPage>;
 export type DiagnosticPage = Decoded<typeof decodeDiagnosticPage>;
 export type AudioSessionState = Decoded<typeof decodeAudioSessionState>;
 export type SessionEvent = Decoded<typeof decodeSessionEvent>;
+
+/** Shared strict schema builders for independently versioned backend namespaces. */
+export const wireSchema = { object, string, boolean, integer, nullable, array, enumeration, union };

@@ -17,29 +17,86 @@ use uuid::Uuid;
 mod persistence;
 mod validation;
 use persistence::*;
-#[cfg_attr(
-    not(test),
-    expect(
-        unused_imports,
-        reason = "Task 3B adapters consume the validated endpoint constructor"
-    )
-)]
 pub(crate) use validation::endpoint;
 pub(crate) use validation::validate_profile;
 
+#[derive(Clone)]
 pub struct ServiceConfigStore {
     io: ConfigIo,
     store: Arc<LocalStore>,
     path: PathBuf,
 }
 impl ServiceConfigStore {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Reserved for Task 3B service and scheduler composition"
-        )
-    )]
+    pub(crate) fn scoped(&self, owner: super::jobs::OperationLease) -> Self {
+        Self {
+            io: self.io.with_operation_owner(owner),
+            ..self.clone()
+        }
+    }
+    pub(crate) async fn probe_snapshot(
+        &self,
+        id: Uuid,
+    ) -> AppResult<(ModelProfile, Uuid, SecretString)> {
+        self.io
+            .run(move |tx| {
+                let doc = read(tx)?;
+                let saved = doc
+                    .profiles
+                    .iter()
+                    .find(|p| p.profile.id == id)
+                    .ok_or_else(configuration)?;
+                if !saved.referenced() {
+                    return Err(configuration());
+                }
+                let bytes = tx
+                    .secret_get(SERVICE, &key(id))?
+                    .ok_or_else(configuration)?;
+                Ok((
+                    saved.profile.clone(),
+                    saved.revision,
+                    SecretString::from_store_bytes(bytes)?,
+                ))
+            })
+            .await
+            .map_err(safe_config_error)
+    }
+    pub(crate) async fn persist_probe(
+        &self,
+        profile: ModelProfile,
+        revision: Uuid,
+        result: ConnectionProbe,
+        dimensions: Option<u32>,
+    ) -> AppResult<()> {
+        let store = self.store.clone();
+        self.io.run(move |tx| {
+            let mut doc = read(tx)?;
+            let Some(saved) = doc.profiles.iter_mut().find(|p| p.profile.id == profile.id) else {
+                return Ok(());
+            };
+            if saved.revision != revision || saved.profile != profile { return Ok(()); }
+            if let Some(dim) = dimensions {
+                if profile.kind != ServiceKind::Embedding
+                    || !(128..=4096).contains(&dim)
+                    || profile.dimensions.is_some_and(|old| old != dim)
+                { return Err(configuration()); }
+                if profile.dimensions.is_none()
+                    && !store.transaction(|db| profile_in_use(db, profile.id))?
+                {
+                    saved.profile.dimensions = Some(dim);
+                    saved.revision = Uuid::new_v4();
+                    write(tx, &doc)?;
+                }
+            }
+            store.transaction(|db| {
+                let encoded = serde_json::to_string(&result).map_err(|_| configuration())?;
+                db.execute(
+                    "INSERT OR REPLACE INTO service_probes(profile_id,checked_at_ms,result_json) VALUES(?1,?2,?3)",
+                    rusqlite::params![profile.id.to_string(), result.checked_at_ms, encoded],
+                )?;
+                Ok(())
+            }).map_err(super::store::safe_store_error)
+        }).await.map_err(safe_config_error)
+    }
     pub(crate) fn new(io: ConfigIo, store: Arc<LocalStore>) -> Self {
         let path = io.data_dir().join("service-configs.json");
         Self { io, store, path }
@@ -69,7 +126,13 @@ impl ServiceConfigStore {
                     return Err(AppError::Intelligence(IntelligenceErrorCode::ResourceLimit));
                 }
                 let kind_changed = prior.is_some_and(|p| p.profile.kind != profile.kind);
-                let changed = prior.is_none_or(|p| p.profile != profile);
+                let changed = prior.is_none_or(|p| p.profile != profile)
+                    || !matches!(credential, crate::app::CredentialChange::Keep);
+                let revision = if changed {
+                    Uuid::new_v4()
+                } else {
+                    prior.map(|p| p.revision).unwrap_or_else(Uuid::new_v4)
+                };
                 let credential_reference = match &credential {
                     crate::app::CredentialChange::Keep => {
                         prior.filter(|p| p.referenced()).map(|_| reference(id))
@@ -96,6 +159,7 @@ impl ServiceConfigStore {
                 let saved = StoredProfile {
                     profile,
                     credential_reference,
+                    revision,
                 };
                 doc.profiles.retain(|p| p.profile.id != id);
                 doc.profiles.push(saved);
@@ -112,7 +176,8 @@ impl ServiceConfigStore {
                         }
                     }
                     crate::app::CredentialChange::Clear => {
-                        write(tx, &doc)?; // Persist unconfigured before attempting orphan cleanup.
+                        write(tx, &doc)?;
+                        // Persist unconfigured before attempting orphan cleanup.
                         tx.secret_delete(SERVICE, &key(id))?;
                     }
                 }
@@ -229,13 +294,6 @@ impl ServiceConfigStore {
     /// The callback may capture an owned process/admission lease: ConfigIo keeps
     /// it until entered work really finishes even if the async observer goes away.
     /// Never call ConfigIo from this callback or await network while locks are held.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Reserved for Task 3B service and scheduler composition"
-        )
-    )]
     pub(crate) async fn with_profile_snapshot<T: Send + 'static>(
         &self,
         ids: Vec<Uuid>,

@@ -38,6 +38,7 @@ use uuid::Uuid;
 pub use crate::commands::subscriptions::{FrontendEmitter, SubscriptionTicket};
 pub use crate::config;
 pub use profiles::{CredentialChange, ProviderConfigView, SaveProviderRequest};
+mod intelligence;
 mod lifecycle;
 mod profiles;
 
@@ -68,6 +69,12 @@ pub struct AppState {
     subscription_mutation: Arc<Mutex<()>>,
     close_state: Arc<std::sync::Mutex<lifecycle::CloseState>>,
     close_epoch: watch::Sender<u64>,
+    service_config: Arc<crate::intelligence::config::ServiceConfigStore>,
+    jobs: Arc<crate::intelligence::jobs::JobScheduler>,
+    json_http: Arc<dyn crate::intelligence::http::JsonHttp>,
+    probes: Arc<crate::intelligence::probes::ProbeOwner>,
+    intelligence_subscriptions: crate::intelligence::subscriptions::IntelligenceSubscriptions,
+    intelligence_operations: Arc<Semaphore>,
 }
 
 impl AppState {
@@ -169,6 +176,14 @@ impl AppState {
         store.interrupt_incomplete_sessions(now)?;
         let event_bus = EventBus::new();
         let config_io = ConfigIo::new(ConfigStore::new(&data_dir, secrets)?);
+        let service_config = Arc::new(crate::intelligence::config::ServiceConfigStore::new(
+            config_io.clone(),
+            store.clone(),
+        ));
+        let jobs = Arc::new(crate::intelligence::jobs::JobScheduler::new(store.clone()));
+        jobs.reconcile()?;
+        register_intelligence_handlers(&jobs)?;
+        let json_http = Arc::new(crate::intelligence::http::ReqwestJsonHttp::new()?);
         let runtime = Arc::new(TranslationRuntime::new(
             factory.clone(),
             audio.clone(),
@@ -196,6 +211,13 @@ impl AppState {
             subscription_mutation: Arc::new(Mutex::new(())),
             close_state: Arc::default(),
             close_epoch,
+            service_config,
+            jobs,
+            json_http,
+            probes: Arc::new(crate::intelligence::probes::ProbeOwner::new()),
+            intelligence_subscriptions:
+                crate::intelligence::subscriptions::IntelligenceSubscriptions::new(),
+            intelligence_operations: Arc::new(Semaphore::new(16)),
         })
     }
     pub fn data_dir(&self) -> &Path {
@@ -347,4 +369,12 @@ pub(crate) mod driver_test_support {
         app.close_state.lock().unwrap().observation_timeout =
             Some(std::time::Duration::from_millis(30));
     }
+}
+
+/// Tasks 4/6/7 construct handlers from store/config/ports here before the first
+/// start. Handlers never retain AppState or Arc<JobScheduler>.
+fn register_intelligence_handlers(
+    _jobs: &crate::intelligence::jobs::JobScheduler,
+) -> AppResult<()> {
+    Ok(())
 }

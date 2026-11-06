@@ -10,13 +10,6 @@ use uuid::Uuid;
 pub(crate) const MAX_UNFINISHED: usize = 32;
 const MAX_PAYLOAD_BYTES: usize = 64 * 1024;
 const JOB_COLUMNS: &str = "id,kind,status,session_id,object_id,completed_units,total_units,error_code,created_at_ms,updated_at_ms";
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Reserved for Task 3B service and scheduler composition"
-    )
-)]
 pub(crate) struct JobDraft {
     pub id: Uuid,
     pub kind: JobKind,
@@ -26,25 +19,11 @@ pub(crate) struct JobDraft {
     pub payload: serde_json::Value,
     pub initial_failure: Option<IntelligenceErrorCode>,
 }
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Reserved for Task 3B service and scheduler composition"
-    )
-)]
 pub(crate) enum JobAdmissionResult {
     Created(JobView),
     Existing(JobView),
 }
 impl JobAdmissionResult {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Reserved for Task 3B service and scheduler composition"
-        )
-    )]
     pub(crate) fn view(&self) -> &JobView {
         match self {
             Self::Created(v) | Self::Existing(v) => v,
@@ -53,23 +32,9 @@ impl JobAdmissionResult {
 }
 /// No commit, wake or result insertion here. Caller acts on Created/Existing and
 /// commits the job together with any result-version row in its own transaction.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Reserved for Task 3B service and scheduler composition"
-    )
-)]
 pub(crate) fn admit_job(tx: &Transaction<'_>, draft: JobDraft) -> AppResult<JobAdmissionResult> {
     admit(tx, draft).map_err(safe_store_error)
 }
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Reserved for Task 3B service and scheduler composition"
-    )
-)]
 fn admit(tx: &Transaction<'_>, draft: JobDraft) -> AppResult<JobAdmissionResult> {
     let (exclusion, permanent) = match &draft.admission {
         JobAdmission::AutomaticSummary { session_id } => {
@@ -251,13 +216,6 @@ pub(crate) fn decode_payload(raw: &str) -> AppResult<JobPayload> {
     }
     Ok(payload)
 }
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Reserved for Task 3B service and scheduler composition"
-    )
-)]
 fn enum_name(value: impl serde::Serialize) -> AppResult<String> {
     serde_json::to_value(value)
         .ok()

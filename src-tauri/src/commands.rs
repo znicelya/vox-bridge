@@ -1,4 +1,5 @@
 pub(crate) mod driver;
+pub(crate) mod intelligence;
 pub(crate) mod subscriptions;
 use crate::{
     app::{

@@ -205,6 +205,18 @@ pub trait TranslationProvider: Send + Sync {
     fn id(&self) -> ProviderId;
     fn capabilities(&self) -> ProviderCapabilities;
     async fn connect(&self, config: ProviderSessionConfig) -> ProviderResult<ProviderStream>;
+    /// Opt in only when entered native lookup and transport cleanup retain this lease.
+    fn supports_owned_cleanup(&self) -> bool {
+        false
+    }
+    async fn connect_owned(
+        &self,
+        config: ProviderSessionConfig,
+        owner: std::sync::Arc<dyn Send + Sync>,
+    ) -> ProviderResult<ProviderStream> {
+        let _owner = owner;
+        self.connect(config).await
+    }
 }
 
 /// Separate input and output synchronization permits concurrent send/receive.
@@ -219,4 +231,9 @@ pub trait ProviderConnection: Send + Sync {
     async fn finish(&self) -> ProviderResult<()>;
     async fn cancel(&self) -> ProviderResult<()>;
     async fn next_event(&self) -> ProviderResult<Option<ProviderEvent>>;
+    /// Actual joined transport cleanup, distinct from finish/cancel requests.
+    /// Unsupported implementations cannot be used for connection probes.
+    async fn wait_closed(&self) -> ProviderResult<()> {
+        Err(ProviderError::Unavailable)
+    }
 }

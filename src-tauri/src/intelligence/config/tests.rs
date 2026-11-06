@@ -643,3 +643,137 @@ async fn terminal_jobs_release_profile_use_and_corrupt_unfinished_jobs_fail_clos
     h.config.delete(p.id).await.unwrap();
     assert_eq!(h.store.list_jobs(None, 200).unwrap().rows.len(), 1);
 }
+
+#[tokio::test]
+async fn intelligence_probe_revision_fences_edits_credential_changes_and_deletion() {
+    for edit in 0..4 {
+        let h = IntelligenceHarness::new();
+        let profile = test_llm_profile();
+        h.config
+            .save(SaveModelProfile {
+                profile: profile.clone(),
+                credential: CredentialChange::Replace {
+                    api_key: "synthetic-first".into(),
+                },
+            })
+            .await
+            .unwrap();
+        let (snapshot, revision, _) = h.config.probe_snapshot(profile.id).await.unwrap();
+        let mut changed = profile.clone();
+        if edit == 0 {
+            changed.name = "Edited".into();
+        }
+        if edit == 3 {
+            h.config.delete(profile.id).await.unwrap();
+        } else {
+            h.config
+                .save(SaveModelProfile {
+                    profile: changed,
+                    credential: match edit {
+                        1 => CredentialChange::Replace {
+                            api_key: "synthetic-second".into(),
+                        },
+                        2 => CredentialChange::Clear,
+                        _ => CredentialChange::Keep,
+                    },
+                })
+                .await
+                .unwrap();
+        }
+        h.config
+            .persist_probe(
+                snapshot,
+                revision,
+                ConnectionProbe {
+                    checked_at_ms: 1,
+                    ok: true,
+                    latency_ms: Some(1),
+                    error: None,
+                },
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(
+            h.store
+                .transaction(|tx| super::super::store::probe(tx, profile.id))
+                .unwrap()
+                .is_none()
+        );
+    }
+}
+#[tokio::test]
+async fn intelligence_scoped_config_retains_owner_after_entered_observer_cancellation() {
+    let h = IntelligenceHarness::new();
+    let owner = Arc::new(());
+    let weak = Arc::downgrade(&owner);
+    let scoped = h.config.scoped(owner);
+    let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let task = tokio::spawn(async move {
+        scoped
+            .io
+            .run(move |_| {
+                entered_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok(())
+            })
+            .await
+    });
+    entered_rx.await.unwrap();
+    task.abort();
+    let _ = task.await;
+    let retained = weak.upgrade().is_some();
+    release_tx.send(()).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        while weak.upgrade().is_some() {
+            tokio::task::yield_now().await
+        }
+    })
+    .await
+    .unwrap();
+    assert!(retained, "entered config work lost scoped process owner");
+}
+
+#[tokio::test]
+async fn intelligence_embedding_probe_cannot_change_an_admitted_dimension_identity() {
+    let h = IntelligenceHarness::new();
+    let mut profile = test_llm_profile();
+    profile.kind = ServiceKind::Embedding;
+    profile.max_context_tokens = None;
+    profile.max_output_tokens = None;
+    h.config
+        .save(SaveModelProfile {
+            profile: profile.clone(),
+            credential: CredentialChange::Replace {
+                api_key: "synthetic-embedding".into(),
+            },
+        })
+        .await
+        .unwrap();
+    let (snapshot, revision, _) = h.config.probe_snapshot(profile.id).await.unwrap();
+    let session = h.session();
+    let mut draft = manual(session);
+    draft.payload = payload(vec![profile.clone()]);
+    h.store
+        .transaction(|tx| crate::intelligence::store::admit_job(tx, draft))
+        .unwrap();
+    h.config
+        .persist_probe(
+            snapshot,
+            revision,
+            ConnectionProbe {
+                checked_at_ms: 1,
+                ok: true,
+                latency_ms: Some(1),
+                error: None,
+            },
+            Some(128),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        h.config.load(profile.id).await.unwrap().profile.dimensions,
+        None
+    );
+}

@@ -23,7 +23,7 @@ pub trait FrontendEmitter: Send + Sync {
     async fn emit(&self, event_name: &str, event: &SessionEvent) -> AppResult<()>;
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SubscriptionTicket {
     pub id: Uuid,
     pub event_name: String,

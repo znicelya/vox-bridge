@@ -10,6 +10,8 @@ pub(crate) struct IntelligenceHarness {
     pub secrets: Arc<SecretStore>,
     pub config: Arc<ServiceConfigStore>,
     pub io: ConfigIo,
+    pub http: Arc<RecordingHttp>,
+    pub jobs: Arc<super::jobs::JobScheduler>,
     pub temp_dir: tempfile::TempDir,
 }
 impl IntelligenceHarness {
@@ -26,10 +28,12 @@ impl IntelligenceHarness {
         );
         let config = Arc::new(ServiceConfigStore::new(io.clone(), store.clone()));
         Self {
-            store,
+            store: store.clone(),
             secrets,
             config,
             io,
+            http: Arc::new(RecordingHttp::default()),
+            jobs: Arc::new(super::jobs::JobScheduler::new(store.clone())),
             temp_dir,
         }
     }
@@ -131,5 +135,52 @@ mod tests {
             "unrelated fixture blocked behind another directory's config work"
         );
         assert!(result.unwrap().unwrap().automatic_summary);
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct RequestShape {
+    pub endpoint: url::Url,
+    pub body: serde_json::Value,
+    pub limit: usize,
+    pub retry: super::http::HttpRetryPolicy,
+}
+#[derive(Default)]
+pub(crate) struct RecordingHttp {
+    pub requests: std::sync::Mutex<Vec<RequestShape>>,
+    pub responses: std::sync::Mutex<
+        std::collections::VecDeque<Result<serde_json::Value, IntelligenceErrorCode>>,
+    >,
+    pub block: std::sync::atomic::AtomicBool,
+    pub entered: tokio::sync::Notify,
+    pub resume: tokio::sync::Notify,
+}
+#[async_trait::async_trait]
+impl super::http::JsonHttp for RecordingHttp {
+    async fn post(
+        &self,
+        request: super::http::JsonRequest,
+        mut cancel: tokio::sync::watch::Receiver<bool>,
+    ) -> Result<super::http::JsonResponse, IntelligenceErrorCode> {
+        self.requests.lock().unwrap().push(RequestShape {
+            endpoint: request.endpoint,
+            body: request.body,
+            limit: request.max_response_bytes,
+            retry: request.retry_policy,
+        });
+        self.entered.notify_one();
+        if self.block.load(std::sync::atomic::Ordering::SeqCst) {
+            tokio::select! {_=super::http::cancelled(&mut cancel)=>return Err(IntelligenceErrorCode::Cancelled),_=self.resume.notified()=>{}}
+        }
+        let response = self
+            .responses
+            .lock()
+            .unwrap()
+            .pop_front()
+            .unwrap_or_else(|| Ok(serde_json::json!({"choices":[{"message":{"content":"OK"}}]})))?;
+        Ok(super::http::JsonResponse {
+            status: 200,
+            body: serde_json::to_vec(&response).unwrap(),
+        })
     }
 }
