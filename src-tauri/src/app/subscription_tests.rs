@@ -389,3 +389,181 @@ async fn queued_old_window_subscription_cannot_finish_into_new_lifecycle() {
         matches!(next(&mut events).await, SessionEvent::Status { status, .. } if status == "completed")
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn retry_delete_after_registry_admission_failure_preserves_durable_row_until_cleanup() {
+    use std::{
+        future::Future,
+        task::{Context, Poll},
+    };
+    let h = tests::fixture();
+    let dir = tempfile::tempdir().unwrap();
+    let app = Arc::new(tests::injected(
+        dir.path(),
+        &h,
+        Arc::new(SecretStore::for_tests(dir.path()).unwrap()),
+    ));
+    app.save_provider_config(SaveProviderRequest {
+        config: h.saved.clone(),
+        credential: CredentialChange::Keep,
+    })
+    .await
+    .unwrap();
+    let session = app.create_session(h.launch.clone()).await.unwrap();
+    app.stop_session(session.id).await.unwrap();
+    let latch = Arc::new(DropLatch {
+        released: std::sync::Mutex::new(false),
+        changed: std::sync::Condvar::new(),
+    });
+    let release = ReleaseLatch(latch.clone());
+    let (emit_tx, emit_rx) = tokio::sync::oneshot::channel();
+    let (drop_tx, drop_rx) = tokio::sync::oneshot::channel();
+    app.subscribe_session(
+        session.id,
+        "blocked".into(),
+        Arc::new(DropBlockedEmitter {
+            latch,
+            emit_entered: std::sync::Mutex::new(Some(emit_tx)),
+            drop_entered: std::sync::Mutex::new(Some(drop_tx)),
+        }),
+    )
+    .await
+    .unwrap();
+    emit_rx.await.unwrap();
+    let receiver = app.orchestrator.subscribe(session.id).await.unwrap();
+    let registry = app.subscriptions.clone();
+    let (output, mut delivery) = mpsc::channel(1);
+    output
+        .send(SessionEvent::status(session.id, "occupied"))
+        .await
+        .unwrap();
+    let out = Arc::new(Emitter(output));
+    let replacement = tokio::spawn(async move {
+        registry
+            .subscribe(session.id, "blocked".into(), receiver, out)
+            .await
+    });
+    drop_rx.await.unwrap();
+    let mut waiting = Vec::new();
+    for _ in 0..16 {
+        let mut unsubscribe = Box::pin(app.unsubscribe_session(Uuid::new_v4()));
+        assert!(matches!(
+            unsubscribe.as_mut().poll(&mut Context::from_waker(
+                futures_util::task::noop_waker_ref()
+            )),
+            Poll::Pending
+        ));
+        waiting.push(unsubscribe);
+    }
+    let first = app.delete_session(session.id).await.unwrap_err();
+    assert!(first.to_string().contains("close admission timed out"));
+    assert!(app.get_session(session.id).await.unwrap().is_some());
+    drop(release);
+    let retry = app.delete_session(session.id).await;
+    let delivered = delivery.recv().await;
+    let forwarder_closed =
+        tokio::time::timeout(std::time::Duration::from_secs(2), delivery.recv()).await;
+    let removed = app.get_session(session.id).await.unwrap().is_none();
+    // Release every owner before asserting the recovery contract.
+    app.close_all().await.unwrap();
+    drop(waiting);
+    let _ = replacement.await.unwrap();
+    assert!(
+        retry.is_ok(),
+        "deletion retry must observe pending cleanup; got {retry:?}"
+    );
+    assert!(removed);
+    assert!(matches!(delivered, Some(SessionEvent::Status { status, .. }) if status == "occupied"));
+    assert!(matches!(forwarder_closed, Ok(None)));
+}
+
+#[tokio::test]
+async fn active_session_delete_rejects_before_cancelling_its_subscription() {
+    let h = tests::fixture();
+    let dir = tempfile::tempdir().unwrap();
+    let app = tests::injected(
+        dir.path(),
+        &h,
+        Arc::new(SecretStore::for_tests(dir.path()).unwrap()),
+    );
+    app.save_provider_config(SaveProviderRequest {
+        config: h.saved.clone(),
+        credential: CredentialChange::Keep,
+    })
+    .await
+    .unwrap();
+    let session = app.create_session(h.launch.clone()).await.unwrap();
+    let (out, mut events) = emitter();
+    app.subscribe_session(session.id, "active-window".into(), out)
+        .await
+        .unwrap();
+    let result = app.delete_session(session.id).await;
+    let publication = app
+        .event_bus
+        .publish(session.id, SessionEvent::status(session.id, "still-active"));
+    let still_subscribed = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while let Some(event) = events.recv().await {
+            if matches!(event, SessionEvent::Status { status, .. } if status == "still-active") {
+                return true;
+            }
+        }
+        false
+    })
+    .await;
+    app.stop_session(session.id).await.unwrap();
+    app.close_all().await.unwrap();
+    assert!(matches!(result, Err(AppError::InvalidRequest(_))));
+    assert!(publication.is_ok());
+    assert!(matches!(still_subscribed, Ok(true)));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancelled_delete_caller_still_owns_cleanup_before_durable_removal() {
+    let h = tests::fixture();
+    let dir = tempfile::tempdir().unwrap();
+    let app = Arc::new(tests::injected(
+        dir.path(),
+        &h,
+        Arc::new(SecretStore::for_tests(dir.path()).unwrap()),
+    ));
+    app.save_provider_config(SaveProviderRequest {
+        config: h.saved.clone(),
+        credential: CredentialChange::Keep,
+    })
+    .await
+    .unwrap();
+    let session = app.create_session(h.launch.clone()).await.unwrap();
+    app.stop_session(session.id).await.unwrap();
+    let latch = Arc::new(DropLatch {
+        released: std::sync::Mutex::new(false),
+        changed: std::sync::Condvar::new(),
+    });
+    let release = ReleaseLatch(latch.clone());
+    let (emit_tx, emit_rx) = tokio::sync::oneshot::channel();
+    let (drop_tx, drop_rx) = tokio::sync::oneshot::channel();
+    app.subscribe_session(
+        session.id,
+        "blocked".into(),
+        Arc::new(DropBlockedEmitter {
+            latch,
+            emit_entered: std::sync::Mutex::new(Some(emit_tx)),
+            drop_entered: std::sync::Mutex::new(Some(drop_tx)),
+        }),
+    )
+    .await
+    .unwrap();
+    emit_rx.await.unwrap();
+    let owner = app.clone();
+    let caller = tokio::spawn(async move { owner.delete_session(session.id).await });
+    drop_rx.await.unwrap();
+    caller.abort();
+    assert!(caller.await.unwrap_err().is_cancelled());
+    assert!(app.get_session(session.id).await.unwrap().is_some());
+    drop(release);
+    tests::eventually(|| app.store.get_session(session.id).unwrap().is_none()).await;
+    assert!(matches!(
+        app.delete_session(Uuid::new_v4()).await,
+        Err(AppError::SessionNotFound(_))
+    ));
+    app.close_all().await.unwrap();
+}

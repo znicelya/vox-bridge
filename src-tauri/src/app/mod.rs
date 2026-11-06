@@ -178,14 +178,7 @@ impl AppState {
         launch: SessionLaunch,
     ) -> AppResult<LaunchValidation> {
         let id = launch.provider_config_id;
-        let owner = self.clone();
-        let saved = self
-            .config_io
-            .run(move |tx| {
-                let _owner = owner;
-                tx.load_provider_config(id)
-            })
-            .await?;
+        let saved = self.load_launch_provider_config(id).await?;
         let prepared = self
             .runtime
             .prepare(Uuid::new_v4(), &launch, &saved)
@@ -206,11 +199,7 @@ impl AppState {
                 let _guard = self.admission.lock().await;
                 self.check_epoch(epoch)?;
                 let id = launch.provider_config_id;
-                let owner = self.clone();
-                let saved = self.config_io.run(move |tx| {
-                    let _owner = owner;
-                    tx.load_provider_config(id)
-                }).await?;
+                let saved = self.load_launch_provider_config(id).await?;
                 self.check_epoch(epoch)?;
                 self.orchestrator.start(launch, saved).await
             } => result,

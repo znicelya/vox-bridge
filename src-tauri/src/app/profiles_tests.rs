@@ -335,3 +335,112 @@ async fn entered_cancelled_delete_retains_admission_and_process_owner_until_nati
         assert!(!secrets.contains(SECRET_SERVICE, &secret_key(id)).unwrap());
     }
 }
+
+#[tokio::test]
+async fn partial_clear_then_keep_orphan_cannot_authenticate_fresh_volc_launch() {
+    use crate::providers::volc::client::VolcengineProvider;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let dir = tempfile::tempdir().unwrap();
+    let h = tests::fixture();
+    let secrets = Arc::new(SecretStore::for_tests(dir.path()).unwrap());
+    let lookups = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::new(AtomicUsize::new(0));
+    let calls = lookups.clone();
+    let credentials = observed.clone();
+    let provider = VolcengineProvider::new(secrets.clone()).with_test_credential_lookup(
+        Arc::new(tokio::sync::Semaphore::new(2)),
+        Arc::new(move |secrets, key| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            if secrets.get(SECRET_SERVICE, &key)?.as_deref()
+                == Some(b"synthetic-orphan-key".as_slice())
+            {
+                credentials.fetch_add(1, Ordering::SeqCst);
+            }
+            // Stop the real connector before any network/TLS work.
+            Ok(None)
+        }),
+    );
+    let factory =
+        Arc::new(ProviderFactory::new(secrets.clone()).with_test_provider(Arc::new(provider)));
+    let app = AppState::with_dependencies(
+        dir.path().to_path_buf(),
+        secrets.clone(),
+        h.audio.clone(),
+        factory,
+    )
+    .unwrap();
+    let id = h.saved.id();
+    app.save_provider_config(SaveProviderRequest {
+        config: saved(id),
+        credential: CredentialChange::Replace {
+            api_key: "synthetic-orphan-key".into(),
+        },
+    })
+    .await
+    .unwrap();
+    app.config_io.fail_next_for_tests("delete_secret");
+    assert!(
+        app.save_provider_config(SaveProviderRequest {
+            config: saved(id),
+            credential: CredentialChange::Clear
+        })
+        .await
+        .is_err()
+    );
+    let view = app
+        .save_provider_config(SaveProviderRequest {
+            config: saved(id),
+            credential: CredentialChange::Keep,
+        })
+        .await
+        .unwrap();
+    assert!(!view.credential_configured);
+    assert_eq!(view.config.secret_reference(), None);
+    assert!(secrets.contains(SECRET_SERVICE, &secret_key(id)).unwrap());
+    assert!(app.provider_capabilities(id).await.unwrap().ready);
+    let validation = app.validate_session_launch(h.launch.clone()).await;
+    let creation = app.create_session(h.launch.clone()).await;
+    let creation_rejected = creation.is_err();
+    // Clean up a buggy admitted launch before asserting the boundary.
+    if let Ok(session) = creation {
+        tests::eventually(|| lookups.load(Ordering::SeqCst) != 0).await;
+        app.stop_session(session.id).await.unwrap();
+    }
+    assert!(
+        validation.is_err(),
+        "unreferenced encrypted orphan must fail fresh validation"
+    );
+    assert!(
+        creation_rejected,
+        "unreferenced encrypted orphan must fail fresh create"
+    );
+    assert_eq!(lookups.load(Ordering::SeqCst), 0);
+    assert_eq!(h.audio.open_calls(), 0);
+    assert_eq!(h.audio.open_ports(), 0);
+
+    app.save_provider_config(SaveProviderRequest {
+        config: saved(id),
+        credential: CredentialChange::Replace {
+            api_key: "synthetic-orphan-key".into(),
+        },
+    })
+    .await
+    .unwrap();
+    assert!(app.validate_session_launch(h.launch.clone()).await.is_ok());
+    assert_eq!(lookups.load(Ordering::SeqCst), 0);
+    let session = app.create_session(h.launch.clone()).await.unwrap();
+    tests::eventually(|| {
+        app.store
+            .get_session_lifecycle(session.id)
+            .unwrap()
+            .unwrap()
+            .status
+            == "failed"
+    })
+    .await;
+    let terminal = app.stop_session(session.id).await.unwrap();
+    assert_eq!(terminal.status, crate::session::SessionStatus::Failed);
+    assert_eq!(lookups.load(Ordering::SeqCst), 1);
+    assert_eq!(observed.load(Ordering::SeqCst), 1);
+    assert_eq!(h.audio.open_ports(), 0);
+}

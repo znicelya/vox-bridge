@@ -88,8 +88,11 @@ impl AppState {
             let _permit = permit;
             let _mutation = owner.subscription_mutation.lock().await;
             owner.check_epoch(epoch)?;
-            owner.orchestrator.delete_session(session_id).await?;
-            owner.close_registry(Some(session_id)).await
+            owner.orchestrator.ensure_session_deletable(session_id)?;
+            // Preserve the row when bounded cleanup admission fails, so this
+            // command can retry while the mutation guard fences new subscribers.
+            owner.close_registry(Some(session_id)).await?;
+            owner.orchestrator.delete_session(session_id).await
         })
         .await
         .map_err(|_| AppError::Internal("session deletion owner stopped".into()))?

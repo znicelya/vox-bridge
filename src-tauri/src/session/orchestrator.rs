@@ -550,7 +550,9 @@ impl SessionOrchestrator {
         ))
     }
 
-    pub async fn delete_session(&self, id: Uuid) -> AppResult<()> {
+    /// Nonmutating eligibility check for guarded app cleanup before deletion.
+    /// SQLite reads occur after the authoritative active-state mutex is released.
+    pub(crate) fn ensure_session_deletable(&self, id: Uuid) -> AppResult<()> {
         if self
             .active
             .lock()
@@ -565,6 +567,11 @@ impl SessionOrchestrator {
         if self.store.get_session(id)?.is_none() {
             return Err(AppError::SessionNotFound(id));
         }
+        Ok(())
+    }
+
+    pub async fn delete_session(&self, id: Uuid) -> AppResult<()> {
+        self.ensure_session_deletable(id)?;
         self.store.delete_session(id)?;
         self.event_bus.close(id);
         Ok(())

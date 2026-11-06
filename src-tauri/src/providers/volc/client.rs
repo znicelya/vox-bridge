@@ -169,7 +169,7 @@ impl VolcengineProvider {
         self
     }
     #[cfg(test)]
-    pub(super) fn with_test_credential_lookup(
+    pub(crate) fn with_test_credential_lookup(
         mut self,
         gate: Arc<Semaphore>,
         lookup: SecretLookup,

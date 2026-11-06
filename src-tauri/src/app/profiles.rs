@@ -40,6 +40,28 @@ fn view(tx: &mut ConfigTransaction<'_>, config: &ProviderConfig) -> AppResult<Pr
 }
 
 impl AppState {
+    /// Fresh launches may use only explicitly referenced credentials. Presence
+    /// or decryption is deliberately left to the existing connect-time lookup;
+    /// an unreferenced cleanup orphan cannot authorize a new session.
+    pub(super) async fn load_launch_provider_config(&self, id: Uuid) -> AppResult<ProviderConfig> {
+        let owner = self.clone();
+        self.config_io
+            .run(move |tx| {
+                let _owner = owner;
+                let saved = tx.load_provider_config(id)?;
+                if saved.provider() == "volcengine"
+                    && saved.secret_reference()
+                        != Some(volcengine_secret_reference(saved.id()).as_str())
+                {
+                    return Err(AppError::Configuration(
+                        "provider credential is not configured".into(),
+                    ));
+                }
+                Ok(saved)
+            })
+            .await
+    }
+
     pub async fn list_provider_configs(&self) -> AppResult<Vec<ProviderConfigView>> {
         let owner = self.clone();
         self.config_io
