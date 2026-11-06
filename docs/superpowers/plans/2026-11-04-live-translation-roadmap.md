@@ -66,9 +66,11 @@ Run the available software and synthetic checks. Record actual installation and 
 
 Run fixture and offline protocol tests for all adapters. Keep the paid Volcengine test ignored in default runs; with operator credentials and explicit invocation, verify the deterministic speech fixture produces final source text, final translation text, TTS audio, and successful terminal completion. Record live acceptance as pending until that evidence exists.
 
-- [ ] **Step 4: Finish and verify Runtime Composition.**
+- [x] **Step 4: Finish and verify Runtime Composition.**
 
 Execute its six tasks and review gates. Verify exact endpoint preflight, independent live/call runtime, durable final text/context, concurrent stop, credential configuration, and recoverable event subscriptions with injected offline dependencies. Run the complete Rust gate and frontend build before handing the final command contracts to the workbench plan.
+
+Runtime source review closed at `92565a9`. Final repairs cover actual Linux stdin EOF, bounded close observation with retained ownership, native output-overflow recovery and live accounting. The earlier complete phase run/build and the final affected-module checks are recorded in the release gates; real OS, package and live-service acceptance remains pending.
 
 - [ ] **Step 5: Finish and verify Workbench And Intelligence.**
 
