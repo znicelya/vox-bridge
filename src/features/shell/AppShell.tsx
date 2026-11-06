@@ -35,6 +35,7 @@ export type AppRoute = "workbench" | "knowledge" | "history" | "settings"
 
 export interface AppShellProps {
   renderContent?: (route: AppRoute) => ReactNode
+  persistentContent?: ReactNode
 }
 
 interface RouteDefinition {
@@ -230,7 +231,7 @@ function DefaultRouteContent({ route }: { route: AppRoute }) {
   )
 }
 
-export function AppShell({ renderContent }: AppShellProps) {
+export function AppShell({ renderContent, persistentContent }: AppShellProps) {
   const { route, selectRoute } = useHashRoute()
   const currentRoute = ROUTES.find((item) => item.route === route) ?? ROUTES[0]
 
@@ -284,12 +285,13 @@ export function AppShell({ renderContent }: AppShellProps) {
       </header>
 
       <main className="app-sheet">
-        <div className="app-page">
+        <div className="app-page" data-route={route}>
           <header className="app-page-header">
             <h1>{currentRoute.title}</h1>
             <p>{currentRoute.description}</p>
           </header>
           <Separator className="app-page-separator" />
+          {persistentContent}
           <section className="app-route-slot" aria-label={`${currentRoute.title}内容`}>
             {renderContent?.(route) ?? <DefaultRouteContent route={route} />}
           </section>

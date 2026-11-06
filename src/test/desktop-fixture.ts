@@ -14,7 +14,10 @@ export function resetDesktopFixtures() {
 }
 
 /** Offline backend protocol: exclusive rowid paging and independently owned tickets/listeners. */
-export function runtimeDesktopFixture(wire: { callRecord: SessionRecord }) {
+export function runtimeDesktopFixture(
+  wire: { callRecord: SessionRecord },
+  handle?: (command: string, args: Record<string, unknown>) => unknown,
+) {
   const records = new Map([[wire.callRecord.id, wire.callRecord]]);
   const transcripts: TranscriptUpdate[] = [];
   const diagnostics: RuntimeDiagnostic[] = [];
@@ -135,7 +138,9 @@ export function runtimeDesktopFixture(wire: { callRecord: SessionRecord }) {
               value = page(diagnostics, args);
               break;
             default:
-              throw Error(`unsupported fixture command ${command}`);
+              if (!handle)
+                throw Error(`unsupported fixture command ${command}`);
+              value = await handle(command, args);
           }
         if (gate?.phase === "reply") {
           gate.entered();
