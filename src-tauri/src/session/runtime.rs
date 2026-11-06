@@ -317,7 +317,6 @@ async fn supervise(
                 .expect("validated direction"),
             router: router.clone(),
             health: health.clone(),
-            route_events: router.subscribe(),
             plan,
             prepared: prepared.provider.clone(),
             audio: audio.clone(),

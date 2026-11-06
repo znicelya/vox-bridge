@@ -1173,6 +1173,17 @@ pub(crate) struct RuntimeHarness {
 }
 
 impl RuntimeHarness {
+    pub(crate) fn fail_forward_diagnostic_writes(&self) {
+        rusqlite::Connection::open(self._dir.path().join("vox-bridge.sqlite"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TRIGGER reject_forward_diagnostics BEFORE INSERT ON session_diagnostics
+                WHEN json_extract(NEW.payload_json, '$.direction') = 'source_to_target'
+                BEGIN SELECT RAISE(FAIL, 'injected diagnostic storage failure'); END;",
+            )
+            .unwrap();
+    }
+
     pub(crate) fn live(script: FixtureScript) -> AppResult<Self> {
         let reverse = FixtureScript::with_output_audio(
             PcmSpec::pcm16_mono(24_000),

@@ -2382,3 +2382,162 @@ async fn repair_stop_during_resumed_handshake_without_inventory_change() {
     assert_eq!(h.audio.open_ports(), 0);
     assert_eq!(h.provider.connect_counts(), [2, 0]);
 }
+
+#[tokio::test]
+async fn rereview_recovery_accounting_storage_failure_must_not_resume() {
+    let h = RuntimeHarness::live(ready_script()).unwrap();
+    let mut events = h.bus.subscribe(h.id);
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    h.store.delete_session(h.id).unwrap();
+    h.audio.inject_capture_loss("live-input", 1, 0);
+    h.audio
+        .send_capture("live-input", capture(0, 1280, 1))
+        .await
+        .unwrap();
+    timeout(Duration::from_millis(300), async {
+        loop {
+            if matches!(events.recv().await.unwrap(), SessionEvent::Diagnostic { diagnostic }
+                if matches!(diagnostic.payload, DiagnosticPayload::Failure { code: RuntimeFailureCode::Storage, .. })) { break; }
+        }
+    }).await.unwrap();
+    let returned_to_running = timeout(Duration::from_millis(300), async {
+        loop {
+            let snapshot = run.status().borrow().clone();
+            if h.audio.total_opens() == 2 && snapshot.directions[0].phase == DirectionPhase::Running
+            {
+                break true;
+            }
+            if snapshot.directions[0].phase == DirectionPhase::Paused {
+                break false;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let outcome = timeout(Duration::from_secs(2), run.stop()).await.unwrap();
+    assert_eq!(h.audio.open_ports(), 0);
+    assert!(
+        matches!(outcome, RuntimeOutcome::Failed { codes } if codes.contains(&RuntimeFailureCode::Storage))
+    );
+    assert!(
+        !returned_to_running,
+        "replacement activated and published Running after old-port accounting persistence failed"
+    );
+}
+
+#[tokio::test]
+async fn fix2_retired_accounting_failure_cleans_new_ports_and_preserves_call_peer() {
+    let peer = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::ReceiveAudio { count: 1 },
+            FixtureStep::Emit(ProviderEvent::Audio {
+                metadata: metadata(),
+                frame: AudioFrame::new(
+                    AudioSource::Microphone,
+                    0,
+                    PcmSpec::pcm16_mono(24_000),
+                    vec![9; 1920],
+                )
+                .unwrap(),
+            }),
+            FixtureStep::WaitForFinish,
+        ],
+    )
+    .unwrap();
+    let h = RuntimeHarness::call(ready_script(), peer).unwrap();
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    let mut events = h.bus.subscribe(h.id);
+    h.fail_forward_diagnostic_writes();
+    h.audio.inject_capture_loss("a-input", 1, 0);
+    h.audio
+        .send_capture("a-input", capture(0, 1280, 7))
+        .await
+        .unwrap();
+    timeout(Duration::from_millis(300), async {
+        loop {
+            if matches!(events.recv().await.unwrap(), SessionEvent::Diagnostic {diagnostic}
+                if matches!(diagnostic.payload,DiagnosticPayload::Failure {code:RuntimeFailureCode::Storage,..})) { break; }
+        }
+    }).await.unwrap();
+    let resumed = timeout(Duration::from_millis(300), async {
+        loop {
+            let phase = run.status().borrow().directions[0].phase.clone();
+            if h.audio.total_opens() == 3 && phase == DirectionPhase::Running {
+                break true;
+            }
+            if phase == DirectionPhase::Paused {
+                break false;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    if resumed {
+        let _ = timeout(Duration::from_secs(2), run.stop()).await;
+    }
+    assert!(
+        !resumed,
+        "failed retired accounting admitted a new Running transition"
+    );
+    assert_eq!(h.audio.total_opens(), 3);
+    assert_eq!(
+        h.audio.open_ports(),
+        1,
+        "failed accounting must settle fresh ports before Paused"
+    );
+    assert!(
+        h.audio
+            .send_capture("a-input", capture(1, 1280, 8))
+            .await
+            .is_err()
+    );
+    h.audio
+        .send_capture(
+            "m2-capture",
+            AudioFrame::new(
+                AudioSource::System,
+                0,
+                PcmSpec::pcm16_mono(16_000),
+                vec![5; 1280],
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let played = timeout(
+        Duration::from_secs(1),
+        h.audio.next_playback("physical-output"),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let peer_phase = run.status().borrow().directions[1].phase.clone();
+    let outcome = timeout(Duration::from_secs(2), run.stop()).await.unwrap();
+    assert_eq!(played.samples(), &[9; 1920]);
+    assert_eq!(peer_phase, DirectionPhase::Running);
+    assert_eq!(h.provider.connect_counts(), [1, 1]);
+    assert!(
+        h.provider
+            .sent_samples(SessionDirection::SourceToTarget)
+            .is_empty()
+    );
+    assert_eq!(h.audio.open_ports(), 0);
+    assert_eq!(
+        outcome,
+        RuntimeOutcome::Failed {
+            codes: vec![RuntimeFailureCode::Storage]
+        }
+    );
+}

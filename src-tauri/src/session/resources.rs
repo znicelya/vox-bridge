@@ -157,23 +157,28 @@ impl AudioOperation {
     pub async fn cancel_and_settle(mut self) -> CleanupReport {
         self.cancelled.store(true, Ordering::Release);
         let mut report = CleanupReport::default();
-        match tokio::time::timeout_at(self.cleanup_deadline, self.join()).await {
-            Ok(acquired) => {
-                report.merge(acquired.report);
-                if let Some(ports) = acquired.ports {
-                    report.merge(close_audio(ports.control.clone(), true).await);
-                }
-            }
+        let acquired = match tokio::time::timeout_at(self.cleanup_deadline, self.join()).await {
+            Ok(acquired) => Some(acquired),
             Err(_) => {
                 report.fail(RuntimeFailureCode::CleanupTimeout);
-                if let Some(task) = self.task.take() {
-                    task.abort();
-                    let _ = task.await;
-                }
-                if let Some(control) = &self.retired_control {
-                    report.statistics.push(control.statistics());
+                match self.task.take() {
+                    Some(task) => {
+                        task.abort();
+                        // Abort is a request: the current poll can still finish
+                        // with acquired ports or a typed failure. Own that value.
+                        task.await.ok()
+                    }
+                    None => None,
                 }
             }
+        };
+        if let Some(acquired) = acquired {
+            report.merge(acquired.report);
+            if let Some(ports) = acquired.ports {
+                report.merge(close_audio(ports.control.clone(), true).await);
+            }
+        } else if let Some(control) = &self.retired_control {
+            report.statistics.push(control.statistics());
         }
         report
     }
@@ -227,6 +232,30 @@ pub(super) async fn cancel_provider(
                 Ok(Some(_)) => {}
             }
         }
+    }
+    report
+}
+
+async fn settle_provider_open(
+    mut task: JoinHandle<crate::providers::ProviderResult<DirectedProviderStream>>,
+    deadline: Instant,
+    mut event: impl FnMut(&ProviderEvent) -> Result<(), RuntimeFailureCode>,
+) -> CleanupReport {
+    let mut report = CleanupReport::default();
+    let joined = match tokio::time::timeout_at(deadline, &mut task).await {
+        Ok(joined) => joined,
+        Err(_) => {
+            report.fail(RuntimeFailureCode::CleanupTimeout);
+            task.abort();
+            task.await
+        }
+    };
+    match joined {
+        Ok(Ok(DirectedProviderStream { stream, .. })) => {
+            report.merge(cancel_provider(Arc::from(stream), &mut event).await);
+        }
+        Ok(Err(error)) => report.fail(provider_failure(&error)),
+        Err(_) => report.fail(RuntimeFailureCode::CleanupTimeout),
     }
     report
 }
@@ -291,19 +320,8 @@ pub(super) async fn open_resources(
     };
     let provider_cleanup = async {
         let mut report = CleanupReport::default();
-        if let Some(mut task) = provider_task {
-            match tokio::time::timeout_at(provider_deadline, &mut task).await {
-                Ok(Ok(Ok(DirectedProviderStream {
-                    stream: acquired, ..
-                }))) => stream = Some(Arc::from(acquired)),
-                Ok(Ok(Err(error))) => report.fail(provider_failure(&error)),
-                Ok(Err(_)) => report.fail(RuntimeFailureCode::CleanupTimeout),
-                Err(_) => {
-                    task.abort();
-                    let _ = task.await;
-                    report.fail(RuntimeFailureCode::CleanupTimeout);
-                }
-            }
+        if let Some(task) = provider_task {
+            report.merge(settle_provider_open(task, provider_deadline, &mut event).await);
         }
         if let Some(stream) = stream {
             report.merge(cancel_provider(stream, &mut event).await);
@@ -314,4 +332,206 @@ pub(super) async fn open_resources(
     report.merge(audio);
     report.merge(provider);
     Err(report)
+}
+
+#[cfg(test)]
+mod rereview_regressions {
+    use super::*;
+    use crate::{
+        audio::{PcmSpec, runtime::AudioBackend},
+        domain::audio::AudioSource,
+        providers::fixture::{FixtureScript, FixtureStep},
+        session::test_support::{RuntimeHarness, metadata},
+    };
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn rereview_abort_racing_ready_acquisition_must_inspect_joined_value() {
+        let script = FixtureScript::with_output_audio(
+            PcmSpec::pcm16_mono(24_000),
+            [
+                FixtureStep::Emit(ProviderEvent::SessionStarted {
+                    metadata: metadata(),
+                }),
+                FixtureStep::WaitForFinish,
+            ],
+        )
+        .unwrap();
+        let h = RuntimeHarness::live(script).unwrap();
+        let inventory = h.audio.inventory().await.unwrap();
+        let ports = h
+            .audio
+            .open(AudioOpenRequest {
+                inventory_generation: inventory.generation,
+                input_id: "live-input".into(),
+                output_id: "m1-render".into(),
+                source: AudioSource::Microphone,
+            })
+            .await
+            .unwrap();
+        let control = ports.control.clone();
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            entered_tx.send(()).unwrap();
+            // Hold one finite Ready-producing poll across the timeout/abort boundary.
+            // Tokio can complete this poll normally even after abort was requested.
+            std::thread::sleep(Duration::from_millis(100));
+            AudioAcquired {
+                ports: Some(ports),
+                report: CleanupReport::default(),
+            }
+        });
+        entered_rx.await.unwrap();
+        let operation = AudioOperation {
+            task: Some(task),
+            cancelled: Arc::new(AtomicBool::new(false)),
+            admission_deadline: Instant::now(),
+            cleanup_deadline: Instant::now() + Duration::from_millis(5),
+            retired_control: None,
+        };
+        let report = operation.cancel_and_settle().await;
+        let owned_after_settlement = h.audio.open_ports();
+        control.close().await.unwrap();
+        assert!(
+            report
+                .failures
+                .contains(&RuntimeFailureCode::CleanupTimeout),
+            "test must exercise the timeout arm"
+        );
+        assert_eq!(
+            owned_after_settlement, 0,
+            "timeout arm discarded live late ports without acknowledged close"
+        );
+    }
+}
+
+#[cfg(test)]
+mod rereview_failure_regression {
+    use super::*;
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn rereview_abort_racing_typed_open_failure_must_inspect_joined_value() {
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            entered_tx.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(100));
+            AudioAcquired {
+                ports: None,
+                report: CleanupReport {
+                    failures: vec![RuntimeFailureCode::DeviceUnavailable],
+                    statistics: vec![],
+                },
+            }
+        });
+        entered_rx.await.unwrap();
+        let operation = AudioOperation {
+            task: Some(task),
+            cancelled: Arc::new(AtomicBool::new(false)),
+            admission_deadline: Instant::now(),
+            cleanup_deadline: Instant::now() + Duration::from_millis(5),
+            retired_control: None,
+        };
+        let report = operation.cancel_and_settle().await;
+        assert!(
+            report
+                .failures
+                .contains(&RuntimeFailureCode::CleanupTimeout),
+            "test must exercise timeout arm"
+        );
+        assert!(
+            report
+                .failures
+                .contains(&RuntimeFailureCode::DeviceUnavailable),
+            "timeout arm discarded the successfully joined open failure's typed category"
+        );
+    }
+}
+
+#[cfg(test)]
+mod provider_abort_regressions {
+    use super::*;
+    use crate::{
+        audio::PcmSpec,
+        domain::session::SessionMode,
+        providers::{
+            ProviderSessionConfig, TranslationProvider,
+            fixture::{FixtureScript, FixtureStep},
+        },
+        session::test_support::{RuntimeHarness, metadata},
+    };
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fix2_abort_racing_provider_acquisition_cancels_and_observes_terminal() {
+        let script = FixtureScript::with_output_audio(
+            PcmSpec::pcm16_mono(24_000),
+            [
+                FixtureStep::Emit(ProviderEvent::SessionStarted {
+                    metadata: metadata(),
+                }),
+                FixtureStep::WaitForFinish,
+            ],
+        )
+        .unwrap();
+        let h = RuntimeHarness::live(script).unwrap();
+        let config = ProviderSessionConfig {
+            session_id: h.id,
+            direction: SessionDirection::SourceToTarget,
+            mode: SessionMode::Live,
+            languages: h.launch.config.languages().clone(),
+            target_audio: PcmSpec::pcm16_mono(24_000),
+            provider_config_id: h.saved.id(),
+        };
+        let stream = h.provider.connect(config.clone()).await.unwrap();
+        let terminal = h.provider.delay_terminal(SessionDirection::SourceToTarget);
+        let (entered, entered_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            let _ = entered.send(());
+            std::thread::sleep(Duration::from_millis(100));
+            Ok(DirectedProviderStream { config, stream })
+        });
+        entered_rx.await.unwrap();
+        let cleanup = tokio::spawn(settle_provider_open(
+            task,
+            Instant::now() + Duration::from_millis(5),
+            |_| Ok(()),
+        ));
+        let terminal_observed =
+            tokio::time::timeout(Duration::from_millis(250), terminal.wait_entered()).await;
+        let waiting_for_terminal = !cleanup.is_finished();
+        terminal.release();
+        let report = tokio::time::timeout(Duration::from_secs(1), cleanup)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            h.provider.cancel_counts(),
+            [1, 0],
+            "joined live stream was dropped without cancellation"
+        );
+        assert!(
+            matches!(terminal_observed, Ok(true)) && waiting_for_terminal,
+            "cancellation was mistaken for terminal acknowledgement"
+        );
+        assert_eq!(report.failures, [RuntimeFailureCode::CleanupTimeout]);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fix2_abort_racing_provider_failure_preserves_typed_failure() {
+        let (entered, entered_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            let _ = entered.send(());
+            std::thread::sleep(Duration::from_millis(100));
+            Err(ProviderError::RemoteFailure { code: 41 })
+        });
+        entered_rx.await.unwrap();
+        let report =
+            settle_provider_open(task, Instant::now() + Duration::from_millis(5), |_| Ok(())).await;
+        assert!(
+            report
+                .failures
+                .contains(&RuntimeFailureCode::CleanupTimeout)
+        );
+        assert!(
+            report.failures.contains(&RuntimeFailureCode::Provider),
+            "joined provider failure was discarded after abort"
+        );
+    }
 }

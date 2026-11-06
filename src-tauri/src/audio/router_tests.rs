@@ -529,3 +529,79 @@ async fn unbound_routes_require_real_output_and_explicit_independent_resume() {
         AudioRouterStatus::Paused { .. }
     ));
 }
+
+#[tokio::test]
+async fn exact_admission_feedback_survives_peer_event_lag_and_preserves_public_drop_contract() {
+    use super::router::RouteAdmission;
+    let graph = AudioGraph::for_call(
+        endpoint("a", AudioDirection::Input),
+        endpoint("m2", AudioDirection::Input),
+        endpoint("m1", AudioDirection::Output),
+        endpoint("speaker", AudioDirection::Output),
+    )
+    .unwrap();
+    let (a_output, mut a) = mpsc::channel(1);
+    let (b_output, mut b) = mpsc::channel(1);
+    let router = AudioRouter::for_call(
+        graph,
+        a_output,
+        b_output,
+        health_for(&["a", "m2", "m1", "speaker"]),
+    );
+    let mut events = router.subscribe();
+    assert_eq!(
+        router
+            .route_direction_admission(frame(1), Direction::AtoB)
+            .unwrap(),
+        RouteAdmission::Enqueued
+    );
+    for index in 0..40 {
+        router
+            .pause_direction(Direction::BtoA, format!("peer {index}"))
+            .unwrap();
+        router.resume_direction(Direction::BtoA).unwrap();
+    }
+    assert!(matches!(
+        events.try_recv(),
+        Err(broadcast::error::TryRecvError::Lagged(_))
+    ));
+    let mut current_events = router.subscribe();
+    assert_eq!(
+        router
+            .route_direction_admission(frame(2), Direction::AtoB)
+            .unwrap(),
+        RouteAdmission::Dropped
+    );
+    // The existing public API still drops/counts/notifies and returns Ok.
+    router.route_direction(frame(3), Direction::AtoB).unwrap();
+    assert_eq!(
+        current_events.try_recv().unwrap(),
+        AudioRouterEvent::Backpressure {
+            target: RouteTarget::M1,
+            dropped_frames: 1
+        }
+    );
+    assert_eq!(
+        current_events.try_recv().unwrap(),
+        AudioRouterEvent::Backpressure {
+            target: RouteTarget::M1,
+            dropped_frames: 2
+        }
+    );
+    assert_eq!(
+        router
+            .route_direction_admission(frame(4), Direction::BtoA)
+            .unwrap(),
+        RouteAdmission::Enqueued
+    );
+    assert_eq!(a.recv().await.unwrap().sequence(), 1);
+    assert_eq!(b.recv().await.unwrap().sequence(), 4);
+    assert!(a.try_recv().is_err());
+    assert_eq!(
+        router
+            .route_direction_admission(frame(5), Direction::AtoB)
+            .unwrap(),
+        RouteAdmission::Enqueued
+    );
+    assert_eq!(a.recv().await.unwrap().sequence(), 5);
+}

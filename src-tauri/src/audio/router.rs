@@ -45,6 +45,13 @@ pub enum AudioRouterEvent {
     },
 }
 
+/// Result of this exact enqueue, independent of best-effort event observers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RouteAdmission {
+    Enqueued,
+    Dropped,
+}
+
 pub trait EndpointHealthCheck: Send + Sync {
     fn is_ready(&self, endpoint: &AudioEndpoint) -> bool;
 }
@@ -227,6 +234,15 @@ impl<H: EndpointHealthCheck> AudioRouter<H> {
         self.route_direction(frame, route.direction())
     }
     pub fn route_direction(&self, frame: AudioFrame, direction: Direction) -> AppResult<()> {
+        // Preserve the public drop-and-notify contract for existing callers.
+        self.route_direction_admission(frame, direction).map(|_| ())
+    }
+
+    pub(crate) fn route_direction_admission(
+        &self,
+        frame: AudioFrame,
+        direction: Direction,
+    ) -> AppResult<RouteAdmission> {
         self.graph
             .route(direction)
             .ok_or_else(|| missing_direction(direction))?;
@@ -257,7 +273,7 @@ impl<H: EndpointHealthCheck> AudioRouter<H> {
         }
         let output = output.expect("validated output exists");
         match output.try_send(frame) {
-            Ok(()) => Ok(()),
+            Ok(()) => Ok(RouteAdmission::Enqueued),
             Err(mpsc::error::TrySendError::Full(_)) => {
                 let dropped_frames = {
                     let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
@@ -269,7 +285,7 @@ impl<H: EndpointHealthCheck> AudioRouter<H> {
                     target: self.graph.target(direction).unwrap(),
                     dropped_frames,
                 });
-                Ok(())
+                Ok(RouteAdmission::Dropped)
             }
             Err(mpsc::error::TrySendError::Closed(_)) => {
                 let status = AudioRouterStatus::Paused {

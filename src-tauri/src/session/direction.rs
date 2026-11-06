@@ -10,9 +10,7 @@ use crate::{
     audio::{
         AudioFrame, PcmSpec,
         packetizer::AudioPacketizer,
-        router::{
-            AudioRouter, AudioRouterEvent, Direction as RouterDirection, EndpointHealthCheck,
-        },
+        router::{AudioRouter, Direction as RouterDirection, EndpointHealthCheck, RouteAdmission},
         runtime::AudioBackend,
     },
     domain::{
@@ -101,7 +99,6 @@ pub(super) struct DirectionActor {
     pub(super) router: Arc<AudioRouter<RuntimeRouteHealth>>,
     pub(super) route: RouterDirection,
     pub(super) health: RuntimeRouteHealth,
-    pub(super) route_events: tokio::sync::broadcast::Receiver<AudioRouterEvent>,
 }
 
 impl DirectionActor {
@@ -187,35 +184,36 @@ impl DirectionActor {
         }
     }
 
-    fn record_cleanup(&mut self, report: CleanupReport) {
-        self.record_cleanup_with_boundary(report, None);
+    fn record_cleanup(&mut self, report: CleanupReport) -> Result<(), RuntimeFailureCode> {
+        self.record_cleanup_with_boundary(report, None)
     }
 
     fn record_cleanup_with_boundary(
         &mut self,
         report: CleanupReport,
         boundary: Option<PlaybackBoundary>,
-    ) {
+    ) -> Result<(), RuntimeFailureCode> {
         for code in report.failures {
             if code != RuntimeFailureCode::Interrupted || !*self.stop.borrow() {
                 self.fail(code);
             }
         }
+        let mut storage_failed = false;
         for statistics in report.statistics {
-            if self
-                .persist_diagnostic(DiagnosticPayload::CaptureAccounting {
-                    statistics: statistics.capture,
-                })
-                .is_err()
-                || self
-                    .persist_diagnostic(DiagnosticPayload::PlaybackAccounting {
-                        boundary: boundary.clone(),
-                        statistics: statistics.playback,
-                    })
-                    .is_err()
-            {
-                self.fail(RuntimeFailureCode::Storage);
-            }
+            let capture = self.persist_diagnostic(DiagnosticPayload::CaptureAccounting {
+                statistics: statistics.capture,
+            });
+            let playback = self.persist_diagnostic(DiagnosticPayload::PlaybackAccounting {
+                boundary: boundary.clone(),
+                statistics: statistics.playback,
+            });
+            storage_failed |= capture.is_err() || playback.is_err();
+        }
+        if storage_failed {
+            self.fail(RuntimeFailureCode::Storage);
+            Err(RuntimeFailureCode::Storage)
+        } else {
+            Ok(())
         }
     }
 
@@ -237,7 +235,7 @@ impl DirectionActor {
                     .first()
                     .cloned()
                     .unwrap_or(RuntimeFailureCode::CleanupTimeout);
-                self.record_cleanup(report);
+                let _ = self.record_cleanup(report);
                 Err(code)
             }
         }
@@ -282,20 +280,13 @@ impl DirectionActor {
         let frames = split_provider_audio(frame, &mut resources.output_sequence)
             .map_err(|_| RuntimeFailureCode::InvalidEvent)?;
         for frame in frames {
-            self.router
-                .route_direction(frame, self.route)
-                .map_err(|_| RuntimeFailureCode::DeviceUnavailable)?;
-            while let Ok(event) = self.route_events.try_recv() {
-                if let AudioRouterEvent::Backpressure { target, .. } = event {
-                    let ours = if self.route == RouterDirection::BtoA {
-                        crate::audio::router::RouteTarget::PhysicalOutput
-                    } else {
-                        crate::audio::router::RouteTarget::M1
-                    };
-                    if target == ours {
-                        return Err(RuntimeFailureCode::DeviceUnavailable);
-                    }
-                }
+            if self
+                .router
+                .route_direction_admission(frame, self.route)
+                .map_err(|_| RuntimeFailureCode::DeviceUnavailable)?
+                == RouteAdmission::Dropped
+            {
+                return Err(RuntimeFailureCode::DeviceUnavailable);
             }
         }
         Ok(())
@@ -586,9 +577,9 @@ impl DirectionActor {
                 acquired = async { operation.as_mut().unwrap().join().await }, if operation.is_some() => {
                     operation.take();
                     let failure = acquired.report.failures.first().cloned();
-                    self.record_cleanup(acquired.report);
+                    let persisted = self.record_cleanup(acquired.report);
                     opened = acquired.ports;
-                    if let Some(code) = failure { break code; }
+                    if let Some(code) = failure.or_else(|| persisted.err()) { break code; }
                     if opened.is_none() { break RuntimeFailureCode::CleanupTimeout; }
                 }
                 event = stream.next_event() => match event {
@@ -625,8 +616,8 @@ impl DirectionActor {
             audio_cleanup,
             cancel_provider(stream, |event| self.cleanup_event(event))
         );
-        self.record_cleanup(audio);
-        self.record_cleanup(provider);
+        let _ = self.record_cleanup(audio);
+        let _ = self.record_cleanup(provider);
         for payload in self.diagnostics.take_due(Instant::now(), true) {
             if self.persist_diagnostic(payload).is_err() {
                 self.fail(RuntimeFailureCode::Storage);
@@ -772,7 +763,7 @@ impl DirectionActor {
         self.pause_route();
         let failure = report.failures.first().cloned();
         let boundary = failure.is_none().then_some(playback.boundary);
-        self.record_cleanup_with_boundary(report, boundary);
+        self.record_cleanup_with_boundary(report, boundary)?;
         self.flush_diagnostics(&resources, true, None)?;
         match failure {
             Some(code) => Err(code),
@@ -835,8 +826,8 @@ impl DirectionActor {
             close_audio(resources.ports.control.clone(), true),
             cancel_provider(resources.stream.clone(), |event| self.cleanup_event(event))
         );
-        self.record_cleanup(audio);
-        self.record_cleanup(provider);
+        let _ = self.record_cleanup(audio);
+        let _ = self.record_cleanup(provider);
         if self.flush_diagnostics(resources, true, None).is_err() {
             self.fail(RuntimeFailureCode::Storage);
         }
@@ -1268,5 +1259,191 @@ mod tests {
 async fn wait_for_pacing(deadline: Option<Instant>) {
     if let Some(deadline) = deadline {
         tokio::time::sleep_until(deadline).await;
+    }
+}
+
+#[cfg(test)]
+mod rereview_regressions {
+    use super::*;
+    use crate::{
+        audio::graph::AudioGraph,
+        config::SecretStore,
+        domain::audio::AudioSource,
+        providers::{
+            factory::ProviderFactory,
+            fixture::{FixtureScript, FixtureStep},
+        },
+        session::test_support::{RuntimeHarness, metadata},
+    };
+
+    #[tokio::test]
+    async fn rereview_lagged_router_events_must_not_hide_current_overflow() {
+        let script = FixtureScript::with_output_audio(
+            PcmSpec::pcm16_mono(24_000),
+            [
+                FixtureStep::Emit(ProviderEvent::SessionStarted {
+                    metadata: metadata(),
+                }),
+                FixtureStep::WaitForFinish,
+            ],
+        )
+        .unwrap();
+        let h = RuntimeHarness::call(script.clone(), script).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let factory = ProviderFactory::new(Arc::new(SecretStore::for_tests(dir.path()).unwrap()))
+            .with_test_provider(h.provider.clone());
+        let prepared = factory
+            .prepare(
+                &h.saved,
+                h.id,
+                &h.launch.config,
+                PcmSpec::pcm16_mono(16_000),
+                PcmSpec::pcm16_mono(24_000),
+            )
+            .unwrap();
+        let config = prepared.configs()[0].clone();
+        let inventory = h.audio.inventory().await.unwrap();
+        let find = |id: &str| {
+            inventory
+                .endpoints
+                .iter()
+                .find(|e| e.endpoint.id == id)
+                .unwrap()
+                .clone()
+        };
+        let a = find("a-input");
+        let m2 = find("m2-capture");
+        let m1 = find("m1-render");
+        let physical = find("physical-output");
+        let graph = AudioGraph::for_call(
+            a.endpoint.clone(),
+            m2.endpoint.clone(),
+            m1.endpoint.clone(),
+            physical.endpoint.clone(),
+        )
+        .unwrap();
+        let health = RuntimeRouteHealth::default();
+        let router = Arc::new(AudioRouter::paused_unbound(graph, health.clone()));
+        let mut notifications = router.subscribe();
+        let (_stop_tx, stop) = watch::channel(false);
+        let (_control_tx, controls) = mpsc::channel(1);
+        let (updates, _update_rx) = mpsc::channel(32);
+        let mut actor = DirectionActor {
+            session_id: h.id,
+            plan: DirectionPlan {
+                direction: SessionDirection::SourceToTarget,
+                request: crate::audio::runtime::AudioOpenRequest {
+                    inventory_generation: inventory.generation,
+                    input_id: "a-input".into(),
+                    output_id: "m1-render".into(),
+                    source: AudioSource::Microphone,
+                },
+                endpoints: vec![a, m1],
+            },
+            sink: TranscriptSink::new(
+                h.store.clone(),
+                h.bus.clone(),
+                config,
+                prepared.provider_id(),
+            )
+            .unwrap(),
+            prepared,
+            audio: h.audio.clone(),
+            store: h.store.clone(),
+            bus: h.bus.clone(),
+            stop,
+            controls,
+            updates,
+            epoch: 0,
+            failures: vec![],
+            transition_failures: vec![],
+            diagnostics: DiagnosticAccumulator::new(Instant::now()),
+            router: router.clone(),
+            route: RouterDirection::AtoB,
+            health,
+        };
+        let peer_ports = h
+            .audio
+            .open(crate::audio::runtime::AudioOpenRequest {
+                inventory_generation: inventory.generation,
+                input_id: "m2-capture".into(),
+                output_id: "physical-output".into(),
+                source: AudioSource::System,
+            })
+            .await
+            .unwrap();
+        for id in ["m2-capture", "physical-output"] {
+            actor
+                .health
+                .0
+                .lock()
+                .unwrap()
+                .insert(id.into(), peer_ports.health.clone());
+        }
+        router
+            .replace_direction_output(RouterDirection::BtoA, peer_ports.playback.clone())
+            .unwrap();
+        router.resume_direction(RouterDirection::BtoA).unwrap();
+        let mut resources = actor.open_resources().await.unwrap();
+        actor.await_started(&mut resources).await.unwrap();
+        // A deterministic bounded destination remains full until this test consumes it.
+        let (output, mut receiver) = mpsc::channel(1);
+        resources.ports.playback = output;
+        actor.activate(&resources).unwrap();
+        let frame = AudioFrame::new(
+            AudioSource::Microphone,
+            0,
+            PcmSpec::pcm16_mono(24_000),
+            vec![7; 1920],
+        )
+        .unwrap();
+        actor.route_audio(&mut resources, &frame).unwrap();
+        for index in 0..40 {
+            router
+                .pause_direction(RouterDirection::BtoA, format!("peer transition {index}"))
+                .unwrap();
+            router.resume_direction(RouterDirection::BtoA).unwrap();
+        }
+        assert!(matches!(
+            notifications.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_))
+        ));
+        let result = actor.route_audio(&mut resources, &frame);
+        assert!(receiver.try_recv().is_ok());
+        assert!(receiver.try_recv().is_err());
+        router
+            .route_direction(frame.clone(), RouterDirection::BtoA)
+            .unwrap();
+        let resources = actor
+            .recover_same_stream(resources, false, true)
+            .await
+            .unwrap();
+        assert_eq!(
+            h.audio.total_opens(),
+            3,
+            "only the overflowing direction may reopen"
+        );
+        assert_eq!(h.provider.connect_counts(), [1, 0]);
+        assert_eq!(
+            router.direction_status(RouterDirection::BtoA).unwrap(),
+            crate::audio::router::AudioRouterStatus::Running
+        );
+        assert_eq!(
+            h.audio
+                .next_playback("physical-output")
+                .await
+                .unwrap()
+                .samples(),
+            &[7; 1920]
+        );
+        actor.abort_resources(resources).await;
+        let peer_closed = close_audio(peer_ports.control.clone(), true).await;
+        assert!(peer_closed.failures.is_empty());
+        assert_eq!(h.audio.open_ports(), 0);
+        assert_eq!(
+            result,
+            Err(RuntimeFailureCode::DeviceUnavailable),
+            "lagged broadcast cursor hid the current Full result, so the actor skipped replacement"
+        );
     }
 }
