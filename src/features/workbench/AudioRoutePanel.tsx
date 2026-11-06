@@ -230,9 +230,16 @@ export function AudioRoutePanel({ owner }: { owner: Workbench }) {
           )}
         </div>
       ))}
-      {unknownTail && <p className="workbench-note">播放尾部处置未知</p>}
       <details>
-        <summary>路由与测量详情</summary>
+        <summary>
+          <span>路由与测量详情</span>
+          {unknownTail && (
+            <span className="workbench-note">
+              {" "}
+              · <span>播放尾部处置未知</span>
+            </span>
+          )}
+        </summary>
         <p className="session-id">会话 {owner.session.id}</p>
         {owner.session.context?.endpoints.map((x) => (
           <p key={`${x.role}:${x.endpoint.id}`}>

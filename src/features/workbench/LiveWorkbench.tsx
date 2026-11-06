@@ -1,13 +1,23 @@
 import { LaunchControls } from "./LaunchControls";
 import { AudioRoutePanel } from "./AudioRoutePanel";
 import { ConversationStream } from "./ConversationStream";
-import { ToolRail } from "./ToolRail";
-import type { Workbench } from "./useWorkbench";
+import { ToolRail, ToolSheet } from "./ToolRail";
+import { isTerminal, type Workbench } from "./useWorkbench";
 export function LiveWorkbench({ owner }: { owner: Workbench }) {
   return (
-    <div className="live-workbench">
+    <div
+      className="live-workbench"
+      data-active={
+        owner.pending ||
+        owner.stopping ||
+        !!(owner.session && !isTerminal(owner.session))
+      }
+    >
       <div className="workbench-primary">
-        <LaunchControls owner={owner} />
+        <div className="workbench-toolbar">
+          <LaunchControls owner={owner} />
+          <ToolSheet selection={owner.selection} />
+        </div>
         <AudioRoutePanel owner={owner} />
         <ConversationStream owner={owner} />
       </div>

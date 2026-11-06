@@ -65,28 +65,32 @@ export function ToolRail({
   selection: SelectionContext | null;
 }) {
   return (
-    <>
-      <aside className="tool-rail" aria-label="知识与研究工具">
-        <Tools selection={selection} />
-      </aside>
-      <div className="tool-mobile">
-        <Sheet>
-          <SheetTrigger asChild>
-            <Button variant="outline">
-              知识与研究{selection ? " · 已选择" : ""}
-            </Button>
-          </SheetTrigger>
-          <SheetContent>
-            <SheetHeader>
-              <SheetTitle>知识与研究</SheetTitle>
-              <SheetDescription>
-                选择字幕后，使用已配置的服务。
-              </SheetDescription>
-            </SheetHeader>
-            <Tools selection={selection} />
-          </SheetContent>
-        </Sheet>
-      </div>
-    </>
+    <aside className="tool-rail" aria-label="知识与研究工具">
+      <Tools selection={selection} />
+    </aside>
+  );
+}
+export function ToolSheet({
+  selection,
+}: {
+  selection: SelectionContext | null;
+}) {
+  return (
+    <div className="tool-mobile">
+      <Sheet>
+        <SheetTrigger asChild>
+          <Button variant="outline">
+            知识与研究{selection ? " · 已选择" : ""}
+          </Button>
+        </SheetTrigger>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>知识与研究</SheetTitle>
+            <SheetDescription>选择字幕后，使用已配置的服务。</SheetDescription>
+          </SheetHeader>
+          <Tools selection={selection} />
+        </SheetContent>
+      </Sheet>
+    </div>
   );
 }

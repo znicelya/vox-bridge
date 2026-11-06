@@ -91,6 +91,7 @@ describe("live and call workbench", () => {
       sessionId: workbenchWire.callRecord.id,
       direction: "target_to_source",
     });
+    await u.click(screen.getByText("语言与音频配置"));
     expect(screen.getByRole("tab", { name: "直播" })).toBeDisabled();
   });
   it("queues one Stop during delayed create and keeps it reachable after navigation", async () => {
@@ -297,6 +298,66 @@ it("preserves real empty destinations while Stop remains available", async () =>
   expect(screen.getByText("知识库尚无文档")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "停止同传" })).toBeEnabled();
 });
+it.each([
+  ["知识库", "知识库尚无文档"],
+  ["会话历史", "还没有会话记录"],
+])(
+  "shows rejected Stop feedback on %s without replacing its empty content",
+  async (route, empty) => {
+    const port = workbenchDesktopFixture(),
+      u = user();
+    render(<App desktop={port} />);
+    await routes(u);
+    await u.click(screen.getByRole("button", { name: "开始同传" }));
+    await waitFor(() => expect(port.liveListenerCount()).toBe(1));
+    await u.click(screen.getByRole("link", { name: route }));
+    port.rejectNext("stop_session", "[AUDIO_ERROR] private native details");
+    await u.click(screen.getByRole("button", { name: "停止同传" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "音频设备不可用，请检查设备。",
+    );
+    expect(
+      screen.queryByText(/private native details/),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(empty)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "停止同传" })).toBeEnabled();
+  },
+);
+it.each([
+  ["知识库", "知识库尚无文档"],
+  ["会话历史", "还没有会话记录"],
+])(
+  "shows timed-out Stop feedback on %s while retaining native ownership",
+  async (route, empty) => {
+    const port = workbenchDesktopFixture(),
+      u = user();
+    render(<App desktop={port} />);
+    await routes(u);
+    await u.click(screen.getByRole("button", { name: "开始同传" }));
+    await waitFor(() => expect(port.liveListenerCount()).toBe(1));
+    await u.click(screen.getByRole("link", { name: route }));
+    const gate = port.deferNext("stop_session");
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "停止同传" }));
+    await gate.requested;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10001);
+    });
+    vi.useRealTimers();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "桌面响应超时，请重试。",
+    );
+    expect(screen.getByText(empty)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "停止同传" })).toBeDisabled();
+    expect(port.pendingNativeCount("stop_session")).toBe(1);
+    gate.release();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "停止同传" }),
+      ).not.toBeInTheDocument(),
+    );
+  },
+);
 it("rejects an unsupported language pair before transport validation", async () => {
   const port = workbenchDesktopFixture(),
     u = user();
@@ -412,7 +473,15 @@ it("collapses active configuration so captions remain primary and preserves insp
   await waitFor(() => expect(port.liveListenerCount()).toBe(1));
   const disclosure = screen.getByText("语言与音频配置").closest("details")!;
   expect(disclosure).not.toHaveAttribute("open");
+  expect(
+    screen.getByRole("button", { name: "开始同传" }).closest("details"),
+  ).toBe(disclosure);
+  expect(screen.getByRole("tab", { name: "通话" }).closest("details")).toBe(
+    disclosure,
+  );
   await u.click(screen.getByText("语言与音频配置"));
+  expect(screen.getByRole("button", { name: "开始同传" })).toBeDisabled();
+  expect(screen.getByRole("tab", { name: "通话" })).toBeDisabled();
   expect(screen.getByRole("combobox", { name: "我的麦克风 A" })).toBeDisabled();
   expect(screen.getByRole("region", { name: "实时字幕" })).toBeInTheDocument();
 });
@@ -446,8 +515,8 @@ it("launches live input to M1 with the selected languages and locks configuratio
       },
     }),
   );
-  expect(screen.getByRole("tab", { name: "通话" })).toBeDisabled();
   await u.click(screen.getByText("语言与音频配置"));
+  expect(screen.getByRole("tab", { name: "通话" })).toBeDisabled();
   expect(screen.getByRole("combobox", { name: "音频输入" })).toBeDisabled();
   expect(screen.getByRole("combobox", { name: "同传服务" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "停止同传" })).toBeEnabled();

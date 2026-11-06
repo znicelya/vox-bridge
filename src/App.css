@@ -307,6 +307,10 @@
   border: 1px solid var(--border);
   border-radius: 8px;
 }
+.session-feedback {
+  flex: none;
+  margin-block-end: 16px;
+}
 .live-workbench {
   flex: 1;
   min-block-size: 0;
@@ -323,6 +327,15 @@
   min-inline-size: 0;
   min-block-size: 0;
 }
+.workbench-toolbar {
+  flex: none;
+  min-inline-size: 0;
+}
+.launch-mode {
+  margin-inline-start: 8px;
+  color: var(--muted-foreground);
+}
+.launch-panel { min-inline-size: 0; }
 .workbench-actions,
 .settings-actions {
   display: flex;
@@ -542,7 +555,7 @@ dd {
 @media (max-width: 1099px) {
   .live-workbench {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     gap: 16px;
   }
   .tool-rail {
@@ -550,7 +563,7 @@ dd {
   }
   .tool-mobile {
     display: block;
-    grid-row: 1;
+    margin-block-start: 16px;
   }
   .launch-fields {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -609,3 +622,34 @@ dd {
 .audio-status { flex: none; }
 .app-page[data-route="workbench"] .app-route-slot { min-block-size: 0; }
 .conversation-panel { min-block-size: 180px; }
+
+/* Active phones keep configuration and tools compact so captions lead. */
+@media (max-width: 639px) {
+  .app-page[data-route="workbench"]:has(.live-workbench[data-active="true"]) .app-page-header p {
+    display: none;
+  }
+  .app-page[data-route="workbench"]:has(.live-workbench[data-active="true"]) .app-page-separator {
+    margin-block: 8px;
+  }
+  .app-page[data-route="workbench"]:has(.live-workbench[data-active="true"]) .active-session-bar {
+    margin-block-end: 8px;
+  }
+  .live-workbench[data-active="true"] .workbench-primary { gap: 8px; }
+  .live-workbench[data-active="true"] .workbench-toolbar:not(:has(details[open])) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: start;
+  }
+  .live-workbench[data-active="true"] .tool-mobile,
+  .live-workbench[data-active="true"] .launch-disclosure > summary {
+    margin-block-start: 0;
+  }
+  .live-workbench[data-active="true"] .audio-status {
+    padding-block: 8px;
+  }
+  .live-workbench[data-active="true"] .audio-status h2 { display: none; }
+  .live-workbench[data-active="true"] .audio-direction { margin-block-start: 4px; }
+  .live-workbench[data-active="true"] .audio-status summary { margin-block-start: 0; }
+  .live-workbench[data-active="true"] .conversation-panel { min-block-size: 350px; }
+}

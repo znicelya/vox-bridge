@@ -135,31 +135,35 @@ export function LaunchControls({ owner }: { owner: Workbench }) {
   }
   return (
     <section className="launch-panel" aria-label="同传配置">
-      <Tabs
-        value={mode}
-        onValueChange={(v) => {
-          if (!owner.locked) change("mode", v as SessionMode);
-        }}
-      >
-        <div className="workbench-actions">
-          <TabsList variant="line">
-            <TabsTrigger value="live" disabled={owner.locked}>
-              直播
-            </TabsTrigger>
-            <TabsTrigger value="call" disabled={owner.locked}>
-              通话
-            </TabsTrigger>
-          </TabsList>
-          <Button onClick={launch} disabled={owner.locked || !complete}>
-            {owner.pending ? "正在启动" : "开始同传"}
-          </Button>
-        </div>
-        <TabsContent value={mode}>
-          <details
-            className="launch-disclosure"
-            open={!owner.locked || undefined}
-          >
-            <summary>语言与音频配置</summary>
+      <details className="launch-disclosure" open={!owner.locked || undefined}>
+        <summary>
+          <span>语言与音频配置</span>
+          {owner.locked && (
+            <span className="launch-mode">
+              {mode === "call" ? "通话" : "直播"}
+            </span>
+          )}
+        </summary>
+        <Tabs
+          value={mode}
+          onValueChange={(v) => {
+            if (!owner.locked) change("mode", v as SessionMode);
+          }}
+        >
+          <div className="workbench-actions">
+            <TabsList variant="line">
+              <TabsTrigger value="live" disabled={owner.locked}>
+                直播
+              </TabsTrigger>
+              <TabsTrigger value="call" disabled={owner.locked}>
+                通话
+              </TabsTrigger>
+            </TabsList>
+            <Button onClick={launch} disabled={owner.locked || !complete}>
+              {owner.pending ? "正在启动" : "开始同传"}
+            </Button>
+          </div>
+          <TabsContent value={mode}>
             <FieldGroup className="launch-fields">
               <Choice
                 id="source-language"
@@ -228,9 +232,12 @@ export function LaunchControls({ owner }: { owner: Workbench }) {
                 />
               ))}
             </FieldGroup>
-          </details>
-        </TabsContent>
-      </Tabs>
+          </TabsContent>
+        </Tabs>
+        {owner.locked && (
+          <p className="workbench-note">同传占用音频期间，停止后可修改配置。</p>
+        )}
+      </details>
       {preflight && <p role="alert">{preflight}</p>}
       {owner.loading && <p role="status">正在读取本机配置…</p>}
       {!owner.loading && owner.profiles.length === 0 && (
@@ -240,9 +247,6 @@ export function LaunchControls({ owner }: { owner: Workbench }) {
         <p>
           {cap?.unavailable_reason ? "未联调" : "能力未知"}，请检查服务设置。
         </p>
-      )}
-      {owner.locked && (
-        <p className="workbench-note">同传占用音频期间，停止后可修改配置。</p>
       )}
     </section>
   );

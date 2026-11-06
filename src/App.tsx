@@ -36,17 +36,23 @@ function App({ desktop }: { desktop?: DesktopPort }) {
               </Button>
             </div>
           )}
+          {(owner.error || owner.stream.error) && (
+            <Alert className="session-feedback">
+              <AlertTitle>本机会话提示</AlertTitle>
+              <AlertDescription>
+                {owner.error ?? owner.stream.error}
+              </AlertDescription>
+            </Alert>
+          )}
         </>
       }
       renderContent={(route) =>
         route === "knowledge" || route === "history" ? null : (
           <div className="feature-route">
-            {(owner.setupError || owner.error || owner.stream.error) && (
+            {owner.setupError && (
               <Alert>
-                <AlertTitle>本机会话提示</AlertTitle>
-                <AlertDescription>
-                  {owner.error ?? owner.stream.error ?? owner.setupError}
-                </AlertDescription>
+                <AlertTitle>本机配置提示</AlertTitle>
+                <AlertDescription>{owner.setupError}</AlertDescription>
                 {owner.setupError && (
                   <Button
                     variant="outline"
