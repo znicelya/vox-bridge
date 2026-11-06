@@ -434,7 +434,7 @@ impl PlatformAudioBackend {
 }
 ~~~
 
-PlatformAudioBackend implements AudioBackend and privately owns current inventory/locators, endpoint leases and quarantined owners. new performs no OS call. AudioHealth/PlaybackReport are Clone/Debug/PartialEq/Eq; ports are Send channel handles, never CPAL handles. Claim both endpoint leases atomically; at most two pairs for the desktop's one active session. Reject stale/unknown IDs and duplicate leases. Inventory refresh alone never resumes lost audio.
+PlatformAudioBackend implements AudioBackend and privately owns current inventory/locators, endpoint leases and quarantined owners. new performs no OS call. AudioHealth/PlaybackReport are Clone/Debug/PartialEq/Eq; ports are Send channel handles, never CPAL handles. Claim both endpoint leases atomically; at most two pairs for the desktop's one active session. Reject stale/unknown IDs and duplicate leases. Keep generation stable across unchanged sorted endpoint/locator/readiness sets; advance it on actual changes, not a read-only UI refresh. Test unchanged refresh versus genuinely stale opens. Inventory refresh alone never resumes lost audio.
 
 **Outside-owner suppression and measured counters:** Define these audio-free values in domain/transcript.rs with Clone/Debug/PartialEq/Eq/serde; AudioControl::statistics reads them synchronously without an owner lock or acknowledgement. Keep the existing DiagnosticPayload::Playback representation readable and add PlaybackAccounting { boundary: Option<PlaybackBoundary>, statistics: PlaybackStatistics } and CaptureAccounting { statistics: CaptureStatistics }. New runtime diagnostics use the explicit accounting variants; no SQLite migration is needed.
 
@@ -585,7 +585,7 @@ Use tokio::process::Command with individual args, kill_on_drop, idempotent owned
 
 One process-owner actor retains Child and selects exit against termination control, publishing a replayable exit watch. ProcessControl::wait must not hold a Child mutex across child.wait() and block terminate behind that same mutex. Bound owner/control channels and reap once.
 
-Read pactl --format=json list sources and list sinks. Resolve the existing Linux driver names:
+Read bounded pactl --format=json list sources, list sinks and list modules. Verify the exact M1/M2 null-sink set and VoxBridge_Input remap master=VoxBridge_M1.monitor before Ready; name presence alone is insufficient. These independent bounded reads may run together. Test missing/wrong remap using injected process results. Resolve the existing Linux driver names:
 
 | Application role | Exact Pulse device | Direction |
 |---|---|---|
@@ -814,7 +814,7 @@ Commit Task4 paths: feat: compose independent live and call runtimes.
 
 ### Task 5: Durable lifecycle and replayable stop
 
-**Files:** Modify session/{orchestrator,orchestrator_tests,mod}.rs, storage/{sqlite,models,mod}.rs and app/{mod,tests}.rs only as needed to keep constructors compiling.
+**Files:** Modify session/{orchestrator,orchestrator_tests,mod}.rs, storage/{sqlite,models,mod}.rs and app/{mod,tests}.rs; minimally adapt commands.rs create_session to keep the public launch path compiling against the new lifecycle API.
 
 **Consumes:** Task4 launch/context/runtime. Replace production NoopSessionStartup/SessionStartup with actual runtime ownership.
 
@@ -837,7 +837,7 @@ impl SessionOrchestrator {
 }
 ~~~
 
-Keep get/list/stop_session/delete_session/subscribe names. stop_session is repeatable after terminal state. Extend SessionRecord with context: Option<SessionContext> and runtime: Option<RuntimeSnapshot>; legacy context and inactive live-runtime snapshots are None. Keep SessionHandle only if remaining callers need it; create_session uses Starting records.
+Keep get/list/stop_session/delete_session/subscribe names. stop_session is repeatable after terminal state. The existing commands.rs create_session currently calls start(SessionConfig) and then reads SessionHandle.id; adapt it now to the final launch:SessionLaunch argument, load its saved ProviderConfig via the existing ConfigStore API, call start(launch,saved), and return SessionRecord directly. Do not add a temporary frontend-supplied saved-config argument or retain production Noop startup merely for compilation. AppState::new constructs real factory/audio/runtime collaborators without opening native devices/keyring/network. Task 6 centralizes the configured AppState methods, shared config/secret ownership, process lock and bounded transaction worker; avoid duplicating JSON parsing in this compatibility adapter. Extend SessionRecord with context: Option<SessionContext> and runtime: Option<RuntimeSnapshot>; legacy context and inactive live-runtime snapshots are None. Keep SessionHandle only if remaining callers need it; create_session uses Starting records.
 
 - [ ] **1. Add failing concurrent-stop and persistence-failure tests.** Extend RuntimeHarness with orchestrator() -> SessionOrchestrator which calls with_runtime on its Arc collaborators. Its existing fixture row is unrelated to the new ID created by start.
 
