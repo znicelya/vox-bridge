@@ -59,13 +59,14 @@ fn health_for(ids: &[&str]) -> Health {
 #[derive(Clone)]
 struct BlockingHealth {
     ready: Health,
+    blocking_id: &'static str,
     entered: Arc<std_mpsc::Sender<()>>,
     release: Arc<Mutex<std_mpsc::Receiver<()>>>,
 }
 
 impl EndpointHealthCheck for BlockingHealth {
     fn is_ready(&self, endpoint: &AudioEndpoint) -> bool {
-        if endpoint.id == "mic" {
+        if endpoint.id == self.blocking_id {
             let _ = self.entered.send(());
             let _ = self.release.lock().unwrap().recv();
         }
@@ -213,6 +214,7 @@ fn pause_waits_for_in_flight_route_and_blocks_later_delivery() {
     let (pause_done_tx, pause_done_rx) = std_mpsc::channel();
     let health = BlockingHealth {
         ready: health_for(&["mic", "m1"]),
+        blocking_id: "mic",
         entered: Arc::new(entered_tx),
         release: Arc::new(Mutex::new(release_rx)),
     };
@@ -298,4 +300,206 @@ async fn endpoint_loss_pauses_routes_and_requires_explicit_resume() {
         events.recv().await.unwrap(),
         AudioRouterEvent::StatusChanged(AudioRouterStatus::Paused { .. })
     ));
+}
+
+#[tokio::test]
+async fn one_lost_route_stays_paused_while_peer_runs_and_resume_is_direction_scoped() {
+    let graph = AudioGraph::for_call(
+        endpoint("a", AudioDirection::Input),
+        endpoint("m2", AudioDirection::Input),
+        endpoint("m1", AudioDirection::Output),
+        endpoint("speaker", AudioDirection::Output),
+    )
+    .unwrap();
+    let (m1_tx, mut m1_rx) = mpsc::channel(2);
+    let (speaker_tx, mut speaker_rx) = mpsc::channel(2);
+    let health = health_for(&["a", "m2", "m1", "speaker"]);
+    let bus = EventBus::new();
+    let id = uuid::Uuid::new_v4();
+    bus.open_session(id);
+    let mut states = bus.subscribe(id);
+    let router = AudioRouter::for_call_with_events(
+        graph,
+        m1_tx,
+        speaker_tx,
+        health.clone(),
+        id,
+        Arc::new(bus),
+    );
+    let mut events = router.subscribe();
+    health.0.lock().unwrap().retain(|id| id != "m1");
+    assert!(router.route_direction(frame(1), Direction::AtoB).is_err());
+    assert!(matches!(
+        router.direction_status(Direction::AtoB).unwrap(),
+        AudioRouterStatus::Paused { .. }
+    ));
+    assert_eq!(router.status(), AudioRouterStatus::Running);
+    assert!(states.try_recv().is_err());
+    assert!(matches!(
+        events.recv().await.unwrap(),
+        AudioRouterEvent::DirectionStatusChanged {
+            direction: Direction::AtoB,
+            status: AudioRouterStatus::Paused { .. }
+        }
+    ));
+    router.route_direction(frame(2), Direction::BtoA).unwrap();
+    assert_eq!(speaker_rx.recv().await.unwrap().sequence(), 2);
+    health.0.lock().unwrap().push("m1".into());
+    assert!(router.route_direction(frame(3), Direction::AtoB).is_err());
+    assert!(m1_rx.try_recv().is_err());
+    health.0.lock().unwrap().retain(|id| id != "speaker");
+    router.resume_direction(Direction::AtoB).unwrap();
+    router.route_direction(frame(4), Direction::AtoB).unwrap();
+    assert_eq!(m1_rx.recv().await.unwrap().sequence(), 4);
+    assert!(router.resume_direction(Direction::Live).is_err());
+    assert!(
+        router
+            .pause_direction(Direction::Live, "absent".into())
+            .is_err()
+    );
+    assert!(router.direction_status(Direction::Live).is_err());
+}
+
+#[tokio::test]
+async fn closed_output_requires_replacement_and_only_resumes_explicitly() {
+    let graph = AudioGraph::for_call(
+        endpoint("a", AudioDirection::Input),
+        endpoint("m2", AudioDirection::Input),
+        endpoint("m1", AudioDirection::Output),
+        endpoint("speaker", AudioDirection::Output),
+    )
+    .unwrap();
+    let (m1_tx, m1_rx) = mpsc::channel(2);
+    let (speaker_tx, mut speaker_rx) = mpsc::channel(2);
+    let router = AudioRouter::for_call(
+        graph,
+        m1_tx,
+        speaker_tx,
+        health_for(&["a", "m2", "m1", "speaker"]),
+    );
+    drop(m1_rx);
+    assert!(router.route_direction(frame(1), Direction::AtoB).is_err());
+    assert_eq!(router.status(), AudioRouterStatus::Running);
+    router.route_direction(frame(2), Direction::BtoA).unwrap();
+    assert_eq!(speaker_rx.recv().await.unwrap().sequence(), 2);
+    assert!(router.resume_direction(Direction::AtoB).is_err());
+    let (replacement, mut fresh_rx) = mpsc::channel(2);
+    assert!(
+        router
+            .replace_direction_output(Direction::BtoA, replacement.clone())
+            .is_err()
+    );
+    assert!(
+        router
+            .replace_direction_output(Direction::Live, replacement.clone())
+            .is_err()
+    );
+    let (closed, receiver) = mpsc::channel(1);
+    drop(receiver);
+    assert!(
+        router
+            .replace_direction_output(Direction::AtoB, closed)
+            .is_err()
+    );
+    router
+        .replace_direction_output(Direction::AtoB, replacement)
+        .unwrap();
+    assert!(router.route_direction(frame(3), Direction::AtoB).is_err());
+    assert!(fresh_rx.try_recv().is_err());
+    router.route_direction(frame(4), Direction::BtoA).unwrap();
+    assert_eq!(speaker_rx.recv().await.unwrap().sequence(), 4);
+    router.resume_direction(Direction::AtoB).unwrap();
+    router.route_direction(frame(5), Direction::AtoB).unwrap();
+    assert_eq!(fresh_rx.recv().await.unwrap().sequence(), 5);
+    assert!(speaker_rx.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn whole_graph_pause_requires_whole_graph_resume_and_checks_all_outputs() {
+    let graph = AudioGraph::for_call(
+        endpoint("a", AudioDirection::Input),
+        endpoint("m2", AudioDirection::Input),
+        endpoint("m1", AudioDirection::Output),
+        endpoint("speaker", AudioDirection::Output),
+    )
+    .unwrap();
+    let (m1_tx, m1_rx) = mpsc::channel(2);
+    let (speaker_tx, mut speaker_rx) = mpsc::channel(2);
+    let router = AudioRouter::for_call(
+        graph,
+        m1_tx,
+        speaker_tx,
+        health_for(&["a", "m2", "m1", "speaker"]),
+    );
+    router.pause("user pause");
+    let (fresh_tx, _fresh_rx) = mpsc::channel(2);
+    assert!(
+        router
+            .replace_direction_output(Direction::BtoA, fresh_tx)
+            .is_err()
+    );
+    assert!(router.resume_direction(Direction::BtoA).is_err());
+    assert!(router.route_direction(frame(1), Direction::BtoA).is_err());
+    assert!(speaker_rx.try_recv().is_err());
+    router.resume().unwrap();
+    router.route_direction(frame(2), Direction::BtoA).unwrap();
+    assert_eq!(speaker_rx.recv().await.unwrap().sequence(), 2);
+    router
+        .pause_direction(Direction::AtoB, "A paused".into())
+        .unwrap();
+    router
+        .pause_direction(Direction::BtoA, "B paused".into())
+        .unwrap();
+    assert!(matches!(router.status(), AudioRouterStatus::Paused { .. }));
+    router.resume_direction(Direction::BtoA).unwrap();
+    assert_eq!(router.status(), AudioRouterStatus::Running);
+    drop(m1_rx);
+    router.pause("pause before reopen");
+    assert!(router.resume().is_err());
+    assert!(matches!(router.status(), AudioRouterStatus::Paused { .. }));
+    assert!(router.route_direction(frame(3), Direction::BtoA).is_err());
+}
+
+#[test]
+fn checking_one_direction_does_not_hold_the_other_direction_gate() {
+    let graph = AudioGraph::for_call(
+        endpoint("a", AudioDirection::Input),
+        endpoint("m2", AudioDirection::Input),
+        endpoint("m1", AudioDirection::Output),
+        endpoint("speaker", AudioDirection::Output),
+    )
+    .unwrap();
+    let (m1_tx, _m1_rx) = mpsc::channel(2);
+    let (speaker_tx, mut speaker_rx) = mpsc::channel(2);
+    let (entered_tx, entered_rx) = std_mpsc::channel();
+    let (release_tx, release_rx) = std_mpsc::channel();
+    let router = Arc::new(AudioRouter::for_call(
+        graph,
+        m1_tx,
+        speaker_tx,
+        BlockingHealth {
+            ready: health_for(&["a", "m2", "m1", "speaker"]),
+            blocking_id: "a",
+            entered: Arc::new(entered_tx),
+            release: Arc::new(Mutex::new(release_rx)),
+        },
+    ));
+    let forward = router.clone();
+    let blocked = thread::spawn(move || forward.route_direction(frame(1), Direction::AtoB));
+    entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let (done_tx, done_rx) = std_mpsc::channel();
+    let reverse = router.clone();
+    let peer = thread::spawn(move || {
+        done_tx
+            .send(reverse.route_direction(frame(2), Direction::BtoA))
+            .unwrap();
+    });
+    let peer_result = done_rx.recv_timeout(Duration::from_secs(1));
+    release_tx.send(()).unwrap();
+    blocked.join().unwrap().unwrap();
+    peer.join().unwrap();
+    peer_result
+        .expect("peer was blocked by another direction")
+        .unwrap();
+    assert_eq!(speaker_rx.try_recv().unwrap().sequence(), 2);
 }

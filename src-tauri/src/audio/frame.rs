@@ -141,6 +141,16 @@ impl AudioFrame {
         spec: PcmSpec,
         samples: Vec<i16>,
     ) -> AppResult<Self> {
+        Self::at(source, sequence, SystemTime::now(), spec, samples)
+    }
+
+    pub fn at(
+        source: AudioSource,
+        sequence: u64,
+        captured_at: SystemTime,
+        spec: PcmSpec,
+        samples: Vec<i16>,
+    ) -> AppResult<Self> {
         spec.validate()?;
         if samples.is_empty() {
             return Err(AppError::InvalidRequest(
@@ -151,7 +161,7 @@ impl AudioFrame {
         Ok(Self {
             source,
             sequence,
-            captured_at: SystemTime::now(),
+            captured_at,
             spec,
             samples,
         })

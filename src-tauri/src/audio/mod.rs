@@ -3,6 +3,9 @@ pub mod frame;
 pub mod graph;
 #[cfg(debug_assertions)]
 pub mod loopback;
+pub mod packetizer;
+#[cfg(test)]
+mod packetizer_tests;
 pub mod platform;
 pub mod playback;
 pub mod queue;
