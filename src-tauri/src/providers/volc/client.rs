@@ -8,18 +8,19 @@ use crate::{
     audio::frame::AudioFrame,
     config::SecretStore,
     domain::session::{LanguagePair, ProviderId},
+    error::AppResult,
     providers::*,
 };
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
 use tokio::{
     net::TcpStream,
-    sync::{Mutex as AsyncMutex, mpsc, watch},
+    sync::{Mutex as AsyncMutex, Semaphore, mpsc, watch},
     task::JoinHandle,
     time::{Instant, timeout},
 };
@@ -40,6 +41,13 @@ pub fn secret_key(id: Uuid) -> String {
 const CAPACITY: usize = 64;
 const ATTEMPTS: usize = 3;
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+type SecretLookup =
+    Arc<dyn Fn(Arc<SecretStore>, String) -> AppResult<Option<Vec<u8>>> + Send + Sync>;
+
+fn credential_gate() -> Arc<Semaphore> {
+    static GATE: OnceLock<Arc<Semaphore>> = OnceLock::new();
+    GATE.get_or_init(|| Arc::new(Semaphore::new(2))).clone()
+}
 
 #[derive(Clone)]
 struct Timing {
@@ -63,21 +71,27 @@ impl Default for Timing {
 
 pub struct VolcengineProvider {
     secrets: Arc<SecretStore>,
+    credential_gate: Arc<Semaphore>,
     endpoint: String,
     options: StartSessionOptions,
     timing: Timing,
     #[cfg(test)]
     test_roots: Option<rustls::RootCertStore>,
+    #[cfg(test)]
+    test_secret_lookup: Option<SecretLookup>,
 }
 impl VolcengineProvider {
     pub fn new(secrets: Arc<SecretStore>) -> Self {
         Self {
             secrets,
+            credential_gate: credential_gate(),
             endpoint: ENDPOINT.into(),
             options: StartSessionOptions::default(),
             timing: Timing::default(),
             #[cfg(test)]
             test_roots: None,
+            #[cfg(test)]
+            test_secret_lookup: None,
         }
     }
     pub fn with_start_options(mut self, options: StartSessionOptions) -> Self {
@@ -154,6 +168,24 @@ impl VolcengineProvider {
         };
         self
     }
+    #[cfg(test)]
+    pub(super) fn with_test_credential_lookup(
+        mut self,
+        gate: Arc<Semaphore>,
+        lookup: SecretLookup,
+    ) -> Self {
+        self.credential_gate = gate;
+        self.test_secret_lookup = Some(lookup);
+        self
+    }
+
+    fn secret_lookup(&self) -> SecretLookup {
+        #[cfg(test)]
+        if let Some(lookup) = &self.test_secret_lookup {
+            return lookup.clone();
+        }
+        Arc::new(|secrets, key| secrets.get(SECRET_SERVICE, &key))
+    }
 }
 #[async_trait]
 impl TranslationProvider for VolcengineProvider {
@@ -203,14 +235,23 @@ impl TranslationProvider for VolcengineProvider {
         let start = encode_start_session(&config, &self.options)?;
         let secrets = self.secrets.clone();
         let key = secret_key(config.provider_config_id);
-        let api_key = timeout(
-            self.timing.connect,
-            tokio::task::spawn_blocking(move || secrets.get(SECRET_SERVICE, &key)),
-        )
+        let gate = self.credential_gate.clone();
+        let lookup = self.secret_lookup();
+        let api_key = timeout(self.timing.connect, async move {
+            let permit = gate
+                .acquire_owned()
+                .await
+                .map_err(|_| ProviderError::Timeout)?;
+            tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                lookup(secrets, key)
+            })
+            .await
+            .map_err(|_| ProviderError::Authentication)?
+            .map_err(|_| ProviderError::Authentication)
+        })
         .await
-        .map_err(|_| ProviderError::Timeout)?
-        .map_err(|_| ProviderError::Authentication)?
-        .map_err(|_| ProviderError::Authentication)?
+        .map_err(|_| ProviderError::Timeout)??
         .filter(|v| !v.is_empty())
         .ok_or(ProviderError::Authentication)?;
         HeaderValue::from_bytes(&api_key).map_err(|_| ProviderError::Authentication)?;

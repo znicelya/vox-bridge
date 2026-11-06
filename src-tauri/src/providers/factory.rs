@@ -22,6 +22,7 @@ pub struct ProviderFactory {
     test_provider: Option<Arc<dyn TranslationProvider>>,
 }
 /// All direction/configuration validation has completed; no stream is open yet.
+#[derive(Clone)]
 pub struct PreparedProviderSession {
     provider: Arc<dyn TranslationProvider>,
     configs: Vec<ProviderSessionConfig>,
@@ -127,7 +128,7 @@ impl ProviderFactory {
         }
     }
     #[cfg(test)]
-    fn with_test_provider(mut self, provider: Arc<dyn TranslationProvider>) -> Self {
+    pub(crate) fn with_test_provider(mut self, provider: Arc<dyn TranslationProvider>) -> Self {
         self.test_provider = Some(provider);
         self
     }
@@ -135,6 +136,31 @@ impl ProviderFactory {
 impl PreparedProviderSession {
     pub fn configs(&self) -> &[ProviderSessionConfig] {
         &self.configs
+    }
+
+    pub fn provider_id(&self) -> ProviderId {
+        self.provider.id()
+    }
+
+    pub async fn connect_direction(
+        self,
+        direction: SessionDirection,
+    ) -> ProviderResult<DirectedProviderStream> {
+        if direction == SessionDirection::Bidirectional {
+            return Err(ProviderError::InvalidDirection);
+        }
+        let config = self
+            .configs
+            .into_iter()
+            .find(|config| config.direction == direction)
+            .ok_or(ProviderError::InvalidDirection)?;
+        let stream = timeout(
+            Duration::from_secs(10),
+            self.provider.connect(config.clone()),
+        )
+        .await
+        .unwrap_or(Err(ProviderError::Timeout))?;
+        Ok(DirectedProviderStream { config, stream })
     }
 
     /// Opening returns independent streams; callers still must consume each

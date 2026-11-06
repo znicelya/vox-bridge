@@ -26,6 +26,13 @@ fn config() -> ProviderSessionConfig {
     }
 }
 
+fn config_with_output(output: PcmSpec) -> ProviderSessionConfig {
+    ProviderSessionConfig {
+        target_audio: output,
+        ..config()
+    }
+}
+
 fn frame(sequence: u64) -> AudioFrame {
     AudioFrame::new(
         AudioSource::Microphone,
@@ -306,6 +313,63 @@ async fn provider_contract_rejects_data_before_handshake_and_duplicate_handshake
         ));
         assert_eq!(event(&*stream).await, None);
     }
+}
+
+#[tokio::test]
+async fn fixture_gap_suspends_input_and_allows_one_fresh_started_event() {
+    let stream = FixtureProvider::new(
+        FixtureScript::new([
+            FixtureStep::Emit(started()),
+            FixtureStep::Emit(ProviderEvent::Gap {
+                metadata: metadata("gap"),
+            }),
+            FixtureStep::Delay(Duration::from_millis(25)),
+            FixtureStep::Emit(started()),
+            FixtureStep::ReceiveAudio { count: 1 },
+        ])
+        .unwrap(),
+    )
+    .connect(config())
+    .await
+    .unwrap();
+
+    assert!(event(&*stream).await.unwrap().is_session_started());
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    assert_eq!(
+        stream.send_audio(frame(1)).await,
+        Err(ProviderError::NotStarted)
+    );
+    assert!(matches!(
+        event(&*stream).await,
+        Some(ProviderEvent::Gap { .. })
+    ));
+    assert!(event(&*stream).await.unwrap().is_session_started());
+    stream.send_audio(frame(2)).await.unwrap();
+}
+
+#[tokio::test]
+async fn fixture_accepts_bounded_24khz_output_profile() {
+    let output = PcmSpec::pcm16_mono(24_000);
+    let provider = FixtureProvider::new(
+        FixtureScript::with_output_audio(
+            output,
+            [
+                FixtureStep::Emit(started()),
+                FixtureStep::Emit(ProviderEvent::Audio {
+                    metadata: metadata("352"),
+                    frame: AudioFrame::new(AudioSource::Microphone, 0, output, vec![7; 1920])
+                        .unwrap(),
+                }),
+            ],
+        )
+        .unwrap(),
+    );
+    assert_eq!(provider.capabilities().output_audio, output);
+    let stream = provider.connect(config_with_output(output)).await.unwrap();
+    assert!(event(&*stream).await.unwrap().is_session_started());
+    assert!(
+        matches!(event(&*stream).await, Some(ProviderEvent::Audio { frame, .. }) if frame.spec() == output && frame.samples().len() == 1920)
+    );
 }
 
 #[tokio::test]

@@ -162,6 +162,37 @@ async fn factory_validates_both_call_directions_before_connect_and_aligns_metada
     }
 }
 
+#[tokio::test]
+async fn cloned_preparation_connects_only_the_requested_reverse_direction() {
+    let p = Arc::new(ControlledProvider::new());
+    let probe = p.probe.clone();
+    let (_dir, f) = factory();
+    let f = f.with_test_provider(p);
+    let call = SessionConfig::call(LanguagePair::new("en", "zh").unwrap()).unwrap();
+    let prepared = f
+        .prepare(
+            &saved("controlled", "https://api.example.com"),
+            Uuid::new_v4(),
+            &call,
+            INPUT,
+            OUTPUT,
+        )
+        .unwrap();
+
+    let reverse = prepared
+        .clone()
+        .connect_direction(SessionDirection::TargetToSource)
+        .await
+        .unwrap();
+
+    assert_eq!(reverse.config.direction, SessionDirection::TargetToSource);
+    assert_eq!(
+        reverse.config.languages,
+        LanguagePair::new("zh", "en").unwrap()
+    );
+    assert_eq!(probe.opened.lock().unwrap().as_slice(), &[reverse.config]);
+}
+
 #[test]
 fn reverse_live_swaps_languages_without_creating_a_second_stream() {
     let (_dir, f) = factory();

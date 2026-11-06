@@ -24,7 +24,7 @@ use crate::{
 
 pub const FIXTURE_CAPACITY: usize = 64;
 const MAX_EVENT_BYTES: usize = 65_536;
-const NATIVE_SAMPLES: usize = 1280;
+const INPUT_SAMPLES: usize = 1280;
 
 #[derive(Clone, Debug)]
 pub enum FixtureStep {
@@ -43,23 +43,41 @@ pub enum FixtureStep {
 }
 
 #[derive(Clone, Debug)]
-pub struct FixtureScript(Vec<FixtureStep>);
+pub struct FixtureScript {
+    output_audio: PcmSpec,
+    steps: Vec<FixtureStep>,
+}
 
 impl FixtureScript {
     /// At most 64 instructions, each retaining at most 64 KiB of payload.
     /// Stops pulling from the iterator at instruction 65, including infinite ones.
     pub fn new(steps: impl IntoIterator<Item = FixtureStep>) -> ProviderResult<Self> {
+        Self::with_output_audio(PcmSpec::pcm16_mono(16_000), steps)
+    }
+
+    pub fn with_output_audio(
+        output_audio: PcmSpec,
+        steps: impl IntoIterator<Item = FixtureStep>,
+    ) -> ProviderResult<Self> {
+        if !matches!(output_audio.sample_rate(), 16_000 | 24_000)
+            || output_audio != PcmSpec::pcm16_mono(output_audio.sample_rate())
+        {
+            return Err(ProviderError::InvalidScript);
+        }
         let mut bounded = Vec::new();
         for step in steps {
             if bounded.len() == FIXTURE_CAPACITY {
                 return Err(ProviderError::InvalidScript);
             }
             if let FixtureStep::Emit(event) | FixtureStep::EmitRepeated { event, .. } = &step {
-                validate_event_size(event)?;
+                validate_event_size(event, output_audio)?;
             }
             bounded.push(step);
         }
-        Ok(Self(bounded))
+        Ok(Self {
+            output_audio,
+            steps: bounded,
+        })
     }
 
     pub fn started_then_final_text() -> Self {
@@ -93,7 +111,7 @@ impl FixtureScript {
     }
 }
 
-fn validate_event_size(event: &ProviderEvent) -> ProviderResult<()> {
+fn validate_event_size(event: &ProviderEvent, output_audio: PcmSpec) -> ProviderResult<()> {
     let metadata = event.metadata();
     let mut bytes = metadata
         .provider_event_type
@@ -111,8 +129,9 @@ fn validate_event_size(event: &ProviderEvent) -> ProviderResult<()> {
                 .saturating_add(text.translation.language.len());
         }
         ProviderEvent::Audio { frame, .. } => {
-            if frame.spec() != PcmSpec::pcm16_mono(16_000) || frame.samples().len() > NATIVE_SAMPLES
-            {
+            let max_samples = usize::try_from(output_audio.sample_rate() / 1_000 * 80)
+                .map_err(|_| ProviderError::InvalidScript)?;
+            if frame.spec() != output_audio || frame.samples().len() > max_samples {
                 return Err(ProviderError::InvalidScript);
             }
             bytes = bytes.saturating_add(frame.samples().len().saturating_mul(2));
@@ -146,7 +165,7 @@ impl TranslationProvider for FixtureProvider {
                 LanguagePair::new("zh", "en").unwrap(),
             ],
             input_audio: PcmSpec::pcm16_mono(16_000),
-            output_audio: PcmSpec::pcm16_mono(16_000),
+            output_audio: self.0.output_audio,
             native_chunk_duration: Duration::from_millis(80),
             supports_tts: true,
             supports_bidirectional: true,
@@ -234,7 +253,7 @@ impl ProviderConnection for FixtureConnection {
         if frame.spec() != PcmSpec::pcm16_mono(16_000) {
             return Err(ProviderError::UnsupportedAudioFormat);
         }
-        if frame.samples().len() > NATIVE_SAMPLES {
+        if frame.samples().len() > INPUT_SAMPLES {
             return Err(ProviderError::InvalidAudioFrame);
         }
         self.audio.try_send(frame).map_err(|error| match error {
@@ -295,7 +314,7 @@ struct Actor {
 
 impl Actor {
     async fn run(mut self, script: FixtureScript) {
-        for step in script.0 {
+        for step in script.steps {
             if *self.control.borrow() == Control::Cancel {
                 return;
             }
@@ -378,6 +397,14 @@ impl Actor {
                     return false;
                 }
                 state.started = true;
+            } else if matches!(event, ProviderEvent::Gap { .. }) {
+                if !state.started {
+                    drop(state);
+                    self.fail(ProviderError::Protocol);
+                    return false;
+                }
+                state.started = false;
+                while self.audio.try_recv().is_ok() {}
             } else if matches!(event, ProviderEvent::Failed { .. }) {
                 state.close(event);
                 return false;

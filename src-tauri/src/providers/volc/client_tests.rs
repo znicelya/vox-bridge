@@ -262,7 +262,10 @@ fn preserves_interim_start_time_from_actual_start_boundary() {
 use super::client::*;
 use crate::{audio::frame::AudioFrame, config::SecretStore, domain::audio::AudioSource};
 use futures_util::{SinkExt, StreamExt};
-use std::sync::Arc;
+use std::sync::{
+    Arc, Condvar, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 use tokio::{net::TcpListener, sync::oneshot, time::timeout};
 use tokio_tungstenite::{accept_hdr_async, tungstenite::Message as WsMessage};
 
@@ -1209,4 +1212,58 @@ async fn tls_fixture_root_injection_cannot_change_a_remote_endpoint() {
         VolcengineProvider::new(secrets).with_test_root(certificate),
         Err(ProviderError::Protocol)
     ));
+}
+
+#[tokio::test]
+async fn blocked_credential_work_is_bounded_across_fresh_provider_instances() {
+    let dir = tempfile::tempdir().unwrap();
+    let secrets = Arc::new(SecretStore::for_tests(dir.path()).unwrap());
+    let gate = Arc::new(tokio::sync::Semaphore::new(2));
+    let release = Arc::new((Mutex::new(false), Condvar::new()));
+    let active = Arc::new(AtomicUsize::new(0));
+    let maximum = Arc::new(AtomicUsize::new(0));
+    let lookup = {
+        let release = release.clone();
+        let active = active.clone();
+        let maximum = maximum.clone();
+        Arc::new(move |_secrets: Arc<SecretStore>, _key: String| {
+            let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+            maximum.fetch_max(current, Ordering::SeqCst);
+            let (lock, changed) = &*release;
+            let mut released = lock.lock().unwrap();
+            while !*released {
+                released = changed.wait(released).unwrap();
+            }
+            active.fetch_sub(1, Ordering::SeqCst);
+            Ok(Some(b"fixture-api-key".to_vec()))
+        })
+    };
+    let providers = (0..3)
+        .map(|_| {
+            VolcengineProvider::new(secrets.clone())
+                .with_test_timeouts()
+                .with_test_credential_lookup(gate.clone(), lookup.clone())
+        })
+        .collect::<Vec<_>>();
+    let first = providers[0].connect(config());
+    let second = providers[1].connect(config());
+    let third = providers[2].connect(config());
+    let results = tokio::join!(first, second, third);
+    assert!(matches!(results.0, Err(ProviderError::Timeout)));
+    assert!(matches!(results.1, Err(ProviderError::Timeout)));
+    assert!(matches!(results.2, Err(ProviderError::Timeout)));
+    assert_eq!(maximum.load(Ordering::SeqCst), 2);
+    assert_eq!(active.load(Ordering::SeqCst), 2);
+    {
+        let (lock, changed) = &*release;
+        *lock.lock().unwrap() = true;
+        changed.notify_all();
+    }
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while active.load(Ordering::SeqCst) != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
 }
