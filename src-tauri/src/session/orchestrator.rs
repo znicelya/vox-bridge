@@ -1,17 +1,20 @@
 use std::{
-    collections::HashMap,
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use tokio::sync::watch;
 use uuid::Uuid;
 
 use crate::{
+    config::ProviderConfig,
     domain::{
-        session::{SessionConfig, SessionDirection, SessionMode},
+        launch::{
+            DirectionPhase, DirectionSnapshot, RuntimeOutcome, RuntimePhase, RuntimeSnapshot,
+            SessionContext, SessionLaunch,
+        },
+        session::{SessionDirection, SessionMode},
         transcript::RuntimeFailureCode,
     },
     error::{AppError, AppResult},
@@ -69,6 +72,8 @@ pub struct SessionRecord {
     pub source_language: String,
     pub target_language: String,
     pub status: SessionStatus,
+    pub context: Option<SessionContext>,
+    pub runtime: Option<RuntimeSnapshot>,
 }
 
 impl SessionRecord {
@@ -97,6 +102,8 @@ impl SessionRecord {
             source_language: session.source_language,
             target_language: session.target_language,
             status: SessionStatus::parse(&lifecycle.status)?,
+            context: None,
+            runtime: None,
         })
     }
     fn to_storage(&self) -> StoredSession {
@@ -120,29 +127,38 @@ impl SessionRecord {
     }
 }
 
-#[derive(Clone, Debug)]
+// A single short-held mutex governs admission and stop election. Preparation and
+// cleanup are never performed while holding it.
+type ActiveState = Arc<Mutex<Option<SessionOperation>>>;
+type SessionCompletion = Option<Result<SessionRecord, String>>;
+
+struct SessionOperation {
+    id: Uuid,
+    provider_config_id: Uuid,
+    attached: Option<ActiveSession>,
+}
+
 struct ActiveSession {
     record: SessionRecord,
-    startup_done: Arc<tokio::sync::Notify>,
+    runtime: super::RunningSession,
+    stop: watch::Sender<bool>,
+    completion: watch::Receiver<SessionCompletion>,
 }
 
-#[async_trait]
-pub trait SessionStartup: Send + Sync {
-    async fn start(&self, config: &SessionConfig) -> AppResult<()>;
-    async fn rollback(&self, config: &SessionConfig) -> AppResult<()>;
+struct Reservation {
+    active: ActiveState,
+    id: Uuid,
 }
 
-#[derive(Debug, Default)]
-pub struct NoopSessionStartup;
-
-#[async_trait]
-impl SessionStartup for NoopSessionStartup {
-    async fn start(&self, _config: &SessionConfig) -> AppResult<()> {
-        Ok(())
-    }
-
-    async fn rollback(&self, _config: &SessionConfig) -> AppResult<()> {
-        Ok(())
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        let mut active = self.active.lock().unwrap();
+        if active
+            .as_ref()
+            .is_some_and(|operation| operation.id == self.id && operation.attached.is_none())
+        {
+            *active = None;
+        }
     }
 }
 
@@ -150,8 +166,8 @@ impl SessionStartup for NoopSessionStartup {
 pub struct SessionOrchestrator {
     store: Arc<LocalStore>,
     event_bus: EventBus,
-    active: Arc<RwLock<HashMap<Uuid, ActiveSession>>>,
-    startup: Arc<dyn SessionStartup>,
+    active: ActiveState,
+    runtime: Arc<super::TranslationRuntime>,
 }
 
 impl std::fmt::Debug for SessionOrchestrator {
@@ -163,26 +179,19 @@ impl std::fmt::Debug for SessionOrchestrator {
 }
 
 impl SessionOrchestrator {
-    pub fn new(store: Arc<LocalStore>, event_bus: EventBus) -> Self {
-        Self {
-            store,
-            event_bus,
-            active: Arc::new(RwLock::new(HashMap::new())),
-            startup: Arc::new(NoopSessionStartup),
-        }
-    }
-    pub fn with_startup(
+    pub fn with_runtime(
         store: Arc<LocalStore>,
         event_bus: EventBus,
-        startup: Arc<dyn SessionStartup>,
+        runtime: Arc<super::TranslationRuntime>,
     ) -> Self {
         Self {
             store,
             event_bus,
-            active: Arc::new(RwLock::new(HashMap::new())),
-            startup,
+            active: Arc::new(Mutex::new(None)),
+            runtime,
         }
     }
+
     pub fn store(&self) -> &Arc<LocalStore> {
         &self.store
     }
@@ -190,133 +199,271 @@ impl SessionOrchestrator {
         &self.event_bus
     }
 
-    pub async fn start(&self, config: SessionConfig) -> AppResult<SessionHandle> {
-        let id = Uuid::new_v4();
-        let now = now_seconds();
+    pub async fn start(
+        &self,
+        launch: SessionLaunch,
+        saved: ProviderConfig,
+    ) -> AppResult<SessionRecord> {
+        let reservation = {
+            let mut active = self.active.lock().unwrap();
+            if active.is_some() {
+                return Err(AppError::InvalidRequest(
+                    "stop the active session first".into(),
+                ));
+            }
+            let id = Uuid::new_v4();
+            *active = Some(SessionOperation {
+                id,
+                provider_config_id: launch.provider_config_id,
+                attached: None,
+            });
+            Reservation {
+                active: self.active.clone(),
+                id,
+            }
+        };
+        let id = reservation.id;
+        let prepared = self.runtime.prepare(id, &launch, &saved).await?;
+        let directions = match launch.config.direction() {
+            SessionDirection::Bidirectional => vec![
+                SessionDirection::SourceToTarget,
+                SessionDirection::TargetToSource,
+            ],
+            direction => vec![direction],
+        };
         let record = SessionRecord {
             id,
-            started_at: now,
+            started_at: now_seconds(),
             ended_at: None,
-            mode: config.mode(),
-            direction: config.direction(),
-            source_language: config.languages().source().to_string(),
-            target_language: config.languages().target().to_string(),
+            mode: launch.config.mode(),
+            direction: launch.config.direction(),
+            source_language: launch.config.languages().source().into(),
+            target_language: launch.config.languages().target().into(),
             status: SessionStatus::Starting,
+            context: Some(prepared.context().clone()),
+            // This is the committed initial state. Only the observer exposes
+            // newer runtime snapshots, after their lifecycle write succeeds.
+            runtime: Some(RuntimeSnapshot {
+                phase: RuntimePhase::Starting,
+                directions: directions
+                    .into_iter()
+                    .map(|direction| DirectionSnapshot {
+                        direction,
+                        phase: DirectionPhase::Starting,
+                        stream_epoch: 0,
+                        failure: None,
+                    })
+                    .collect(),
+                outcome: None,
+            }),
         };
-        self.store.create_session(&record.to_storage())?;
         self.store
-            .update_session_lifecycle(&StoredSessionLifecycle {
-                session_id: id,
-                status: SessionStatus::Starting.as_str().into(),
-                ended_at: None,
-            })?;
-        let startup_done = Arc::new(tokio::sync::Notify::new());
+            .create_runtime_session(&record.to_storage(), prepared.context())?;
+        // No await from durable admission through runtime attachment and observer
+        // spawn: dropping a caller can only drop the reservation or the result.
         self.event_bus.open_session(id);
-        self.active.write().await.insert(
-            id,
-            ActiveSession {
-                record: record.clone(),
-                startup_done: startup_done.clone(),
-            },
-        );
         let _ = self
             .event_bus
             .publish(id, SessionEvent::status(id, "starting"));
-
-        let startup_orchestrator = self.clone();
-        let startup_config = config.clone();
+        let (stop, stop_rx) = watch::channel(false);
+        let (completion, completion_rx) = watch::channel(None);
+        let running = self.runtime.start(prepared);
+        {
+            let mut active = self.active.lock().unwrap();
+            active.as_mut().expect("reserved session").attached = Some(ActiveSession {
+                record: record.clone(),
+                runtime: running.clone(),
+                stop,
+                completion: completion_rx,
+            });
+        }
+        let owner = self.clone();
+        let initial = record.clone();
         tokio::spawn(async move {
-            startup_orchestrator
-                .finish_startup(id, startup_config, startup_done)
-                .await;
+            owner.observe(initial, running, stop_rx, completion).await;
         });
-
-        Ok(SessionHandle {
-            id,
-            orchestrator: self.clone(),
-        })
+        Ok(record)
     }
 
-    async fn finish_startup(
-        &self,
-        id: Uuid,
-        config: SessionConfig,
-        startup_done: Arc<tokio::sync::Notify>,
-    ) {
-        if self.startup.start(&config).await.is_err() {
-            let failed = self
-                .store
-                .update_session_lifecycle(&StoredSessionLifecycle {
-                    session_id: id,
-                    status: SessionStatus::Failed.as_str().into(),
-                    ended_at: Some(now_seconds()),
-                });
-            if failed.is_err() {
-                self.emit_startup_error(id, RuntimeFailureCode::Storage);
-                self.active.write().await.remove(&id);
-                startup_done.notify_one();
-                return;
-            }
-            self.active.write().await.remove(&id);
-            self.emit_startup_error(id, RuntimeFailureCode::Provider);
-            startup_done.notify_one();
-            return;
-        }
+    pub(crate) async fn uses_provider_config(&self, config_id: Uuid) -> bool {
+        self.active
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|operation| operation.provider_config_id == config_id)
+    }
 
-        if self
+    pub async fn resume_direction(&self, id: Uuid, direction: SessionDirection) -> AppResult<()> {
+        let runtime = {
+            let active = self.active.lock().unwrap();
+            let session = active
+                .as_ref()
+                .filter(|op| op.id == id)
+                .and_then(|op| op.attached.as_ref())
+                .ok_or(AppError::SessionNotFound(id))?;
+            if *session.stop.borrow() {
+                return Err(AppError::InvalidRequest("runtime is stopping".into()));
+            }
+            session.runtime.clone()
+        };
+        runtime.resume_direction(direction).await
+    }
+
+    // The observer alone writes lifecycle transitions and owns cleanup, even if
+    // all stop callers are cancelled. Runtime watches may coalesce transitions.
+    async fn observe(
+        &self,
+        mut record: SessionRecord,
+        running: super::RunningSession,
+        mut stop: watch::Receiver<bool>,
+        completion: watch::Sender<SessionCompletion>,
+    ) {
+        let mut status = running.status();
+        let mut storage_failed = false;
+        let outcome = loop {
+            if *stop.borrow_and_update() {
+                if self
+                    .persist_phase(&mut record, SessionStatus::Stopping)
+                    .is_err()
+                {
+                    storage_failed = true;
+                }
+                break running.stop().await;
+            }
+            let snapshot = status.borrow_and_update().clone();
+            if snapshot.phase == RuntimePhase::Stopped {
+                break snapshot.outcome.unwrap_or(RuntimeOutcome::Failed {
+                    codes: vec![RuntimeFailureCode::CleanupTimeout],
+                });
+            }
+            let phase = match snapshot.phase {
+                RuntimePhase::Starting => SessionStatus::Starting,
+                RuntimePhase::Running => SessionStatus::Running,
+                RuntimePhase::Paused => SessionStatus::Paused,
+                RuntimePhase::Stopping => SessionStatus::Stopping,
+                RuntimePhase::Stopped => unreachable!(),
+            };
+            if self.persist_phase(&mut record, phase).is_err() {
+                storage_failed = true;
+                break running.stop().await;
+            }
+            record.runtime = Some(snapshot);
+            self.update_active_record(&record);
+            tokio::select! {
+                biased;
+                _ = stop.changed() => {},
+                changed = status.changed() => {
+                    if changed.is_err() { break running.stop().await; }
+                }
+            }
+        };
+        record.runtime = None;
+        record.ended_at = Some(now_seconds());
+        record.status = if storage_failed || matches!(outcome, RuntimeOutcome::Failed { .. }) {
+            SessionStatus::Failed
+        } else {
+            SessionStatus::Completed
+        };
+        let persisted = self
             .store
             .update_session_lifecycle(&StoredSessionLifecycle {
-                session_id: id,
-                status: SessionStatus::Running.as_str().into(),
-                ended_at: None,
+                session_id: record.id,
+                status: record.status.as_str().into(),
+                ended_at: record.ended_at,
             })
-            .is_err()
-        {
-            let _ = self.startup.rollback(&config).await;
-            let ended_at = Some(now_seconds());
-            let failed = self
-                .store
-                .update_session_lifecycle(&StoredSessionLifecycle {
-                    session_id: id,
-                    status: SessionStatus::Failed.as_str().into(),
-                    ended_at,
-                });
-            if failed.is_err() {
-                self.emit_startup_error(id, RuntimeFailureCode::Storage);
-                self.active.write().await.remove(&id);
-                startup_done.notify_one();
-                return;
+            .is_ok();
+        storage_failed |= !persisted;
+        let failure = if storage_failed {
+            Some(RuntimeFailureCode::Storage)
+        } else if let RuntimeOutcome::Failed { codes } = outcome {
+            codes.into_iter().next()
+        } else {
+            None
+        };
+        let final_event = if let Some(code) = failure {
+            let event = runtime_failure_event(record.id, code);
+            let SessionEvent::Diagnostic { diagnostic } = &event else {
+                unreachable!("runtime failure is a diagnostic");
+            };
+            if self.store.append_diagnostic(diagnostic).is_err() {
+                storage_failed = true;
+                runtime_failure_event(record.id, RuntimeFailureCode::Storage)
+            } else {
+                event
             }
-            self.active.write().await.remove(&id);
-            self.emit_startup_error(id, RuntimeFailureCode::Storage);
-            startup_done.notify_one();
-            return;
+        } else {
+            SessionEvent::status(record.id, record.status.as_str())
+        };
+        self.event_bus.close_with_final(record.id, final_event);
+        let result = if storage_failed {
+            Err("session lifecycle persistence failed".into())
+        } else {
+            Ok(record.clone())
+        };
+        // Publish before removing the operation. Attached receivers retain this
+        // result; later calls consult durable state rather than an error cache.
+        let mut active = self.active.lock().unwrap();
+        completion.send_replace(Some(result));
+        if active.as_ref().is_some_and(|op| op.id == record.id) {
+            *active = None;
         }
-        if let Some(active) = self.active.write().await.get_mut(&id) {
-            active.record.status = SessionStatus::Running;
-        }
-        let _ = self
-            .event_bus
-            .publish(id, SessionEvent::status(id, "running"));
-        startup_done.notify_one();
     }
 
-    fn emit_startup_error(&self, id: Uuid, code: RuntimeFailureCode) {
-        self.event_bus
-            .close_with_final(id, runtime_failure_event(id, code));
+    fn persist_phase(&self, record: &mut SessionRecord, status: SessionStatus) -> AppResult<()> {
+        if record.status == status {
+            return Ok(());
+        }
+        self.store
+            .update_session_lifecycle(&StoredSessionLifecycle {
+                session_id: record.id,
+                status: status.as_str().into(),
+                ended_at: None,
+            })?;
+        record.status = status;
+        self.update_active_record(record);
+        let _ = self
+            .event_bus
+            .publish(record.id, SessionEvent::status(record.id, status.as_str()));
+        Ok(())
+    }
+
+    fn update_active_record(&self, record: &SessionRecord) {
+        let mut active = self.active.lock().unwrap();
+        if let Some(session) = active
+            .as_mut()
+            .filter(|op| op.id == record.id)
+            .and_then(|op| op.attached.as_mut())
+        {
+            session.record = record.clone();
+        }
     }
 
     pub async fn get(&self, id: Uuid) -> AppResult<Option<SessionRecord>> {
-        let session = self.store.get_session(id)?;
-        let Some(session) = session else {
+        let Some(session) = self.store.get_session(id)? else {
             return Ok(None);
         };
         let lifecycle = self
             .store
             .get_session_lifecycle(id)?
             .ok_or(AppError::SessionNotFound(id))?;
-        Ok(Some(SessionRecord::from_storage(session, lifecycle)?))
+        let mut record = SessionRecord::from_storage(session, lifecycle)?;
+        record.context = self.store.session_context(id)?;
+        if !matches!(
+            record.status,
+            SessionStatus::Failed | SessionStatus::Completed
+        ) {
+            record.runtime = self
+                .active
+                .lock()
+                .unwrap()
+                .as_ref()
+                .filter(|op| op.id == id)
+                .and_then(|op| op.attached.as_ref())
+                .and_then(|session| session.record.runtime.clone());
+        }
+        Ok(Some(record))
     }
+
     pub async fn list(&self, limit: u32, cursor: Option<String>) -> AppResult<Vec<SessionRecord>> {
         let summaries = self.store.list_sessions(limit, cursor)?;
         let mut records = Vec::with_capacity(summaries.len());
@@ -327,53 +474,53 @@ impl SessionOrchestrator {
         }
         Ok(records)
     }
+
     pub async fn stop_session(&self, id: Uuid) -> AppResult<SessionRecord> {
-        let mut active = self.active.write().await;
-        if let Some(session) = active.get(&id)
-            && session.record.status == SessionStatus::Starting
-        {
-            let startup_done = session.startup_done.clone();
-            drop(active);
-            startup_done.notified().await;
-            return Box::pin(self.stop_session(id)).await;
+        let completion = {
+            let active = self.active.lock().unwrap();
+            active
+                .as_ref()
+                .filter(|op| op.id == id)
+                .and_then(|op| op.attached.as_ref())
+                .map(|session| {
+                    if !*session.stop.borrow() {
+                        session.stop.send_replace(true);
+                    }
+                    session.completion.clone()
+                })
+        };
+        if let Some(mut completion) = completion {
+            loop {
+                if let Some(result) = completion.borrow_and_update().clone() {
+                    return result.map_err(AppError::Internal);
+                }
+                if completion.changed().await.is_err() {
+                    return Err(AppError::Internal(
+                        "session lifecycle owner stopped unexpectedly".into(),
+                    ));
+                }
+            }
         }
-        let session = active.get_mut(&id).ok_or(AppError::SessionNotFound(id))?;
-        let mut record = session.record.clone();
-        record.status = SessionStatus::Stopping;
-        if let Err(error) = self
-            .store
-            .update_session_lifecycle(&StoredSessionLifecycle {
-                session_id: id,
-                status: SessionStatus::Stopping.as_str().into(),
-                ended_at: None,
-            })
-        {
-            self.emit_storage_error(id);
-            return Err(error);
+        let record = self.get(id).await?.ok_or(AppError::SessionNotFound(id))?;
+        if matches!(
+            record.status,
+            SessionStatus::Completed | SessionStatus::Failed
+        ) {
+            return Ok(record);
         }
-        session.record = record.clone();
-        record.status = SessionStatus::Completed;
-        record.ended_at = Some(now_seconds());
-        if let Err(error) = self
-            .store
-            .update_session_lifecycle(&StoredSessionLifecycle {
-                session_id: id,
-                status: SessionStatus::Completed.as_str().into(),
-                ended_at: record.ended_at,
-            })
-        {
-            self.emit_storage_error(id);
-            return Err(error);
-        }
-        active.remove(&id);
-        self.event_bus
-            .close_with_final(id, SessionEvent::status(id, "completed"));
-        Ok(record)
+        Err(AppError::InvalidRequest(
+            "session has no active runtime; lifecycle recovery is required".into(),
+        ))
     }
 
     pub async fn delete_session(&self, id: Uuid) -> AppResult<()> {
-        let active = self.active.read().await;
-        if active.contains_key(&id) {
+        if self
+            .active
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|op| op.id == id)
+        {
             return Err(AppError::InvalidRequest(
                 "cannot delete an active session; stop it first".into(),
             ));
@@ -390,8 +537,12 @@ impl SessionOrchestrator {
         &self,
         id: Uuid,
     ) -> AppResult<tokio::sync::broadcast::Receiver<SessionEvent>> {
-        let active = self.active.read().await;
-        if let Some(session) = active.get(&id) {
+        let active = self.active.lock().unwrap();
+        if let Some(session) = active
+            .as_ref()
+            .filter(|op| op.id == id)
+            .and_then(|op| op.attached.as_ref())
+        {
             if let Some(receiver) = self.event_bus.try_subscribe(id) {
                 let _ = self
                     .event_bus
@@ -399,34 +550,13 @@ impl SessionOrchestrator {
                 return Ok(receiver);
             }
         }
+        drop(active);
         if self.store.get_session(id)?.is_none() {
             return Err(AppError::SessionNotFound(id));
         }
-        if let Some(receiver) = self.event_bus.subscribe_or_replay(id) {
-            return Ok(receiver);
-        }
-        Err(AppError::InvalidRequest(
-            "session event stream is unavailable".into(),
-        ))
-    }
-
-    fn emit_storage_error(&self, id: Uuid) {
-        let _ = self
-            .event_bus
-            .publish(id, runtime_failure_event(id, RuntimeFailureCode::Storage));
-    }
-}
-
-pub struct SessionHandle {
-    id: Uuid,
-    orchestrator: SessionOrchestrator,
-}
-impl SessionHandle {
-    pub fn id(&self) -> Uuid {
-        self.id
-    }
-    pub async fn stop(self) -> AppResult<SessionRecord> {
-        self.orchestrator.stop_session(self.id).await
+        self.event_bus
+            .subscribe_or_replay(id)
+            .ok_or_else(|| AppError::InvalidRequest("session event stream is unavailable".into()))
     }
 }
 
@@ -445,11 +575,7 @@ fn runtime_failure_event(id: Uuid, code: RuntimeFailureCode) -> SessionEvent {
             session_id: id,
             direction: None,
             stream_epoch: None,
-            occurred_at_ms: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .ok()
-                .and_then(|duration| i64::try_from(duration.as_millis()).ok())
-                .unwrap_or(0),
+            occurred_at_ms: super::runtime::now_ms(),
             payload: DiagnosticPayload::Failure {
                 code,
                 provider_code: None,

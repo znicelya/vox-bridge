@@ -4,7 +4,7 @@ use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use crate::{
-    app::AppState, domain::session::SessionConfig, error::AppError, export::ExportFormat,
+    app::AppState, domain::launch::SessionLaunch, error::AppError, export::ExportFormat,
     session::SessionRecord,
 };
 
@@ -37,19 +37,19 @@ pub fn export_session(
 #[tauri::command]
 pub async fn create_session(
     state: State<'_, AppState>,
-    config: SessionConfig,
+    launch: SessionLaunch,
 ) -> Result<SessionRecord, String> {
-    let handle = state
-        .orchestrator()
-        .start(config)
+    let config_id = launch.provider_config_id;
+    let saved = state
+        .config_io()
+        .run(move |transaction| transaction.load_provider_config(config_id))
         .await
         .map_err(command_error)?;
     state
         .orchestrator()
-        .get(handle.id())
+        .start(launch, saved)
         .await
-        .map_err(command_error)?
-        .ok_or_else(|| "[INTERNAL_ERROR] created session disappeared".into())
+        .map_err(command_error)
 }
 
 #[tauri::command]

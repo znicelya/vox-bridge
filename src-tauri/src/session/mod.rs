@@ -3,10 +3,7 @@ pub mod orchestrator;
 #[cfg(test)]
 mod orchestrator_tests;
 
-pub use orchestrator::{
-    NoopSessionStartup, SessionHandle, SessionOrchestrator, SessionRecord, SessionStartup,
-    SessionStatus,
-};
+pub use orchestrator::{SessionOrchestrator, SessionRecord, SessionStatus};
 
 #[cfg(test)]
 mod transcript_sink_tests;

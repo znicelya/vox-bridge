@@ -232,6 +232,8 @@ pub(crate) struct FixtureAudioBackend {
     open_ports: Arc<AtomicUsize>,
     total_opens: Arc<AtomicUsize>,
     open_calls: Arc<AtomicUsize>,
+    inventory_calls: Arc<AtomicUsize>,
+    inventory_gate: Arc<Mutex<Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>>>,
 }
 
 impl FixtureAudioBackend {
@@ -279,6 +281,8 @@ impl FixtureAudioBackend {
             open_ports: Arc::new(AtomicUsize::new(0)),
             total_opens: Arc::new(AtomicUsize::new(0)),
             open_calls: Arc::new(AtomicUsize::new(0)),
+            inventory_calls: Arc::new(AtomicUsize::new(0)),
+            inventory_gate: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -389,6 +393,17 @@ impl FixtureAudioBackend {
             state.inventory.driver = driver;
             state.inventory.generation = Uuid::new_v4();
         }
+    }
+
+    pub(crate) fn inventory_calls(&self) -> usize {
+        self.inventory_calls.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn block_inventory(&self) -> (oneshot::Receiver<()>, oneshot::Sender<()>) {
+        let (entered, receive) = oneshot::channel();
+        let (release, wait) = oneshot::channel();
+        *self.inventory_gate.lock().unwrap() = Some((entered, wait));
+        (receive, release)
     }
 
     pub(crate) fn open_ports(&self) -> usize {
@@ -670,6 +685,12 @@ impl Drop for FixtureControl {
 #[async_trait]
 impl AudioBackend for FixtureAudioBackend {
     async fn inventory(&self) -> AppResult<AudioInventory> {
+        self.inventory_calls.fetch_add(1, Ordering::SeqCst);
+        let gate = self.inventory_gate.lock().unwrap().take();
+        if let Some((entered, release)) = gate {
+            let _ = entered.send(());
+            let _ = release.await;
+        }
         Ok(self.state.lock().unwrap().inventory.clone())
     }
 
@@ -1173,6 +1194,20 @@ pub(crate) struct RuntimeHarness {
 }
 
 impl RuntimeHarness {
+    pub(crate) fn orchestrator(&self) -> super::SessionOrchestrator {
+        super::SessionOrchestrator::with_runtime(
+            self.store.clone(),
+            self.bus.clone(),
+            self.runtime.clone(),
+        )
+    }
+
+    pub(crate) fn fail_starting_insert(&self) {
+        rusqlite::Connection::open(self._dir.path().join("vox-bridge.sqlite")).unwrap().execute_batch(
+            "CREATE TRIGGER reject_starting BEFORE INSERT ON session_lifecycle WHEN NEW.status = 'starting' BEGIN SELECT RAISE(ABORT, 'injected starting failure'); END;"
+        ).unwrap();
+    }
+
     pub(crate) fn fail_final_capture_accounting_writes(&self) {
         rusqlite::Connection::open(self._dir.path().join("vox-bridge.sqlite"))
             .unwrap()

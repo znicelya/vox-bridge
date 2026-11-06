@@ -4,8 +4,12 @@ use super::models::{
 };
 use crate::{
     domain::{
+        launch::SessionContext,
         session::SessionDirection,
-        transcript::{DiagnosticPage, RuntimeDiagnostic, TranscriptPage, TranscriptUpdate},
+        transcript::{
+            DiagnosticPage, DiagnosticPayload, RuntimeDiagnostic, RuntimeFailureCode,
+            TranscriptPage, TranscriptUpdate,
+        },
     },
     error::{AppError, AppResult},
 };
@@ -80,6 +84,87 @@ impl LocalStore {
         )?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// Admission is atomic: no runtime may open until this transaction commits.
+    pub fn create_runtime_session(
+        &self,
+        session: &StoredSession,
+        context: &SessionContext,
+    ) -> AppResult<()> {
+        let context_json = json(context)?;
+        let mut connection = self.connection.lock().unwrap();
+        let tx = connection.transaction()?;
+        tx.execute(
+            "INSERT INTO sessions (id,started_at,mode,direction,source_language,target_language) VALUES (?1,?2,?3,?4,?5,?6)",
+            params![session.id.to_string(), session.started_at, session.mode, session.direction, session.source_language, session.target_language],
+        )?;
+        tx.execute("INSERT INTO session_lifecycle (session_id,status,ended_at) VALUES (?1,'starting',NULL)", params![session.id.to_string()])?;
+        tx.execute(
+            "INSERT INTO session_runtime_context (session_id,context_json) VALUES (?1,?2)",
+            params![session.id.to_string(), context_json],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn session_context(&self, session_id: Uuid) -> AppResult<Option<SessionContext>> {
+        let encoded: Option<String> = self
+            .connection
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT context_json FROM session_runtime_context WHERE session_id=?1",
+                params![session_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        encoded
+            .map(|value| {
+                serde_json::from_str(&value)
+                    .map_err(|_| AppError::Internal("cannot decode session context".into()))
+            })
+            .transpose()
+    }
+
+    /// Caller must hold the exclusive data-directory process owner before recovery.
+    /// The transaction retains transcript/context and never reopens runtime resources.
+    pub fn interrupt_incomplete_sessions(&self, ended_at: i64) -> AppResult<Vec<Uuid>> {
+        let occurred_at_ms = ended_at
+            .checked_mul(1000)
+            .ok_or_else(|| AppError::InvalidRequest("recovery timestamp out of range".into()))?;
+        let mut connection = self.connection.lock().unwrap();
+        let tx = connection.transaction()?;
+        let ids = {
+            let mut query = tx.prepare("SELECT session_id FROM session_lifecycle WHERE status IN ('created','starting','running','stopping','paused') ORDER BY session_id")?;
+            let rows = query.query_map([], |row| row.get::<_, String>(0))?;
+            rows.map(|row| {
+                Uuid::parse_str(&row?)
+                    .map_err(|_| AppError::Internal("invalid stored session ID".into()))
+            })
+            .collect::<AppResult<Vec<_>>>()?
+        };
+        for id in &ids {
+            tx.execute(
+                "UPDATE session_lifecycle SET status='failed',ended_at=?2 WHERE session_id=?1",
+                params![id.to_string(), ended_at],
+            )?;
+            let diagnostic = RuntimeDiagnostic {
+                id: Uuid::new_v4(),
+                session_id: *id,
+                direction: None,
+                stream_epoch: None,
+                occurred_at_ms,
+                payload: DiagnosticPayload::Failure {
+                    code: RuntimeFailureCode::Interrupted,
+                    provider_code: None,
+                    log_id: None,
+                },
+            };
+            tx.execute("INSERT INTO session_diagnostics (id,session_id,occurred_at_ms,payload_json) VALUES (?1,?2,?3,?4)", params![diagnostic.id.to_string(), id.to_string(), occurred_at_ms, json(&diagnostic)?])?;
+        }
+        tx.commit()?;
+        Ok(ids)
     }
 
     pub fn update_session_lifecycle(&self, lifecycle: &StoredSessionLifecycle) -> AppResult<()> {
