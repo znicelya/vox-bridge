@@ -48,6 +48,9 @@ use crate::{
 #[path = "fixture_audio_tests.rs"]
 mod fixture_audio_tests;
 
+#[path = "fixture_provider_tests.rs"]
+mod fixture_provider_tests;
+
 pub(crate) fn metadata() -> ProviderEventMetadata {
     ProviderEventMetadata {
         session_id: Uuid::nil(),
@@ -790,7 +793,10 @@ pub(crate) struct ObservedFixtureProvider {
     scripts: [FixtureScript; 2],
     connects: Arc<[AtomicUsize; 2]>,
     finishes: Arc<[AtomicUsize; 2]>,
+    cancels: Arc<[AtomicUsize; 2]>,
+    send_calls: Arc<[AtomicUsize; 2]>,
     sent: Arc<[Mutex<Vec<u64>>; 2]>,
+    samples: Arc<[Mutex<VecDeque<Vec<i16>>>; 2]>,
     sent_at: Arc<[Mutex<Vec<Instant>>; 2]>,
     queue_full_next: Arc<[AtomicBool; 2]>,
     queue_full_count: Arc<[AtomicUsize; 2]>,
@@ -798,26 +804,107 @@ pub(crate) struct ObservedFixtureProvider {
     send_gates: Arc<[GapGate; 2]>,
     gap_gates: Arc<[GapGate; 2]>,
     terminal_gates: Arc<[GapGate; 2]>,
+    finish_gates: Arc<[GapGate; 2]>,
+    cancel_gates: Arc<[GapGate; 2]>,
+    started_gates: Arc<[GapGate; 2]>,
+    final_gates: Arc<[GapGate; 2]>,
 }
 
 #[derive(Default)]
 struct GapGate {
-    blocked: AtomicBool,
-    released: AtomicBool,
+    state: Mutex<GateState>,
     changed: Notify,
+    entered: Notify,
+}
+
+#[derive(Default)]
+struct GateState {
+    generation: Uuid,
+    blocked: bool,
+    entered: bool,
+}
+
+impl GapGate {
+    async fn wait(&self) {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            {
+                let mut state = self.state.lock().unwrap();
+                if !state.blocked {
+                    return;
+                }
+                if !state.entered {
+                    state.entered = true;
+                    self.entered.notify_waiters();
+                }
+            }
+            changed.await;
+        }
+    }
 }
 
 pub(crate) struct GapRelease {
     gate: Arc<[GapGate; 2]>,
     direction: usize,
+    generation: Uuid,
 }
 
 impl GapRelease {
+    fn hold(gate: Arc<[GapGate; 2]>, direction: usize) -> Self {
+        let generation = Uuid::new_v4();
+        *gate[direction].state.lock().unwrap() = GateState {
+            generation,
+            blocked: true,
+            entered: false,
+        };
+        gate[direction].changed.notify_waiters();
+        gate[direction].entered.notify_waiters();
+        Self {
+            gate,
+            direction,
+            generation,
+        }
+    }
+
+    /// True only when the operation/event reached this still-current hold.
+    pub(crate) async fn wait_entered(&self) -> bool {
+        let gate = &self.gate[self.direction];
+        loop {
+            let entered = gate.entered.notified();
+            tokio::pin!(entered);
+            entered.as_mut().enable();
+            {
+                let state = gate.state.lock().unwrap();
+                if state.generation != self.generation {
+                    return false;
+                }
+                if state.entered {
+                    return true;
+                }
+                if !state.blocked {
+                    return false;
+                }
+            }
+            entered.await;
+        }
+    }
+
     pub(crate) fn release(self) {
-        self.gate[self.direction]
-            .released
-            .store(true, Ordering::SeqCst);
-        self.gate[self.direction].changed.notify_waiters();
+        drop(self);
+    }
+}
+
+impl Drop for GapRelease {
+    fn drop(&mut self) {
+        let gate = &self.gate[self.direction];
+        let mut state = gate.state.lock().unwrap();
+        if state.generation == self.generation {
+            state.blocked = false;
+            gate.changed.notify_waiters();
+            gate.entered.notify_waiters();
+        }
     }
 }
 
@@ -827,7 +914,10 @@ impl ObservedFixtureProvider {
             scripts: [forward, reverse],
             connects: Arc::new(std::array::from_fn(|_| AtomicUsize::new(0))),
             finishes: Arc::new(std::array::from_fn(|_| AtomicUsize::new(0))),
+            cancels: Arc::new(std::array::from_fn(|_| AtomicUsize::new(0))),
+            send_calls: Arc::new(std::array::from_fn(|_| AtomicUsize::new(0))),
             sent: Arc::new(std::array::from_fn(|_| Mutex::new(Vec::new()))),
+            samples: Arc::new(std::array::from_fn(|_| Mutex::new(VecDeque::new()))),
             sent_at: Arc::new(std::array::from_fn(|_| Mutex::new(Vec::new()))),
             queue_full_next: Arc::new(std::array::from_fn(|_| AtomicBool::new(false))),
             queue_full_count: Arc::new(std::array::from_fn(|_| AtomicUsize::new(0))),
@@ -835,6 +925,10 @@ impl ObservedFixtureProvider {
             send_gates: Arc::new(std::array::from_fn(|_| GapGate::default())),
             gap_gates: Arc::new(std::array::from_fn(|_| GapGate::default())),
             terminal_gates: Arc::new(std::array::from_fn(|_| GapGate::default())),
+            finish_gates: Arc::new(std::array::from_fn(|_| GapGate::default())),
+            cancel_gates: Arc::new(std::array::from_fn(|_| GapGate::default())),
+            started_gates: Arc::new(std::array::from_fn(|_| GapGate::default())),
+            final_gates: Arc::new(std::array::from_fn(|_| GapGate::default())),
         }
     }
 
@@ -844,6 +938,23 @@ impl ObservedFixtureProvider {
 
     pub(crate) fn finish_counts(&self) -> [usize; 2] {
         std::array::from_fn(|i| self.finishes[i].load(Ordering::SeqCst))
+    }
+
+    pub(crate) fn cancel_counts(&self) -> [usize; 2] {
+        std::array::from_fn(|i| self.cancels[i].load(Ordering::SeqCst))
+    }
+
+    pub(crate) fn send_calls(&self) -> [usize; 2] {
+        std::array::from_fn(|i| self.send_calls[i].load(Ordering::SeqCst))
+    }
+
+    pub(crate) fn sent_samples(&self, direction: SessionDirection) -> Vec<Vec<i16>> {
+        self.samples[index(direction)]
+            .lock()
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect()
     }
 
     pub(crate) fn sent_sequences(&self, direction: SessionDirection) -> Vec<u64> {
@@ -867,45 +978,31 @@ impl ObservedFixtureProvider {
     }
 
     pub(crate) fn delay_send(&self, direction: SessionDirection) -> GapRelease {
-        let direction = index(direction);
-        self.send_gates[direction]
-            .released
-            .store(false, Ordering::SeqCst);
-        self.send_gates[direction]
-            .blocked
-            .store(true, Ordering::SeqCst);
-        GapRelease {
-            gate: self.send_gates.clone(),
-            direction,
-        }
+        GapRelease::hold(self.send_gates.clone(), index(direction))
     }
 
     pub(crate) fn delay_gap(&self, direction: SessionDirection) -> GapRelease {
-        let direction = index(direction);
-        self.gap_gates[direction]
-            .released
-            .store(false, Ordering::SeqCst);
-        self.gap_gates[direction]
-            .blocked
-            .store(true, Ordering::SeqCst);
-        GapRelease {
-            gate: self.gap_gates.clone(),
-            direction,
-        }
+        GapRelease::hold(self.gap_gates.clone(), index(direction))
     }
 
     pub(crate) fn delay_terminal(&self, direction: SessionDirection) -> GapRelease {
-        let direction = index(direction);
-        self.terminal_gates[direction]
-            .released
-            .store(false, Ordering::SeqCst);
-        self.terminal_gates[direction]
-            .blocked
-            .store(true, Ordering::SeqCst);
-        GapRelease {
-            gate: self.terminal_gates.clone(),
-            direction,
-        }
+        GapRelease::hold(self.terminal_gates.clone(), index(direction))
+    }
+
+    pub(crate) fn delay_finish(&self, direction: SessionDirection) -> GapRelease {
+        GapRelease::hold(self.finish_gates.clone(), index(direction))
+    }
+
+    pub(crate) fn delay_cancel(&self, direction: SessionDirection) -> GapRelease {
+        GapRelease::hold(self.cancel_gates.clone(), index(direction))
+    }
+
+    pub(crate) fn delay_started(&self, direction: SessionDirection) -> GapRelease {
+        GapRelease::hold(self.started_gates.clone(), index(direction))
+    }
+
+    pub(crate) fn delay_final(&self, direction: SessionDirection) -> GapRelease {
+        GapRelease::hold(self.final_gates.clone(), index(direction))
     }
 }
 
@@ -929,7 +1026,10 @@ impl TranslationProvider for ObservedFixtureProvider {
             inner: stream,
             direction,
             finishes: self.finishes.clone(),
+            cancels: self.cancels.clone(),
+            send_calls: self.send_calls.clone(),
             sent: self.sent.clone(),
+            samples: self.samples.clone(),
             sent_at: self.sent_at.clone(),
             queue_full_next: self.queue_full_next.clone(),
             queue_full_count: self.queue_full_count.clone(),
@@ -937,6 +1037,10 @@ impl TranslationProvider for ObservedFixtureProvider {
             send_gates: self.send_gates.clone(),
             gap_gates: self.gap_gates.clone(),
             terminal_gates: self.terminal_gates.clone(),
+            finish_gates: self.finish_gates.clone(),
+            cancel_gates: self.cancel_gates.clone(),
+            started_gates: self.started_gates.clone(),
+            final_gates: self.final_gates.clone(),
             held_event: AsyncMutex::new(None),
         }))
     }
@@ -946,7 +1050,10 @@ struct ObservedConnection {
     inner: ProviderStream,
     direction: usize,
     finishes: Arc<[AtomicUsize; 2]>,
+    cancels: Arc<[AtomicUsize; 2]>,
+    send_calls: Arc<[AtomicUsize; 2]>,
     sent: Arc<[Mutex<Vec<u64>>; 2]>,
+    samples: Arc<[Mutex<VecDeque<Vec<i16>>>; 2]>,
     sent_at: Arc<[Mutex<Vec<Instant>>; 2]>,
     queue_full_next: Arc<[AtomicBool; 2]>,
     queue_full_count: Arc<[AtomicUsize; 2]>,
@@ -954,30 +1061,37 @@ struct ObservedConnection {
     send_gates: Arc<[GapGate; 2]>,
     gap_gates: Arc<[GapGate; 2]>,
     terminal_gates: Arc<[GapGate; 2]>,
+    finish_gates: Arc<[GapGate; 2]>,
+    cancel_gates: Arc<[GapGate; 2]>,
+    started_gates: Arc<[GapGate; 2]>,
+    final_gates: Arc<[GapGate; 2]>,
     held_event: AsyncMutex<Option<ProviderEvent>>,
 }
 
 #[async_trait]
 impl ProviderConnection for ObservedConnection {
     async fn send_audio(&self, frame: AudioFrame) -> ProviderResult<()> {
-        let gate = &self.send_gates[self.direction];
-        loop {
-            let changed = gate.changed.notified();
-            if !gate.blocked.load(Ordering::SeqCst) || gate.released.load(Ordering::SeqCst) {
-                break;
-            }
-            changed.await;
-        }
+        self.send_calls[self.direction].fetch_add(1, Ordering::SeqCst);
+        self.send_gates[self.direction].wait().await;
         if self.queue_full_next[self.direction].swap(false, Ordering::SeqCst) {
             self.queue_full_count[self.direction].fetch_add(1, Ordering::SeqCst);
             return Err(crate::providers::ProviderError::QueueFull);
         }
         let sequence = frame.sequence();
+        // Retain only validated-size candidate samples; rejected sends are never observed.
+        let observed_samples = (frame.samples().len() <= 1280).then(|| frame.samples().to_vec());
         if let Err(error) = self.inner.send_audio(frame).await {
             if error == crate::providers::ProviderError::NotStarted {
                 self.not_started_count[self.direction].fetch_add(1, Ordering::SeqCst);
             }
             return Err(error);
+        }
+        if let Some(observed_samples) = observed_samples {
+            let mut samples = self.samples[self.direction].lock().unwrap();
+            if samples.len() == 64 {
+                samples.pop_front();
+            }
+            samples.push_back(observed_samples);
         }
         self.sent[self.direction].lock().unwrap().push(sequence);
         self.sent_at[self.direction]
@@ -989,10 +1103,13 @@ impl ProviderConnection for ObservedConnection {
 
     async fn finish(&self) -> ProviderResult<()> {
         self.finishes[self.direction].fetch_add(1, Ordering::SeqCst);
+        self.finish_gates[self.direction].wait().await;
         self.inner.finish().await
     }
 
     async fn cancel(&self) -> ProviderResult<()> {
+        self.cancels[self.direction].fetch_add(1, Ordering::SeqCst);
+        self.cancel_gates[self.direction].wait().await;
         self.inner.cancel().await
     }
 
@@ -1005,25 +1122,23 @@ impl ProviderConnection for ObservedConnection {
                 held = self.held_event.lock().await;
                 *held = event;
             }
-            let gate = &self.gap_gates[self.direction];
-            let blocked_gap = matches!(held.as_ref(), Some(ProviderEvent::Gap { .. }))
-                && gate.blocked.load(Ordering::SeqCst)
-                && !gate.released.load(Ordering::SeqCst);
-            let terminal_gate = &self.terminal_gates[self.direction];
-            let blocked_terminal = matches!(
-                held.as_ref(),
-                Some(ProviderEvent::Finished { .. } | ProviderEvent::Failed { .. })
-            ) && terminal_gate.blocked.load(Ordering::SeqCst)
-                && !terminal_gate.released.load(Ordering::SeqCst);
-            if blocked_gap || blocked_terminal {
-                let changed = if blocked_gap {
-                    gate.changed.notified()
-                } else {
-                    terminal_gate.changed.notified()
-                };
+            let gate = match held.as_ref() {
+                Some(ProviderEvent::SessionStarted { .. }) => {
+                    Some(&self.started_gates[self.direction])
+                }
+                Some(
+                    ProviderEvent::SourceFinal { .. } | ProviderEvent::TranslationFinal { .. },
+                ) => Some(&self.final_gates[self.direction]),
+                Some(ProviderEvent::Gap { .. }) => Some(&self.gap_gates[self.direction]),
+                Some(ProviderEvent::Finished { .. } | ProviderEvent::Failed { .. }) => {
+                    Some(&self.terminal_gates[self.direction])
+                }
+                _ => None,
+            };
+            if let Some(gate) = gate {
                 drop(held);
-                changed.await;
-                continue;
+                gate.wait().await;
+                held = self.held_event.lock().await;
             }
             return Ok(held.take());
         }
