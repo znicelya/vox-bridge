@@ -144,7 +144,7 @@ impl TranslationRuntime {
             context: SessionContext {
                 launch: launch.clone(),
                 provider: provider_id.clone(),
-                provider_name: provider_id.as_str().to_owned(),
+                provider_name: saved.display_name().to_owned(),
                 endpoints,
             },
             provider,

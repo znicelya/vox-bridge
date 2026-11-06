@@ -17,12 +17,16 @@ pub(crate) struct ConfigIo {
     permits: Arc<Semaphore>,
     data_dir: PathBuf,
     deadline: Duration,
+    #[cfg(test)]
+    faults: Arc<Mutex<std::collections::HashSet<&'static str>>>,
 }
 
 pub(crate) struct ConfigTransaction<'a> {
     store: &'a mut ConfigStore,
     _config_lock: fs::File,
     secret_lock: Option<fs::File>,
+    #[cfg(test)]
+    faults: Arc<Mutex<std::collections::HashSet<&'static str>>>,
 }
 
 enum EntryState {
@@ -57,16 +61,25 @@ impl ConfigIo {
             permits,
             data_dir,
             deadline,
+            #[cfg(test)]
+            faults: Arc::default(),
         }
     }
 
     #[cfg(test)]
-    pub(super) fn with_runtime_for_tests(
+    pub(crate) fn with_runtime_for_tests(
         store: ConfigStore,
         permits: Arc<Semaphore>,
         deadline: Duration,
     ) -> Self {
         Self::with_runtime(store, permits, deadline)
+    }
+
+    /// Integration fault seam: one method fails before mutating; all other
+    /// transaction methods still execute real locking/encryption/persistence.
+    #[cfg(test)]
+    pub(crate) fn fail_next_for_tests(&self, operation: &'static str) {
+        self.faults.lock().unwrap().insert(operation);
     }
 
     pub(crate) fn data_dir(&self) -> &Path {
@@ -84,6 +97,8 @@ impl ConfigIo {
         };
         let permits = Arc::clone(&self.permits);
         let store = Arc::clone(&self.store);
+        #[cfg(test)]
+        let faults = self.faults.clone();
         let work = async move {
             let permit = permits
                 .acquire_owned()
@@ -117,6 +132,8 @@ impl ConfigIo {
                     store: &mut store,
                     _config_lock: config_lock,
                     secret_lock: None,
+                    #[cfg(test)]
+                    faults,
                 };
                 operation(&mut transaction)
             });
@@ -134,6 +151,23 @@ impl ConfigIo {
 }
 
 impl ConfigTransaction<'_> {
+    #[cfg(test)]
+    fn check_fault(&self, operation: &'static str) -> AppResult<()> {
+        if self.faults.lock().unwrap().remove(operation) {
+            return Err(AppError::Configuration(
+                "injected configuration IO failure".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Reserved for the approved service-config transaction consumer"
+        )
+    )]
     pub(crate) fn data_dir(&self) -> &Path {
         self.store.data_dir()
     }
@@ -147,6 +181,8 @@ impl ConfigTransaction<'_> {
     }
 
     pub(crate) fn save_provider_config(&mut self, config: ProviderConfig) -> AppResult<()> {
+        #[cfg(test)]
+        self.check_fault("save_config")?;
         self.store.save_provider_config_locked(config)
     }
 
@@ -154,6 +190,13 @@ impl ConfigTransaction<'_> {
         self.store.delete_provider_config_locked(id)
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Reserved for the approved intelligence credential transaction consumer"
+        )
+    )]
     pub(crate) fn secret_get(&mut self, service: &str, key: &str) -> AppResult<Option<Vec<u8>>> {
         self.ensure_secret_lock()?;
         self.store.secret_store().get_locked(service, key)
@@ -171,6 +214,8 @@ impl ConfigTransaction<'_> {
 
     pub(crate) fn secret_delete(&mut self, service: &str, key: &str) -> AppResult<()> {
         self.ensure_secret_lock()?;
+        #[cfg(test)]
+        self.check_fault("delete_secret")?;
         self.store.secret_store().delete_locked(service, key)
     }
 
@@ -190,6 +235,8 @@ impl ConfigTransaction<'_> {
         prior: EncryptedSecretSnapshot,
     ) -> AppResult<()> {
         self.ensure_secret_lock()?;
+        #[cfg(test)]
+        self.check_fault("restore_secret")?;
         self.store
             .secret_store()
             .restore_locked(service, key, prior)

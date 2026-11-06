@@ -66,7 +66,7 @@ pub struct ProviderSessionConfig {
     pub provider_config_id: Uuid,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct ProviderCapabilities {
     pub language_pairs: Vec<LanguagePair>,
     pub input_audio: PcmSpec,

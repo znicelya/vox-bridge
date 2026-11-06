@@ -495,6 +495,23 @@ impl SessionOrchestrator {
         Ok(records)
     }
 
+    /// Consult the authoritative active operation. Pending preparation is
+    /// cancelled and joined by AppState's admission barrier before its final pass.
+    /// Copy the ID under the mutex; existing stop retains observer completion.
+    pub(crate) async fn stop_active(&self) -> AppResult<()> {
+        let id = self
+            .active
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|operation| operation.attached.is_some())
+            .map(|operation| operation.id);
+        if let Some(id) = id {
+            self.stop_session(id).await?;
+        }
+        Ok(())
+    }
+
     pub async fn stop_session(&self, id: Uuid) -> AppResult<SessionRecord> {
         let completion = {
             let active = self.active.lock().unwrap();

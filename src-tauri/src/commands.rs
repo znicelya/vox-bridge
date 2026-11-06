@@ -1,18 +1,25 @@
 pub(crate) mod subscriptions;
-
-use tauri::{AppHandle, Emitter, State};
-use uuid::Uuid;
-
 use crate::{
-    app::AppState, domain::launch::SessionLaunch, error::AppError, export::ExportFormat,
+    app::{
+        AppState, LaunchValidation, ProviderConfigView, SaveProviderRequest, SubscriptionTicket,
+    },
+    audio::platform::{DriverStatus, inventory::AudioInventory},
+    domain::{
+        launch::SessionLaunch,
+        session::SessionDirection,
+        transcript::{DiagnosticPage, TranscriptPage},
+    },
+    error::{AppError, AppResult},
+    export::ExportFormat,
+    providers::ProviderCapabilities,
     session::SessionRecord,
 };
-
+use tauri::{AppHandle, Emitter, State};
+use uuid::Uuid;
 fn command_error(error: AppError) -> String {
     format!("[{}] {}", error.code(), error)
 }
 
-/// Development-only synthetic diagnostics; never opens audio hardware or a provider.
 #[cfg(debug_assertions)]
 #[tauri::command]
 pub async fn dev_audio_loopback(
@@ -24,13 +31,63 @@ pub async fn dev_audio_loopback(
 }
 
 #[tauri::command]
-pub fn export_session(
+pub async fn list_audio_endpoints(state: State<'_, AppState>) -> Result<AudioInventory, String> {
+    state.list_audio_endpoints().await.map_err(command_error)
+}
+
+#[tauri::command]
+pub async fn audio_driver_status(state: State<'_, AppState>) -> Result<DriverStatus, String> {
+    state.audio_driver_status().await.map_err(command_error)
+}
+
+#[tauri::command]
+pub async fn list_provider_configs(
     state: State<'_, AppState>,
-    session_id: Uuid,
-    format: ExportFormat,
-    destination: std::path::PathBuf,
-) -> Result<std::path::PathBuf, String> {
-    crate::export::export_session(state.store(), session_id, format, &destination)
+) -> Result<Vec<ProviderConfigView>, String> {
+    state.list_provider_configs().await.map_err(command_error)
+}
+
+#[tauri::command]
+pub async fn save_provider_config(
+    state: State<'_, AppState>,
+    request: SaveProviderRequest,
+) -> Result<ProviderConfigView, String> {
+    state
+        .save_provider_config(request)
+        .await
+        .map_err(command_error)
+}
+
+#[tauri::command]
+pub async fn delete_provider_config(
+    state: State<'_, AppState>,
+    config_id: Uuid,
+) -> Result<(), String> {
+    state
+        .delete_provider_config(config_id)
+        .await
+        .map_err(command_error)
+}
+
+#[tauri::command]
+pub async fn provider_capabilities(
+    state: State<'_, AppState>,
+    config_id: Uuid,
+) -> Result<ProviderCapabilities, String> {
+    state
+        .provider_capabilities(config_id)
+        .await
+        .map_err(command_error)
+}
+
+#[tauri::command]
+pub async fn validate_session_launch(
+    state: State<'_, AppState>,
+    launch: SessionLaunch,
+) -> Result<LaunchValidation, String> {
+    state
+        .validate_session_launch(launch)
+        .await
         .map_err(command_error)
 }
 
@@ -39,17 +96,7 @@ pub async fn create_session(
     state: State<'_, AppState>,
     launch: SessionLaunch,
 ) -> Result<SessionRecord, String> {
-    let config_id = launch.provider_config_id;
-    let saved = state
-        .config_io()
-        .run(move |transaction| transaction.load_provider_config(config_id))
-        .await
-        .map_err(command_error)?;
-    state
-        .orchestrator()
-        .start(launch, saved)
-        .await
-        .map_err(command_error)
+    state.create_session(launch).await.map_err(command_error)
 }
 
 #[tauri::command]
@@ -57,22 +104,17 @@ pub async fn stop_session(
     state: State<'_, AppState>,
     session_id: Uuid,
 ) -> Result<SessionRecord, String> {
-    state
-        .orchestrator()
-        .stop_session(session_id)
-        .await
-        .map_err(command_error)
+    state.stop_session(session_id).await.map_err(command_error)
 }
 
 #[tauri::command]
-pub async fn list_sessions(
+pub async fn resume_session_direction(
     state: State<'_, AppState>,
-    limit: Option<u32>,
-    cursor: Option<String>,
-) -> Result<Vec<SessionRecord>, String> {
+    session_id: Uuid,
+    direction: SessionDirection,
+) -> Result<(), String> {
     state
-        .orchestrator()
-        .list(limit.unwrap_or(50).min(200), cursor)
+        .resume_session_direction(session_id, direction)
         .await
         .map_err(command_error)
 }
@@ -82,9 +124,17 @@ pub async fn get_session(
     state: State<'_, AppState>,
     session_id: Uuid,
 ) -> Result<Option<SessionRecord>, String> {
+    state.get_session(session_id).await.map_err(command_error)
+}
+
+#[tauri::command]
+pub async fn list_sessions(
+    state: State<'_, AppState>,
+    limit: Option<u32>,
+    cursor: Option<String>,
+) -> Result<Vec<SessionRecord>, String> {
     state
-        .orchestrator()
-        .get(session_id)
+        .list_sessions(limit, cursor)
         .await
         .map_err(command_error)
 }
@@ -92,32 +142,84 @@ pub async fn get_session(
 #[tauri::command]
 pub async fn delete_session(state: State<'_, AppState>, session_id: Uuid) -> Result<(), String> {
     state
-        .orchestrator()
         .delete_session(session_id)
         .await
         .map_err(command_error)
 }
 
 #[tauri::command]
+pub async fn unsubscribe_session(
+    state: State<'_, AppState>,
+    subscription_id: Uuid,
+) -> Result<(), String> {
+    state
+        .unsubscribe_session(subscription_id)
+        .await
+        .map_err(command_error)
+}
+
+#[tauri::command]
+pub async fn export_session(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    format: ExportFormat,
+    destination: std::path::PathBuf,
+) -> Result<std::path::PathBuf, String> {
+    state
+        .export_session(session_id, format, destination)
+        .await
+        .map_err(command_error)
+}
+
+#[tauri::command]
+pub fn get_session_transcript(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    after: Option<i64>,
+    limit: Option<u32>,
+) -> Result<TranscriptPage, String> {
+    state
+        .get_session_transcript(session_id, after, limit)
+        .map_err(command_error)
+}
+
+#[tauri::command]
+pub fn get_session_diagnostics(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    after: Option<i64>,
+    limit: Option<u32>,
+) -> Result<DiagnosticPage, String> {
+    state
+        .get_session_diagnostics(session_id, after, limit)
+        .map_err(command_error)
+}
+
+struct TauriEmitter(AppHandle);
+#[async_trait::async_trait]
+impl subscriptions::FrontendEmitter for TauriEmitter {
+    async fn emit(&self, event_name: &str, event: &crate::events::SessionEvent) -> AppResult<()> {
+        self.0
+            .emit(event_name, event)
+            .map_err(|_| AppError::Internal("frontend emit failed".into()))
+    }
+}
+#[tauri::command]
 pub async fn subscribe_session(
     app: AppHandle,
     state: State<'_, AppState>,
     session_id: Uuid,
-) -> Result<String, String> {
-    let event_name = format!("voxbridge://session/{session_id}");
-    let mut receiver = state
-        .orchestrator()
-        .subscribe(session_id)
+    subscriber_id: String,
+) -> Result<SubscriptionTicket, String> {
+    state
+        .subscribe_session(
+            session_id,
+            subscriber_id,
+            std::sync::Arc::new(TauriEmitter(app)),
+        )
         .await
-        .map_err(command_error)?;
-    let app = app.clone();
-    let name = event_name.clone();
-    tauri::async_runtime::spawn(async move {
-        while let Ok(event) = receiver.recv().await {
-            if app.emit(&name, event).is_err() {
-                break;
-            }
-        }
-    });
-    Ok(event_name)
+        .map_err(command_error)
 }
+#[cfg(test)]
+#[path = "commands_tests.rs"]
+mod tests;

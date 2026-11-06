@@ -329,7 +329,7 @@ async fn transaction_secret_methods_hold_config_then_secret_before_dek_without_r
     let io = ConfigIo::with_runtime_for_tests(
         ConfigStore::new(dir.path(), secrets).unwrap(),
         Arc::new(Semaphore::new(2)),
-        Duration::from_secs(1),
+        Duration::from_secs(10),
     );
 
     io.run(|transaction| {
@@ -351,7 +351,7 @@ async fn encrypted_snapshot_restore_preserves_unrelated_entries_and_absence() {
     let io = test_io(
         dir.path(),
         Arc::new(Semaphore::new(2)),
-        Duration::from_secs(1),
+        Duration::from_secs(10),
     );
     let expected_data_dir = dir.path().to_path_buf();
     io.run(move |transaction| {

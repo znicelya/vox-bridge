@@ -16,7 +16,7 @@ use std::{
 const KEY_SERVICE: &str = "com.voxbridge.secrets";
 const KEY_ACCOUNT: &str = "data-encryption-key";
 
-pub(super) trait KeyBackend: Send + Sync {
+pub(crate) trait KeyBackend: Send + Sync {
     fn load_or_create(&self, lock_path: &Path) -> AppResult<Vec<u8>>;
 }
 struct OsKeyring;
@@ -99,11 +99,11 @@ impl SecretStore {
         )
     }
     #[cfg(test)]
-    pub(super) fn test_backend() -> Arc<dyn KeyBackend> {
+    pub(crate) fn test_backend() -> Arc<dyn KeyBackend> {
         Arc::new(MemoryKeyring(std::sync::Mutex::new(None)))
     }
     #[cfg(test)]
-    pub(super) fn with_test_backend(
+    pub(crate) fn with_test_backend(
         data_dir: impl AsRef<Path>,
         backend: Arc<dyn KeyBackend>,
     ) -> AppResult<Self> {

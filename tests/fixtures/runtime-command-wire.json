@@ -1,0 +1,25 @@
+{
+  "launchEnvelope": {
+    "launch": {
+      "config": {"mode":"live","direction":"source_to_target","languages":{"source":"en","target":"zh"}},
+      "provider_config_id":"00000000-0000-0000-0000-000000000001",
+      "devices":{"mode":"live","input_id":"live-input","m1_output_id":"m1-render"}
+    }
+  },
+  "saveEnvelope": {
+    "request": {
+      "config": {
+        "id":"00000000-0000-0000-0000-000000000001",
+        "provider":"volcengine", "display_name":"My provider",
+        "endpoint":"wss://openspeech.bytedance.com/api/v4/ast/v2/translate",
+        "llm":null,"embedding":null,"tavily":null,"language_capabilities":[],"secret_reference":null
+      },
+      "credential":{"action":"replace","api_key":"synthetic-wire-fixture-only"}
+    }
+  },
+  "idArguments": {"configId":"00000000-0000-0000-0000-000000000001","sessionId":"00000000-0000-0000-0000-000000000002","subscriberId":"opaque-window-token","subscriptionId":"00000000-0000-0000-0000-000000000003"},
+  "credentialActions":[{"action":"keep"},{"action":"clear"},{"action":"replace","api_key":"synthetic-wire-fixture-only"}],
+  "audioSerialization":{"driver":"Ready","approval":{"NeedsApproval":"Approve the driver"},"failed":{"Failed":"Unavailable"},"direction":"Input","role":"M1Render","backend":"Pulse"},
+  "capabilities":{"language_pairs":[{"source":"en","target":"zh"}],"input_audio":{"sample_rate":16000,"channels":1,"sample_format":"i16"},"output_audio":{"sample_rate":24000,"channels":1,"sample_format":"i16"},"native_chunk_duration":{"secs":0,"nanos":80000000},"supports_tts":true,"supports_bidirectional":true,"ready":true,"unavailable_reason":null},
+  "outcomes":[{"status":"completed"},{"status":"failed","codes":["provider","cleanup_timeout"]}]
+}
