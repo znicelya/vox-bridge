@@ -22,6 +22,25 @@ use uuid::Uuid;
 pub struct JobContext {
     pub id: Uuid,
     pub cancel: watch::Receiver<bool>,
+    fence: JobAdmissionFence,
+}
+impl JobContext {
+    /// Caller already owns SQLite; generation control is acquired only inside it.
+    pub(crate) fn commit<T>(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        operation: impl FnOnce() -> AppResult<T>,
+    ) -> AppResult<T> {
+        self.fence.run(|| {
+            if *self.cancel.borrow()
+                || store::job_in_transaction(tx, self.id)?
+                    .is_none_or(|job| job.status != JobStatus::Running)
+            {
+                return Err(error(IntelligenceErrorCode::Cancelled));
+            }
+            operation()
+        })
+    }
 }
 #[async_trait::async_trait]
 pub trait JobHandler: Send + Sync {
@@ -30,6 +49,33 @@ pub trait JobHandler: Send + Sync {
         context: JobContext,
         payload: serde_json::Value,
     ) -> Result<(), IntelligenceErrorCode>;
+    /// Domain metadata only. No filesystem/config access while SQLite is held.
+    fn terminal_tx(
+        &self,
+        _tx: &rusqlite::Transaction<'_>,
+        _id: Uuid,
+        _status: JobStatus,
+        _code: Option<IntelligenceErrorCode>,
+        _awaiting_reap: bool,
+    ) -> AppResult<()> {
+        Ok(())
+    }
+    async fn cleanup(&self, _reaped: Option<Uuid>) -> AppResult<()> {
+        Ok(())
+    }
+    async fn cleanup_after_stop(&self) -> AppResult<()> {
+        self.cleanup(None).await
+    }
+    fn reconcile_startup(&self) -> AppResult<()> {
+        Ok(())
+    }
+}
+#[derive(Clone)]
+pub(crate) struct JobEvents(broadcast::Sender<IntelligenceEvent>);
+impl JobEvents {
+    pub(crate) fn publish(&self, job: JobView) {
+        let _ = self.0.send(IntelligenceEvent::JobChanged { job });
+    }
 }
 /// Generation fence for Task 6's config→SQLite atomic job/result transaction.
 /// Call `run` only inside the SQLite transaction, never acquire it before SQLite.
@@ -37,8 +83,12 @@ pub trait JobHandler: Send + Sync {
 pub(crate) struct JobAdmissionFence {
     control: Arc<Mutex<Control>>,
     closed: Arc<AtomicBool>,
+    cancel: watch::Receiver<bool>,
 }
 impl JobAdmissionFence {
+    pub(crate) fn cancellation(&self) -> watch::Receiver<bool> {
+        self.cancel.clone()
+    }
     pub(crate) fn run<T>(&self, operation: impl FnOnce() -> AppResult<T>) -> AppResult<T> {
         let control = self.control.lock().unwrap();
         if control.stopping || self.closed.load(Ordering::Acquire) {
@@ -160,6 +210,11 @@ impl JobScheduler {
             }
             drop(tx);
             while workers.join_next().await.is_some() {}
+            for handler in handlers.values() {
+                while handler.cleanup_after_stop().await.is_err() {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            }
             drop(_lease);
             done.send_replace(true);
         });
@@ -173,7 +228,12 @@ impl JobScheduler {
         Ok(())
     }
     pub(crate) fn reconcile(&self) -> AppResult<()> {
-        interrupt(&self.store).map(|_| ())
+        let handlers = self.state.lock().unwrap().handlers.clone();
+        interrupt(&self.store, &handlers)?;
+        for handler in handlers.values() {
+            handler.reconcile_startup()?;
+        }
+        Ok(())
     }
     pub async fn enqueue(
         &self,
@@ -234,6 +294,7 @@ impl JobScheduler {
                 .control
                 .clone(),
             closed: self.closed.clone(),
+            cancel: self.signal.subscribe(),
         })
     }
     pub async fn enqueue_with_profiles(
@@ -284,6 +345,8 @@ impl JobScheduler {
                         "queued",
                         JobStatus::Cancelled,
                         Some(IntelligenceErrorCode::Cancelled),
+                        &s.handlers,
+                        false,
                     )?;
                 }
                 if status == "running" {
@@ -320,16 +383,28 @@ impl JobScheduler {
             }
             // Never wait for SQLite while holding generation control: snapshot callbacks
             // already own SQLite before they acquire that control fence.
-            let ids = self.store.transaction(|tx| {
-                let ids = tx.prepare("SELECT id FROM intelligence_jobs WHERE status='queued' LIMIT 32")?
-                    .query_map([], |row| row.get::<_, String>(0))?
-                    .collect::<Result<Vec<_>, _>>()?;
-                tx.execute(
-                    "UPDATE intelligence_jobs SET status='cancelled',error_code='cancelled',updated_at_ms=?1 WHERE status='queued'",
-                    [now_ms()],
-                )?;
-                Ok(ids)
-            }).map_err(store::safe_store_error)?;
+            let ids = self
+                .store
+                .transaction(|tx| {
+                    let ids = tx
+                        .prepare("SELECT id FROM intelligence_jobs WHERE status='queued' LIMIT 32")?
+                        .query_map([], |row| row.get::<_, String>(0))?
+                        .collect::<Result<Vec<_>, _>>()?;
+                    for id in &ids {
+                        transition_tx(
+                            tx,
+                            Uuid::parse_str(id)
+                                .map_err(|_| error(IntelligenceErrorCode::Storage))?,
+                            "queued",
+                            JobStatus::Cancelled,
+                            Some(IntelligenceErrorCode::Cancelled),
+                            &s.handlers,
+                            false,
+                        )?;
+                    }
+                    Ok(ids)
+                })
+                .map_err(store::safe_store_error)?;
             for id in ids {
                 if let Ok(id) = Uuid::parse_str(&id) {
                     if let Some(job) = self.store.get_job(id)? {
@@ -370,7 +445,7 @@ impl JobScheduler {
             match result {
                 Ok(Ok(())) => state.generation = None,
                 _ => {
-                    for job in interrupt(&self.store)? {
+                    for job in interrupt(&self.store, &state.handlers)? {
                         self.publish(job);
                     }
                     return Err(error(IntelligenceErrorCode::Interrupted));
@@ -384,6 +459,16 @@ impl JobScheduler {
     }
     pub fn subscribe(&self) -> broadcast::Receiver<IntelligenceEvent> {
         self.events.subscribe()
+    }
+    pub(crate) fn event_port(&self) -> JobEvents {
+        JobEvents(self.events.clone())
+    }
+    pub(crate) async fn cleanup_cancelled(&self) -> AppResult<()> {
+        let handlers = self.state.lock().unwrap().handlers.clone();
+        for handler in handlers.values() {
+            handler.cleanup(None).await?;
+        }
+        Ok(())
     }
     pub(crate) fn wake(&self) {
         self.wake.notify_one();
@@ -440,6 +525,11 @@ async fn worker(
                 JobContext {
                     id: job.id,
                     cancel: cancel.clone(),
+                    fence: JobAdmissionFence {
+                        control: control.clone(),
+                        closed: closed.clone(),
+                        cancel: stop.clone(),
+                    },
                 },
                 payload,
             ))
@@ -466,7 +556,7 @@ async fn worker(
                     Err(e) => (JobStatus::Failed, Some(e)),
                 }
             };
-            transition_tx(tx, job.id, "running", status, code)?;
+            transition_tx(tx, job.id, "running", status, code, &handlers, false)?;
             c.active.remove(&job.id);
             Ok(())
         });
@@ -474,6 +564,9 @@ async fn worker(
             if let Ok(Some(job)) = store.get_job(job.id) {
                 let _ = events.send(IntelligenceEvent::JobChanged { job });
             }
+        }
+        if let Some(handler) = handlers.get(&job.kind) {
+            let _ = handler.cleanup(Some(job.id)).await;
         }
         wake.notify_one();
     }
@@ -521,27 +614,30 @@ fn transition_tx(
     from: &str,
     status: JobStatus,
     code: Option<IntelligenceErrorCode>,
+    handlers: &Handlers,
+    awaiting_reap: bool,
 ) -> AppResult<()> {
-    tx.execute(
+    let changed=tx.execute(
         "UPDATE intelligence_jobs SET status=?1,error_code=?2,updated_at_ms=?3 WHERE id=?4 AND status=?5",
         rusqlite::params![serde_json::to_value(status).unwrap().as_str(), code.map(IntelligenceErrorCode::as_str), now_ms(), id.to_string(), from],
     )?;
+    if changed != 0 {
+        let job = store::job_in_transaction(tx, id)?
+            .ok_or_else(|| error(IntelligenceErrorCode::Storage))?;
+        if let Some(handler) = handlers.get(&job.kind) {
+            handler.terminal_tx(tx, id, status, code, awaiting_reap)?;
+        }
+    }
     Ok(())
 }
-fn interrupt(store: &LocalStore) -> AppResult<Vec<JobView>> {
+fn interrupt(store: &LocalStore, handlers: &Handlers) -> AppResult<Vec<JobView>> {
     store.transaction(|tx| {
-        tx.execute(
-            "UPDATE intelligence_jobs SET status='interrupted',error_code='interrupted',updated_at_ms=?1 WHERE status IN ('queued','running')",
-            [now_ms()],
-        )?;
-        Ok(())
-    }).map_err(store::safe_store_error)?;
-    Ok(store
-        .list_jobs(None, 200)?
-        .rows
-        .into_iter()
-        .filter(|j| j.status == JobStatus::Interrupted)
-        .collect())
+        let pending=tx.prepare("SELECT id,status FROM intelligence_jobs WHERE status IN ('queued','running') LIMIT 33")?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<Result<Vec<_>,_>>()?;
+        if pending.len()>store::MAX_UNFINISHED{return Err(error(IntelligenceErrorCode::ResourceLimit));}
+        let mut changed=Vec::with_capacity(pending.len());
+        for (id,status) in pending {let id=Uuid::parse_str(&id).map_err(|_|error(IntelligenceErrorCode::Storage))?;transition_tx(tx,id,&status,JobStatus::Interrupted,Some(IntelligenceErrorCode::Interrupted),handlers,status=="running")?;changed.push(store::job_in_transaction(tx,id)?.ok_or_else(||error(IntelligenceErrorCode::Storage))?);}
+        Ok(changed)
+    }).map_err(store::safe_store_error)
 }
 pub(crate) fn now_ms() -> i64 {
     std::time::SystemTime::now()

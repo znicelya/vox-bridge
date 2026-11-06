@@ -1,4 +1,5 @@
 use super::*;
+mod documents;
 use crate::intelligence::test_support::*;
 use std::{
     sync::atomic::{AtomicUsize, Ordering},

@@ -31,5 +31,6 @@ async fn real_limited_worker_parses_text_pdf_docx_without_desktop_initialization
     }
 }
 
+mod document_service;
 #[cfg(unix)]
 mod worker_limits;

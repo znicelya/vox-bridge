@@ -51,6 +51,7 @@ impl LocalStore {
             include_str!("../../migrations/0001_session_foundation.sql"),
             include_str!("../../migrations/0002_runtime.sql"),
             include_str!("../../migrations/0003_intelligence.sql"),
+            include_str!("../../migrations/0004_knowledge.sql"),
         ];
         if version > MIGRATIONS.len() as i64 {
             return Err(AppError::InvalidRequest(

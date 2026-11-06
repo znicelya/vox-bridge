@@ -26,3 +26,45 @@ pub struct TextBlock {
     pub text: String,
     pub location: TextLocation,
 }
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentStatus {
+    Parsing,
+    Parsed,
+    Indexing,
+    Ready,
+    RepairRequired,
+    Failed,
+    Deleting,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DocumentSummary {
+    pub id: uuid::Uuid,
+    pub title: Option<String>,
+    pub kind: DocumentKind,
+    pub version: u32,
+    pub origin: crate::intelligence::types::RecordOrigin,
+    pub sha256: String,
+    pub status: DocumentStatus,
+    pub chunk_count: u32,
+    pub created_at_ms: i64,
+    pub updated_at_ms: Option<i64>,
+    pub error: Option<crate::intelligence::types::IntelligenceErrorCode>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DocumentPage {
+    pub rows: Vec<DocumentSummary>,
+    pub next_cursor: Option<i64>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DocumentDetail {
+    pub summary: DocumentSummary,
+    pub original_path: Option<std::path::PathBuf>,
+    pub managed_path: Option<std::path::PathBuf>,
+    pub legacy_uri: Option<String>,
+    pub index_identity: Option<String>,
+}

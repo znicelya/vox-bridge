@@ -38,6 +38,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(|invoke| {
+            if commands::knowledge::COMMANDS.contains(&invoke.message.command()) {
+                return commands::knowledge::handle(invoke);
+            }
             if commands::intelligence::COMMANDS.contains(&invoke.message.command()) {
                 return commands::intelligence::handle(invoke);
             }

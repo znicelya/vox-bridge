@@ -1,0 +1,150 @@
+{
+  "kinds": [
+    "pdf",
+    "docx",
+    "text",
+    "markdown",
+    "unknown"
+  ],
+  "statuses": [
+    "parsing",
+    "parsed",
+    "indexing",
+    "ready",
+    "repair_required",
+    "failed",
+    "deleting"
+  ],
+  "summaries": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "title": "Fixture document",
+      "kind": "text",
+      "version": 2,
+      "origin": "native",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "status": "parsed",
+      "chunk_count": 1,
+      "created_at_ms": 1730000000123,
+      "updated_at_ms": 1730000000456,
+      "error": null
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "title": null,
+      "kind": "unknown",
+      "version": 1,
+      "origin": "legacy",
+      "sha256": "legacy-hash",
+      "status": "repair_required",
+      "chunk_count": 1,
+      "created_at_ms": 37,
+      "updated_at_ms": null,
+      "error": null
+    }
+  ],
+  "details": [
+    {
+      "summary": {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "title": "Fixture document",
+        "kind": "text",
+        "version": 2,
+        "origin": "native",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": "parsed",
+        "chunk_count": 1,
+        "created_at_ms": 1730000000123,
+        "updated_at_ms": 1730000000456,
+        "error": null
+      },
+      "original_path": "/fixture/source.txt",
+      "managed_path": "/fixture/knowledge/documents/source.txt",
+      "legacy_uri": null,
+      "index_identity": null
+    },
+    {
+      "summary": {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "title": null,
+        "kind": "unknown",
+        "version": 1,
+        "origin": "legacy",
+        "sha256": "legacy-hash",
+        "status": "repair_required",
+        "chunk_count": 1,
+        "created_at_ms": 37,
+        "updated_at_ms": null,
+        "error": null
+      },
+      "original_path": null,
+      "managed_path": null,
+      "legacy_uri": "legacy-reference",
+      "index_identity": null
+    }
+  ],
+  "page": {
+    "rows": [
+      {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "title": "Fixture document",
+        "kind": "text",
+        "version": 2,
+        "origin": "native",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": "parsed",
+        "chunk_count": 1,
+        "created_at_ms": 1730000000123,
+        "updated_at_ms": 1730000000456,
+        "error": null
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "title": null,
+        "kind": "unknown",
+        "version": 1,
+        "origin": "legacy",
+        "sha256": "legacy-hash",
+        "status": "repair_required",
+        "chunk_count": 1,
+        "created_at_ms": 37,
+        "updated_at_ms": null,
+        "error": null
+      }
+    ],
+    "next_cursor": 10
+  },
+  "location": {
+    "page": 2,
+    "paragraph": 1,
+    "heading": "电气参数",
+    "start_char": 0,
+    "end_char": 8
+  },
+  "block": {
+    "text": "额定电压24V。",
+    "location": {
+      "page": 2,
+      "paragraph": 1,
+      "heading": "电气参数",
+      "start_char": 0,
+      "end_char": 8
+    }
+  },
+  "commands": {
+    "import_document": {
+      "path": "/fixture/source.txt"
+    },
+    "replace_document": {
+      "documentId": "00000000-0000-0000-0000-000000000001",
+      "path": "/fixture/source.txt"
+    },
+    "list_documents": {
+      "after": null,
+      "limit": 64
+    },
+    "get_document": {
+      "documentId": "00000000-0000-0000-0000-000000000002"
+    }
+  }
+}

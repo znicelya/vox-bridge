@@ -54,13 +54,13 @@ fn intelligence_app_inert_construction_projects_empty_library_directory_and_reco
 async fn intelligence_app_close_cancels_jobs_and_restarts_only_on_explicit_host_start() {
     let dir = tempfile::tempdir().unwrap();
     let app = AppState::new(dir.path().to_path_buf()).unwrap();
-    app.jobs.register(JobKind::Import, Arc::new(Wait)).unwrap();
+    app.jobs.register(JobKind::Reindex, Arc::new(Wait)).unwrap();
     app.start_intelligence().await.unwrap();
     let id = Uuid::new_v4();
     let job = app
         .jobs
         .enqueue(
-            JobKind::Import,
+            JobKind::Reindex,
             None,
             Some(id),
             JobAdmission::Manual {
@@ -176,12 +176,12 @@ async fn intelligence_app_entered_clear_retains_process_and_close_barrier_after_
 async fn intelligence_app_dropping_external_handles_releases_process_after_worker_cleanup() {
     let dir = tempfile::tempdir().unwrap();
     let app = AppState::new(dir.path().to_path_buf()).unwrap();
-    app.jobs.register(JobKind::Import, Arc::new(Wait)).unwrap();
+    app.jobs.register(JobKind::Reindex, Arc::new(Wait)).unwrap();
     app.start_intelligence().await.unwrap();
     let id = Uuid::new_v4();
     app.jobs
         .enqueue(
-            JobKind::Import,
+            JobKind::Reindex,
             None,
             Some(id),
             JobAdmission::Manual {

@@ -38,6 +38,9 @@ use uuid::Uuid;
 pub use crate::commands::subscriptions::{FrontendEmitter, SubscriptionTicket};
 pub use crate::config;
 pub use profiles::{CredentialChange, ProviderConfigView, SaveProviderRequest};
+#[cfg(test)]
+pub(crate) mod document_test_support;
+mod documents;
 mod intelligence;
 mod lifecycle;
 mod profiles;
@@ -75,17 +78,29 @@ pub struct AppState {
     probes: Arc<crate::intelligence::probes::ProbeOwner>,
     intelligence_subscriptions: crate::intelligence::subscriptions::IntelligenceSubscriptions,
     intelligence_operations: Arc<Semaphore>,
+    documents: Arc<crate::knowledge::documents::DocumentService>,
 }
 
 impl AppState {
     pub fn new(data_dir: PathBuf) -> AppResult<Self> {
+        Self::with_document_parser(
+            data_dir,
+            Arc::new(crate::knowledge::parser::ProcessDocumentParser::new()?),
+        )
+    }
+    /// Backend composition injection, retaining the production process-lock and
+    /// service ownership rules. Construction never parses or invokes a service.
+    pub fn with_document_parser(
+        data_dir: PathBuf,
+        parser: Arc<dyn crate::knowledge::parser::DocumentParser>,
+    ) -> AppResult<Self> {
         // Lock before constructing config/runtime collaborators or opening SQLite.
         let lock = Self::lock_data_dir(&data_dir)?;
         let secrets = Arc::new(SecretStore::new(&data_dir)?);
         let factory = Arc::new(ProviderFactory::new(secrets.clone()));
         let audio = Arc::new(PlatformAudioBackend::new());
         let driver = Arc::new(DriverController::new(audio.clone())?);
-        Self::compose(data_dir, lock, secrets, audio, factory, driver)
+        Self::compose(data_dir, lock, secrets, audio, factory, driver, parser)
     }
     pub fn with_dependencies(
         data_dir: PathBuf,
@@ -109,7 +124,15 @@ impl AppState {
         driver: Arc<dyn DriverOperations>,
     ) -> AppResult<Self> {
         let lock = Self::lock_data_dir(&data_dir)?;
-        Self::compose(data_dir, lock, secrets, audio, factory, driver)
+        Self::compose(
+            data_dir,
+            lock,
+            secrets,
+            audio,
+            factory,
+            driver,
+            Arc::new(crate::knowledge::parser::ProcessDocumentParser::new()?),
+        )
     }
     pub async fn manage_audio_driver(&self, operation: DriverOperation) -> AppResult<DriverStatus> {
         use crate::audio::platform::driver::{busy_error, safe_result};
@@ -167,6 +190,7 @@ impl AppState {
         audio: Arc<dyn AudioBackend>,
         factory: Arc<ProviderFactory>,
         driver: Arc<dyn DriverOperations>,
+        parser: Arc<dyn crate::knowledge::parser::DocumentParser>,
     ) -> AppResult<Self> {
         let store = Arc::new(LocalStore::open(&data_dir)?);
         let now = SystemTime::now()
@@ -181,8 +205,15 @@ impl AppState {
             store.clone(),
         ));
         let jobs = Arc::new(crate::intelligence::jobs::JobScheduler::new(store.clone()));
+        let documents = Arc::new(crate::knowledge::documents::DocumentService::new(
+            store.clone(),
+            service_config.clone(),
+            jobs.clone(),
+            parser,
+            data_dir.clone(),
+        ));
+        register_intelligence_handlers(&documents)?;
         jobs.reconcile()?;
-        register_intelligence_handlers(&jobs)?;
         let json_http = Arc::new(crate::intelligence::http::ReqwestJsonHttp::new()?);
         let runtime = Arc::new(TranslationRuntime::new(
             factory.clone(),
@@ -218,6 +249,7 @@ impl AppState {
             intelligence_subscriptions:
                 crate::intelligence::subscriptions::IntelligenceSubscriptions::new(),
             intelligence_operations: Arc::new(Semaphore::new(16)),
+            documents,
         })
     }
     pub fn data_dir(&self) -> &Path {
@@ -374,7 +406,7 @@ pub(crate) mod driver_test_support {
 /// Tasks 4/6/7 construct handlers from store/config/ports here before the first
 /// start. Handlers never retain AppState or Arc<JobScheduler>.
 fn register_intelligence_handlers(
-    _jobs: &crate::intelligence::jobs::JobScheduler,
+    documents: &crate::knowledge::documents::DocumentService,
 ) -> AppResult<()> {
-    Ok(())
+    documents.register_import_handler()
 }

@@ -16,7 +16,7 @@ impl AppState {
         self.open_window()?;
         self.start_intelligence().await
     }
-    fn intelligence_lease(&self) -> AppResult<OperationLease> {
+    pub(super) fn intelligence_lease(&self) -> AppResult<OperationLease> {
         self.with_open_epoch(|| {
             let permit = self
                 .intelligence_operations
@@ -98,7 +98,23 @@ impl AppState {
         self.store.list_jobs(after, limit.unwrap_or(50))
     }
     pub async fn cancel_job(&self, id: Uuid) -> AppResult<JobView> {
-        self.jobs.cancel(id).await
+        let lease = self.intelligence_lease()?;
+        let jobs = self.jobs.clone();
+        let (reply, result) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let _lease = lease;
+            let outcome = async {
+                let job = jobs.cancel(id).await?;
+                jobs.cleanup_cancelled().await?;
+                Ok(job)
+            }
+            .await;
+            let _ = reply.send(outcome);
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(10), result)
+            .await
+            .map_err(|_| AppError::Intelligence(IntelligenceErrorCode::Timeout))?
+            .map_err(|_| AppError::Intelligence(IntelligenceErrorCode::Interrupted))?
     }
     pub async fn subscribe_intelligence(
         &self,

@@ -8,6 +8,18 @@ use sha2::{Digest, Sha256};
 /// Offsets count normalized Unicode scalars in the document, including the single
 /// newline separating adjacent blocks. A chunk keeps its first paragraph's ID.
 pub fn chunk_blocks(blocks: &[TextBlock]) -> AppResult<Vec<TextBlock>> {
+    chunk_blocks_with_budget(blocks, None)
+}
+
+/// Bounds logical retained chunk data; this is not a process RSS limit.
+pub(crate) fn chunk_blocks_bounded(blocks: &[TextBlock]) -> AppResult<Vec<TextBlock>> {
+    chunk_blocks_with_budget(blocks, Some(32 * 1024 * 1024))
+}
+
+fn chunk_blocks_with_budget(
+    blocks: &[TextBlock],
+    budget: Option<usize>,
+) -> AppResult<Vec<TextBlock>> {
     let mut groups: Vec<(TextBlock, Vec<(u32, u32)>)> = Vec::new();
     let mut total = 0usize;
     for block in blocks {
@@ -45,6 +57,7 @@ pub fn chunk_blocks(blocks: &[TextBlock]) -> AppResult<Vec<TextBlock>> {
         ));
     }
     let mut chunks = Vec::new();
+    let mut derived_bytes = 0usize;
     for (group, paragraphs) in groups {
         let chars: Vec<char> = group.text.chars().collect();
         let mut start = 0usize;
@@ -64,6 +77,27 @@ pub fn chunk_blocks(blocks: &[TextBlock]) -> AppResult<Vec<TextBlock>> {
                     .or_else(|| boundary(|c| matches!(c, '。' | '！' | '？' | '.' | '!' | '?')))
                     .unwrap_or(ceiling)
             };
+            if let Some(limit) = budget {
+                let text_bytes = chars[start..end].iter().try_fold(0usize, |total, c| {
+                    total
+                        .checked_add(c.len_utf8())
+                        .ok_or(AppError::Intelligence(Code::ResourceLimit))
+                })?;
+                let chunk_bytes = text_bytes
+                    .checked_add(
+                        group
+                            .location
+                            .heading
+                            .as_ref()
+                            .map_or(0, |heading| heading.len()),
+                    )
+                    .and_then(|bytes| bytes.checked_add(std::mem::size_of::<TextBlock>()))
+                    .ok_or(AppError::Intelligence(Code::ResourceLimit))?;
+                derived_bytes = derived_bytes
+                    .checked_add(chunk_bytes)
+                    .filter(|bytes| *bytes <= limit)
+                    .ok_or(AppError::Intelligence(Code::ResourceLimit))?;
+            }
             let mut location = group.location.clone();
             location.start_char += start as u32;
             let paragraph_index =

@@ -2,6 +2,7 @@ mod chunking;
 pub mod parser;
 mod protocol;
 pub mod types;
+pub(crate) use chunking::chunk_blocks_bounded;
 pub use chunking::{chunk_blocks, chunk_hash};
 pub(crate) mod parser_worker;
 
@@ -15,3 +16,9 @@ pub const MAX_CHUNKS: usize = 10_000;
 
 #[cfg(test)]
 mod parser_tests;
+
+pub(crate) mod copying;
+#[cfg(test)]
+mod document_tests;
+pub mod documents;
+mod store;

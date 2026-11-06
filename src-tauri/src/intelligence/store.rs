@@ -167,6 +167,15 @@ impl LocalStore {
         }).map_err(safe_store_error)
     }
 }
+pub(crate) fn job_in_transaction(tx: &Transaction<'_>, id: Uuid) -> AppResult<Option<JobView>> {
+    Ok(tx
+        .query_row(
+            &format!("SELECT {JOB_COLUMNS} FROM intelligence_jobs WHERE id=?1"),
+            [id.to_string()],
+            read_job,
+        )
+        .optional()?)
+}
 /// Bounded scan of <=32 unfinished payloads (<=64KiB each), never history.
 /// Corrupt/oversize rows fail closed, so a profile cannot be deleted on uncertainty.
 pub(crate) fn profile_in_use(tx: &Transaction<'_>, id: Uuid) -> AppResult<bool> {
