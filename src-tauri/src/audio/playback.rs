@@ -1,243 +1,284 @@
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
-    },
-    thread::{self, JoinHandle},
-    time::Duration,
+use super::platform::{AudioDirection, AudioEndpoint};
+use crate::{
+    audio::{AudioFrame, PcmSpec, Resampler, runtime::*},
+    error::{AppError, AppResult},
 };
-
 use cpal::{
     FromSample, Sample, SampleFormat as CpalSampleFormat, Stream, StreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 use crossbeam_queue::ArrayQueue;
-use tokio::sync::mpsc;
-
-use crate::{
-    audio::{AudioFrame, PcmSpec, Resampler},
-    error::{AppError, AppResult},
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU8, Ordering},
+    },
+    thread::{self, JoinHandle},
+    time::Duration,
 };
-
-use super::platform::{AudioDirection, AudioEndpoint};
-
-const PLAYBACK_BUFFER_SECONDS: usize = 5;
+use tokio::sync::mpsc;
 const EVENT_CAPACITY: usize = 16;
-
+const STATE_RUNNING: u8 = 0;
+const STATE_UNDERFLOW: u8 = 1;
+const STATE_DISCONNECTED: u8 = 2;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlaybackState {
     Running,
     AudioUnderflow,
     DeviceDisconnected,
 }
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlaybackEvent {
     AudioUnderflow,
     DeviceDisconnected,
 }
-
-const STATE_RUNNING: u8 = 0;
-const STATE_UNDERFLOW: u8 = 1;
-const STATE_DISCONNECTED: u8 = 2;
-
-pub struct PlaybackHandle {
-    stream: Option<Stream>,
-    worker: Option<JoinHandle<()>>,
-    state: Arc<AtomicU8>,
-    stopped: Arc<AtomicBool>,
-    events: mpsc::Receiver<PlaybackEvent>,
-    dropped_samples: Arc<AtomicU64>,
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub struct PlaybackStats {
     pub dropped_samples: u64,
 }
 
+/// Shared application ring; it owns no native stream and is safe to inspect after timeout.
+pub(crate) struct PlaybackBuffer {
+    ring: ArrayQueue<i16>,
+    pub(crate) done: AtomicBool,
+    sealed: AtomicBool,
+    shared: AudioShared,
+}
+impl PlaybackBuffer {
+    pub(crate) fn new(capacity: usize, shared: AudioShared) -> Self {
+        Self {
+            ring: ArrayQueue::new(capacity.max(1)),
+            done: AtomicBool::new(false),
+            sealed: AtomicBool::new(false),
+            shared,
+        }
+    }
+    pub(crate) fn drained(&self) -> bool {
+        drain_complete(self.done.load(Ordering::Acquire), self.ring.is_empty())
+    }
+    fn push(&self, sample: i16) {
+        if self
+            .shared
+            .gates
+            .playback_suppressed
+            .load(Ordering::Acquire)
+        {
+            add(&self.shared.counters.native_discarded, 1);
+            return;
+        }
+        if self.ring.push(sample).is_ok() {
+            return;
+        }
+        self.replace_full(sample);
+    }
+    fn replace_full(&self, sample: i16) {
+        let overwritten = u64::from(self.ring.pop().is_some());
+        let rejected = u64::from(self.ring.push(sample).is_err());
+        add(
+            &self.shared.counters.native_discarded,
+            overwritten + rejected,
+        );
+    }
+    fn pop(&self) -> Option<i16> {
+        let sample = self.ring.pop();
+        if sample.is_some() {
+            add(&self.shared.counters.native_consumed, 1);
+        }
+        sample
+    }
+    pub(crate) fn discard(&self) {
+        while self.ring.pop().is_some() {
+            add(&self.shared.counters.native_discarded, 1);
+        }
+    }
+}
+pub(crate) fn drain_complete(worker_done: bool, ring_empty: bool) -> bool {
+    worker_done && ring_empty
+}
+
+pub struct PlaybackHandle {
+    stream: Option<Stream>,
+    worker: Option<JoinHandle<()>>,
+    state: Arc<AtomicU8>,
+    buffer: Arc<PlaybackBuffer>,
+    shared: AudioShared,
+    events: mpsc::Receiver<PlaybackEvent>,
+}
 impl PlaybackHandle {
     pub fn state(&self) -> PlaybackState {
         decode_state(self.state.load(Ordering::Acquire))
     }
-
     pub fn is_disconnected(&self) -> bool {
         self.state() == PlaybackState::DeviceDisconnected
     }
-
     pub fn dropped_samples(&self) -> u64 {
-        self.dropped_samples.load(Ordering::Relaxed)
+        self.shared
+            .counters
+            .native_discarded
+            .load(Ordering::Acquire)
     }
-
     pub fn try_recv_event(&mut self) -> Result<PlaybackEvent, mpsc::error::TryRecvError> {
         self.events.try_recv()
     }
-
     pub fn stop(mut self) {
-        self.stopped.store(true, Ordering::Release);
+        self.close_inner();
+    }
+    pub fn stop_with_stats(mut self) -> PlaybackStats {
+        self.close_inner();
+        PlaybackStats {
+            dropped_samples: self.dropped_samples(),
+        }
+    }
+    pub(crate) fn seal(&self) {
+        self.buffer.sealed.store(true, Ordering::Release);
+    }
+    pub(crate) fn discard(&self) {
+        self.shared.suppress();
+        self.buffer.discard();
+    }
+    pub(crate) fn drained(&self) -> bool {
+        self.buffer.drained()
+    }
+    fn close_inner(&mut self) {
+        self.shared
+            .gates
+            .playback_suppressed
+            .store(true, Ordering::Release);
+        self.shared
+            .gates
+            .abort_pending
+            .store(true, Ordering::Release);
         self.stream.take();
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
-    }
-
-    /// Stops callbacks and joins the worker before returning final drop counters.
-    pub fn stop_with_stats(self) -> PlaybackStats {
-        let dropped_samples = self.dropped_samples.clone();
-        self.stop();
-        PlaybackStats {
-            dropped_samples: dropped_samples.load(Ordering::Relaxed),
-        }
+        self.buffer.discard();
+        self.shared
+            .counters
+            .tail_known
+            .store(true, Ordering::Release);
+        self.shared
+            .counters
+            .playback_finalized
+            .store(true, Ordering::Release);
     }
 }
-
 impl Drop for PlaybackHandle {
     fn drop(&mut self) {
-        self.stopped.store(true, Ordering::Release);
-        self.stream.take();
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
+        self.close_inner();
     }
 }
-
 pub struct AudioPlayback;
-
 impl AudioPlayback {
     pub fn start(
         endpoint: AudioEndpoint,
         source: mpsc::Receiver<AudioFrame>,
     ) -> AppResult<PlaybackHandle> {
+        Self::start_inner(
+            endpoint,
+            source,
+            AudioShared::new(super::queue::BoundedAudioQueue::default()),
+            false,
+        )
+    }
+    pub(crate) fn start_runtime(
+        endpoint: AudioEndpoint,
+        source: mpsc::Receiver<AudioFrame>,
+        shared: AudioShared,
+    ) -> AppResult<PlaybackHandle> {
+        Self::start_inner(endpoint, source, shared, true)
+    }
+    fn start_inner(
+        endpoint: AudioEndpoint,
+        source: mpsc::Receiver<AudioFrame>,
+        shared: AudioShared,
+        strict: bool,
+    ) -> AppResult<PlaybackHandle> {
         if endpoint.direction != AudioDirection::Output {
-            return Err(AppError::InvalidRequest(format!(
-                "audio playback endpoint {} is not an output",
-                endpoint.id
-            )));
+            return Err(audio_error("playback endpoint is not an output"));
         }
-
-        let device = find_output_device(&endpoint)?;
+        let device = exact_output(&endpoint)?;
         let supported = device.default_output_config().map_err(device_error)?;
-        let sample_rate = supported.sample_rate().0;
+        let rate = supported.sample_rate().0;
         let channels = supported.channels();
-        if channels == 0 {
-            return Err(AppError::InvalidRequest(
-                "audio playback device has no channels".into(),
-            ));
+        if !(8000..=192000).contains(&rate) || !(1..=32).contains(&channels) {
+            return Err(audio_error("unsupported native playback configuration"));
         }
-        let config: StreamConfig = supported.clone().into();
-        let capacity_samples = (sample_rate as usize).saturating_mul(PLAYBACK_BUFFER_SECONDS);
-        let ring = Arc::new(SpscAudioRing::new(capacity_samples));
+        shared.counters.native_rate.store(rate, Ordering::Release);
+        let buffer = Arc::new(PlaybackBuffer::new(rate as usize * 5, shared.clone()));
         let state = Arc::new(AtomicU8::new(STATE_RUNNING));
-        let stopped = Arc::new(AtomicBool::new(false));
-        let dropped_samples = Arc::new(AtomicU64::new(0));
-        let (event_tx, events) = mpsc::channel(EVENT_CAPACITY);
-
+        let (tx, events) = mpsc::channel(EVENT_CAPACITY);
+        let config: StreamConfig = supported.clone().into();
         let stream = match supported.sample_format() {
-            CpalSampleFormat::I16 => build_playback_stream::<i16>(
-                &device,
-                &config,
-                ring.clone(),
-                state.clone(),
-                event_tx.clone(),
-            ),
-            CpalSampleFormat::F32 => build_playback_stream::<f32>(
-                &device,
-                &config,
-                ring.clone(),
-                state.clone(),
-                event_tx.clone(),
-            ),
-            CpalSampleFormat::U16 => build_playback_stream::<u16>(
-                &device,
-                &config,
-                ring.clone(),
-                state.clone(),
-                event_tx.clone(),
-            ),
-            format => {
-                return Err(AppError::InvalidRequest(format!(
-                    "unsupported audio playback sample format: {format:?}"
-                )));
+            CpalSampleFormat::I16 => {
+                build_stream::<i16>(&device, &config, buffer.clone(), state.clone(), tx)
             }
+            CpalSampleFormat::F32 => {
+                build_stream::<f32>(&device, &config, buffer.clone(), state.clone(), tx)
+            }
+            CpalSampleFormat::U16 => {
+                build_stream::<u16>(&device, &config, buffer.clone(), state.clone(), tx)
+            }
+            _ => Err(audio_error("unsupported native playback sample type")),
         }?;
-
-        let worker_buffer = ring;
+        let worker_buffer = buffer.clone();
         let worker_state = state.clone();
-        let worker_stopped = stopped.clone();
-        let worker_dropped = dropped_samples.clone();
         let worker = thread::Builder::new()
-            .name("vox-audio-playback-convert".into())
-            .spawn(move || {
-                process_playback_frames(
-                    source,
-                    worker_buffer,
-                    capacity_samples,
-                    sample_rate,
-                    worker_state,
-                    worker_stopped,
-                    worker_dropped,
-                );
-            })
-            .map_err(|error| {
-                AppError::Internal(format!("failed to start playback worker: {error}"))
-            })?;
-        if let Err(error) = stream.play().map_err(device_error) {
-            stopped.store(true, Ordering::Release);
-            let _ = worker.join();
-            return Err(error);
-        }
-
-        Ok(PlaybackHandle {
+            .name("vox-playback-convert".into())
+            .spawn(move || process_playback(source, worker_buffer, worker_state, rate, strict))
+            .map_err(|_| audio_error("playback worker could not start"))?;
+        let handle = PlaybackHandle {
             stream: Some(stream),
             worker: Some(worker),
             state,
-            stopped,
+            buffer,
+            shared,
             events,
-            dropped_samples,
-        })
+        };
+        handle
+            .stream
+            .as_ref()
+            .unwrap()
+            .play()
+            .map_err(device_error)?;
+        Ok(handle)
     }
 }
-
-fn build_playback_stream<T>(
+fn exact_output(endpoint: &AudioEndpoint) -> AppResult<cpal::Device> {
+    let mut found = None;
+    for device in cpal::default_host()
+        .output_devices()
+        .map_err(device_error)?
+    {
+        if device
+            .name()
+            .is_ok_and(|name| name == endpoint.id || name == endpoint.display_name)
+        {
+            if found.is_some() {
+                return Err(audio_error("ambiguous native output name"));
+            }
+            found = Some(device);
+        }
+    }
+    found.ok_or_else(|| audio_error("selected native output is unavailable"))
+}
+fn build_stream<T: cpal::SizedSample + Sample + FromSample<i16>>(
     device: &cpal::Device,
     config: &StreamConfig,
-    ring: Arc<SpscAudioRing>,
+    buffer: Arc<PlaybackBuffer>,
     state: Arc<AtomicU8>,
     events: mpsc::Sender<PlaybackEvent>,
-) -> AppResult<Stream>
-where
-    T: Sample + FromSample<f32> + cpal::SizedSample + Send + 'static,
-{
-    let channels = usize::from(config.channels);
+) -> AppResult<Stream> {
+    let channels = config.channels as usize;
     let error_state = state.clone();
     let error_events = events.clone();
+    let error_shared = buffer.shared.clone();
     device
         .build_output_stream(
             config,
-            move |output: &mut [T], _| {
-                if state.load(Ordering::Acquire) == STATE_DISCONNECTED {
-                    output.fill(T::from_sample(0.0));
-                    return;
-                }
-                let mut underflow = false;
-                for frame in output.chunks_mut(channels) {
-                    let sample = ring.pop().unwrap_or_else(|| {
-                        underflow = true;
-                        0
-                    });
-                    let sample = sample as f32 / 32768.0;
-                    let converted = T::from_sample(sample);
-                    frame.fill(converted);
-                }
-                if underflow {
-                    if mark_underflow(&state) {
-                        let _ = events.try_send(PlaybackEvent::AudioUnderflow);
-                    }
-                } else {
-                    let _ = clear_underflow(&state);
-                }
-            },
-            move |error| {
-                tracing::error!(%error, "audio playback device disconnected");
+            move |data: &mut [T], _| render(data, channels, &buffer, &state, &events),
+            move |_| {
+                error_shared.suppress();
                 if error_state.swap(STATE_DISCONNECTED, Ordering::AcqRel) != STATE_DISCONNECTED {
                     let _ = error_events.try_send(PlaybackEvent::DeviceDisconnected);
                 }
@@ -246,234 +287,498 @@ where
         )
         .map_err(device_error)
 }
-
-fn find_output_device(endpoint: &AudioEndpoint) -> AppResult<cpal::Device> {
-    let host = cpal::default_host();
-    let devices = host.output_devices().map_err(device_error)?;
-    for device in devices {
-        if device
-            .name()
-            .is_ok_and(|name| name == endpoint.id || name == endpoint.display_name)
-        {
-            return Ok(device);
-        }
-    }
-    Err(AppError::InvalidRequest(format!(
-        "audio output endpoint {} is unavailable",
-        endpoint.id
-    )))
-}
-
-fn process_playback_frames(
-    mut source: mpsc::Receiver<AudioFrame>,
-    ring: Arc<SpscAudioRing>,
-    _capacity_samples: usize,
-    device_rate: u32,
-    state: Arc<AtomicU8>,
-    stopped: Arc<AtomicBool>,
-    dropped_samples: Arc<AtomicU64>,
+fn render<T: Sample + FromSample<i16>>(
+    data: &mut [T],
+    channels: usize,
+    buffer: &PlaybackBuffer,
+    state: &AtomicU8,
+    events: &mpsc::Sender<PlaybackEvent>,
 ) {
-    while !stopped.load(Ordering::Acquire) && state.load(Ordering::Acquire) != STATE_DISCONNECTED {
-        match source.try_recv() {
+    if buffer
+        .shared
+        .gates
+        .playback_suppressed
+        .load(Ordering::Acquire)
+        || state.load(Ordering::Acquire) == STATE_DISCONNECTED
+    {
+        data.fill(T::from_sample(0_i16));
+        return;
+    }
+    let mut underflow = false;
+    for frame in data.chunks_mut(channels.max(1)) {
+        let value = if buffer
+            .shared
+            .gates
+            .playback_suppressed
+            .load(Ordering::Acquire)
+        {
+            0
+        } else {
+            buffer.pop().unwrap_or_else(|| {
+                underflow = true;
+                0
+            })
+        };
+        frame.fill(T::from_sample(value));
+    }
+    if underflow {
+        if state
+            .compare_exchange(
+                STATE_RUNNING,
+                STATE_UNDERFLOW,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+        {
+            let _ = events.try_send(PlaybackEvent::AudioUnderflow);
+        }
+    } else {
+        let _ = state.compare_exchange(
+            STATE_UNDERFLOW,
+            STATE_RUNNING,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+    }
+}
+fn process_playback(
+    mut input: mpsc::Receiver<AudioFrame>,
+    buffer: Arc<PlaybackBuffer>,
+    state: Arc<AtomicU8>,
+    rate: u32,
+    strict: bool,
+) {
+    let mut resampler: Option<Resampler> = None;
+    let mut input_spec = None;
+    loop {
+        if buffer.sealed.load(Ordering::Acquire) {
+            input.close();
+        }
+        if buffer.shared.gates.abort_pending.load(Ordering::Acquire)
+            || state.load(Ordering::Acquire) == STATE_DISCONNECTED
+        {
+            input.close();
+            while let Ok(frame) = input.try_recv() {
+                if !strict || validate_playback(&frame).is_ok() {
+                    add(
+                        &buffer.shared.counters.accepted,
+                        frame.samples().len() as u64,
+                    );
+                    add(
+                        &buffer.shared.counters.pre_conversion_discarded,
+                        frame.samples().len() as u64,
+                    );
+                }
+            }
+            break;
+        }
+        match input.try_recv() {
             Ok(frame) => {
-                let spec = frame.spec();
-                let samples = if spec.sample_rate() == device_rate {
-                    frame.samples().to_vec()
-                } else {
-                    match Resampler::convert(
-                        frame.samples(),
-                        spec,
-                        PcmSpec::pcm16_mono(device_rate),
-                    ) {
-                        Ok(samples) => samples,
-                        Err(error) => {
-                            tracing::error!(%error, "playback resampling failed");
+                if (strict && validate_playback(&frame).is_err())
+                    || input_spec.is_some_and(|spec| spec != frame.spec())
+                {
+                    state.store(STATE_DISCONNECTED, Ordering::Release);
+                    buffer.shared.suppress();
+                    continue;
+                }
+                add(
+                    &buffer.shared.counters.accepted,
+                    frame.samples().len() as u64,
+                );
+                if resampler.is_none() {
+                    match Resampler::new(frame.spec(), PcmSpec::pcm16_mono(rate)) {
+                        Ok(r) => {
+                            resampler = Some(r);
+                            input_spec = Some(frame.spec());
+                        }
+                        Err(_) => {
+                            add(
+                                &buffer.shared.counters.pre_conversion_discarded,
+                                frame.samples().len() as u64,
+                            );
+                            state.store(STATE_DISCONNECTED, Ordering::Release);
+                            buffer.shared.suppress();
                             continue;
                         }
                     }
-                };
-                let mut overflow = 0;
-                for sample in samples.iter().copied() {
-                    if ring.push_overwrite(sample) {
-                        overflow += 1;
+                }
+                for chunk in frame.samples().chunks(1920) {
+                    if buffer.shared.gates.abort_pending.load(Ordering::Acquire) {
+                        add(
+                            &buffer.shared.counters.pre_conversion_discarded,
+                            chunk.len() as u64,
+                        );
+                        continue;
+                    }
+                    match resampler.as_mut().unwrap().process(chunk) {
+                        Ok(samples) => {
+                            add(
+                                &buffer.shared.counters.native_generated,
+                                samples.len() as u64,
+                            );
+                            for sample in samples {
+                                buffer.push(sample);
+                            }
+                        }
+                        Err(_) => {
+                            add(
+                                &buffer.shared.counters.pre_conversion_discarded,
+                                chunk.len() as u64,
+                            );
+                            state.store(STATE_DISCONNECTED, Ordering::Release);
+                            buffer.shared.suppress();
+                        }
                     }
                 }
-                if overflow > 0 {
-                    dropped_samples.fetch_add(overflow as u64, Ordering::Relaxed);
+            }
+            Err(mpsc::error::TryRecvError::Disconnected) => break,
+            Err(mpsc::error::TryRecvError::Empty) => thread::sleep(Duration::from_millis(2)),
+        }
+    }
+    if !buffer.shared.gates.abort_pending.load(Ordering::Acquire) {
+        if let Some(mut resampler) = resampler {
+            match resampler.flush() {
+                Ok(samples) => {
+                    add(
+                        &buffer.shared.counters.native_generated,
+                        samples.len() as u64,
+                    );
+                    for sample in samples {
+                        buffer.push(sample);
+                    }
+                }
+                Err(_) => {
+                    state.store(STATE_DISCONNECTED, Ordering::Release);
+                    buffer.shared.suppress();
                 }
             }
-            Err(mpsc::error::TryRecvError::Empty) => thread::sleep(Duration::from_millis(2)),
-            Err(mpsc::error::TryRecvError::Disconnected) => break,
         }
+    } else {
+        buffer.discard();
+    }
+    buffer.done.store(true, Ordering::Release);
+}
+fn decode_state(value: u8) -> PlaybackState {
+    match value {
+        STATE_UNDERFLOW => PlaybackState::AudioUnderflow,
+        STATE_DISCONNECTED => PlaybackState::DeviceDisconnected,
+        _ => PlaybackState::Running,
     }
 }
-
-struct SpscAudioRing {
-    queue: ArrayQueue<i16>,
-}
-
-impl SpscAudioRing {
-    fn new(capacity: usize) -> Self {
-        Self {
-            queue: ArrayQueue::new(capacity.max(1)),
-        }
-    }
-
-    fn push_overwrite(&self, sample: i16) -> bool {
-        if self.queue.push(sample).is_ok() {
-            return false;
-        }
-        let _ = self.queue.pop();
-        let _ = self.queue.push(sample);
-        true
-    }
-
-    fn pop(&self) -> Option<i16> {
-        self.queue.pop()
-    }
-}
-
-fn device_error(error: impl std::fmt::Display) -> AppError {
-    AppError::Internal(format!("audio device error: {error}"))
+fn device_error(_: impl std::fmt::Display) -> AppError {
+    audio_error("native playback device operation failed")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use crate::domain::audio::AudioSource;
     #[test]
-    fn playback_shutdown_stats_include_worker_drop_after_stop_signal() {
-        let stopped = Arc::new(AtomicBool::new(false));
-        let dropped_samples = Arc::new(AtomicU64::new(0));
-        let worker_stopped = stopped.clone();
-        let worker_dropped = dropped_samples.clone();
-        let ring = SpscAudioRing::new(1);
-        ring.push_overwrite(1);
-        let worker = std::thread::spawn(move || {
-            while !worker_stopped.load(Ordering::Acquire) {
-                std::thread::yield_now();
-            }
-            // An already-running conversion can finish its current frame after
-            // stop is signalled and record one last overwritten sample.
-            if ring.push_overwrite(2) {
-                worker_dropped.fetch_add(1, Ordering::Relaxed);
-            }
-        });
-        let (_, events) = mpsc::channel(1);
-        let handle = PlaybackHandle {
-            stream: None,
-            worker: Some(worker),
-            state: Arc::new(AtomicU8::new(STATE_RUNNING)),
-            stopped,
-            events,
-            dropped_samples,
-        };
-
+    fn suppression_silences_real_callback_without_waiting_for_owner() {
+        let shared = AudioShared::new(super::super::queue::BoundedAudioQueue::default());
+        let buffer = PlaybackBuffer::new(4, shared.clone());
+        buffer.push(17);
+        let (tx, _) = mpsc::channel(2);
+        let state = AtomicU8::new(STATE_RUNNING);
+        shared.suppress();
+        let mut out = [9i16; 4];
+        render(&mut out, 2, &buffer, &state, &tx);
+        assert_eq!(out, [0; 4]);
         assert_eq!(
-            handle.stop_with_stats(),
-            PlaybackStats { dropped_samples: 1 }
+            shared
+                .statistics()
+                .playback
+                .native
+                .map(|s| s.callback_consumed_mono_samples),
+            None
         );
+        assert_eq!(buffer.ring.len(), 1);
     }
-
     #[test]
-    fn bounded_playback_ring_discards_oldest_samples() {
-        let ring = SpscAudioRing::new(4);
-        for sample in [1, 2, 3, 4, 5, 6] {
-            ring.push_overwrite(sample);
+    fn seal_waits_for_all_accepted_conversion_and_actual_ring_consumption() {
+        let shared = AudioShared::new(super::super::queue::BoundedAudioQueue::default());
+        let buffer = Arc::new(PlaybackBuffer::new(24000, shared.clone()));
+        let (tx, rx) = mpsc::channel(2);
+        tx.try_send(
+            AudioFrame::new(
+                AudioSource::Microphone,
+                0,
+                PcmSpec::pcm16_mono(24000),
+                vec![9; 1920],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(!buffer.drained());
+        buffer.sealed.store(true, Ordering::Release);
+        let b = buffer.clone();
+        let worker =
+            thread::spawn(move || process_playback(rx, b, Arc::new(AtomicU8::new(0)), 24000, true));
+        worker.join().unwrap();
+        assert!(!buffer.drained());
+        assert_eq!(
+            shared.statistics().playback.accepted_for_processing_samples,
+            1920
+        );
+        assert!(tx.is_closed());
+        let mut count = 0;
+        while buffer.pop().is_some() {
+            count += 1;
         }
+        assert_eq!(count, 1920);
+        assert!(buffer.drained());
+    }
+    #[test]
+    fn actual_overwrite_and_discard_are_counted_without_callback_pops() {
+        let shared = AudioShared::new(super::super::queue::BoundedAudioQueue::default());
+        shared.counters.native_rate.store(48000, Ordering::Release);
+        let buffer = PlaybackBuffer::new(2, shared.clone());
+        for n in 1..=3 {
+            buffer.push(n);
+        }
+        assert_eq!(buffer.pop(), Some(2));
+        buffer.discard();
+        let native = shared.statistics().playback.native.unwrap();
+        assert_eq!(native.discarded_mono_samples, 2);
+        assert_eq!(native.callback_consumed_mono_samples, 1);
+    }
+}
+
+#[cfg(test)]
+mod runtime_regressions {
+    use super::*;
+    use crate::{
+        audio::{platform::native_io, queue::BoundedAudioQueue},
+        domain::{audio::AudioSource, transcript::RuntimeFailureCode},
+    };
+    #[test]
+    fn full_ring_consumed_by_callback_before_discard_does_not_invent_loss() {
+        let shared = AudioShared::new(BoundedAudioQueue::default());
+        shared.counters.native_rate.store(48000, Ordering::Release);
+        let ring = PlaybackBuffer::new(1, shared.clone());
+        ring.push(1);
+        assert!(ring.ring.push(2).is_err());
+        // The callback runs after the producer saw Full, before replace_full's pop.
+        let (events, _) = mpsc::channel(2);
+        let mut output = [0i16];
+        render(
+            &mut output,
+            1,
+            &ring,
+            &AtomicU8::new(STATE_RUNNING),
+            &events,
+        );
+        assert_eq!(output, [1]);
+        ring.replace_full(2);
+        assert_eq!(ring.pop(), Some(2));
         assert_eq!(
-            (0..4).filter_map(|_| ring.pop()).collect::<Vec<_>>(),
-            vec![3, 4, 5, 6]
+            shared
+                .statistics()
+                .playback
+                .native
+                .unwrap()
+                .discarded_mono_samples,
+            0
         );
     }
-
     #[test]
-    fn concurrent_overwrite_and_pop_preserves_monotonic_order() {
-        let ring = Arc::new(SpscAudioRing::new(64));
+    fn concurrent_overwrite_preserves_order_and_accounts_actual_pops() {
+        let shared = AudioShared::new(BoundedAudioQueue::default());
+        shared.counters.native_rate.store(48000, Ordering::Release);
+        let ring = Arc::new(PlaybackBuffer::new(64, shared.clone()));
         let producer_ring = ring.clone();
-        let producer = std::thread::spawn(move || {
-            for sequence in 0..20_000i32 {
-                producer_ring.push_overwrite(sequence as i16);
+        let producer = thread::spawn(move || {
+            for n in 0..20000i16 {
+                producer_ring.push(n);
             }
         });
-
         let mut seen = Vec::new();
         while !producer.is_finished() {
             if let Some(sample) = ring.pop() {
                 seen.push(sample);
             } else {
-                std::thread::yield_now();
+                thread::yield_now();
             }
         }
         producer.join().unwrap();
         while let Some(sample) = ring.pop() {
             seen.push(sample);
         }
-
         assert!(!seen.is_empty());
-        assert!(seen.windows(2).all(|pair| pair[0] < pair[1]));
-    }
-
-    #[test]
-    fn playback_state_distinguishes_underflow_from_device_loss() {
-        assert_eq!(decode_state(STATE_RUNNING), PlaybackState::Running);
-        assert_eq!(decode_state(STATE_UNDERFLOW), PlaybackState::AudioUnderflow);
+        assert!(seen.windows(2).all(|p| p[0] < p[1]));
+        let counters = shared.statistics().playback.native.unwrap();
         assert_eq!(
-            decode_state(STATE_DISCONNECTED),
-            PlaybackState::DeviceDisconnected
+            counters.callback_consumed_mono_samples + counters.discarded_mono_samples,
+            20000
         );
     }
-
     #[test]
-    fn disconnect_is_terminal_when_underflow_recovery_races() {
+    fn real_callback_underflow_is_coalesced_and_disconnect_is_sticky() {
+        let shared = AudioShared::new(BoundedAudioQueue::default());
+        let ring = PlaybackBuffer::new(4, shared);
         let state = AtomicU8::new(STATE_RUNNING);
-        assert!(mark_underflow(&state));
+        let (events, mut received) = mpsc::channel(4);
+        for _ in 0..2 {
+            render(&mut [0i16], 1, &ring, &state, &events);
+        }
+        assert_eq!(received.try_recv().unwrap(), PlaybackEvent::AudioUnderflow);
+        assert!(received.try_recv().is_err());
+        ring.push(17);
+        let mut output = [0i16];
+        render(&mut output, 1, &ring, &state, &events);
+        assert_eq!(output, [17]);
+        assert_eq!(
+            decode_state(state.load(Ordering::Acquire)),
+            PlaybackState::Running
+        );
         state.store(STATE_DISCONNECTED, Ordering::Release);
-
-        assert!(!clear_underflow(&state));
-        assert!(!mark_underflow(&state));
+        ring.push(23);
+        render(&mut output, 1, &ring, &state, &events);
+        assert_eq!(output, [0]);
         assert_eq!(
             decode_state(state.load(Ordering::Acquire)),
             PlaybackState::DeviceDisconnected
         );
     }
-
     #[test]
-    fn underflow_transition_emits_once_until_audio_resumes() {
-        let state = AtomicU8::new(STATE_RUNNING);
-        assert!(mark_underflow(&state));
-        assert!(!mark_underflow(&state));
-        assert!(clear_underflow(&state));
-        assert!(mark_underflow(&state));
+    fn stop_stats_include_terminal_worker_drop_and_pending_ingress() {
+        let shared = AudioShared::new(BoundedAudioQueue::default());
+        shared.counters.native_rate.store(24000, Ordering::Release);
+        let ring = Arc::new(PlaybackBuffer::new(2, shared.clone()));
+        let (tx, rx) = mpsc::channel(2);
+        for sequence in 0..2 {
+            tx.try_send(
+                AudioFrame::new(
+                    AudioSource::Microphone,
+                    sequence,
+                    PcmSpec::pcm16_mono(24000),
+                    vec![3; 1280],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        }
+        let r = ring.clone();
+        let s = shared.clone();
+        let worker = thread::spawn(move || {
+            while !s.gates.abort_pending.load(Ordering::Acquire) {
+                thread::yield_now();
+            }
+            r.push(7); // An already running converter reaches publication after stop.
+            process_playback(rx, r, Arc::new(AtomicU8::new(STATE_RUNNING)), 24000, true);
+        });
+        let (_, events) = mpsc::channel(1);
+        let handle = PlaybackHandle {
+            stream: None,
+            worker: Some(worker),
+            state: Arc::new(AtomicU8::new(STATE_RUNNING)),
+            buffer: ring,
+            shared: shared.clone(),
+            events,
+        };
+        assert_eq!(handle.stop_with_stats().dropped_samples, 1);
+        let stats = shared.statistics().playback;
+        assert!(stats.finalized);
+        assert!(tx.is_closed());
+        assert_eq!(stats.accepted_for_processing_samples, 2560);
+        assert_eq!(stats.discarded_before_conversion_samples, 2560);
     }
-}
-
-fn decode_state(state: u8) -> PlaybackState {
-    match state {
-        STATE_UNDERFLOW => PlaybackState::AudioUnderflow,
-        STATE_DISCONNECTED => PlaybackState::DeviceDisconnected,
-        _ => PlaybackState::Running,
+    struct BlockingFactory {
+        release: Arc<AtomicBool>,
+        buffer: Arc<std::sync::Mutex<Option<Arc<PlaybackBuffer>>>>,
     }
-}
-
-fn mark_underflow(state: &AtomicU8) -> bool {
-    state
-        .compare_exchange(
-            STATE_RUNNING,
-            STATE_UNDERFLOW,
-            Ordering::AcqRel,
-            Ordering::Acquire,
+    struct BlockingOwner {
+        release: Arc<AtomicBool>,
+        _not_send: std::rc::Rc<()>,
+    }
+    impl native_io::NativeOwnerFactory for BlockingFactory {
+        fn open_on_owner_thread(
+            &self,
+            _: &AudioOpenRequest,
+            _: BoundedAudioQueue,
+            _: mpsc::Receiver<AudioFrame>,
+            shared: AudioShared,
+        ) -> AppResult<Box<dyn native_io::NativeOwner>> {
+            shared.counters.native_rate.store(48000, Ordering::Release);
+            let ring = Arc::new(PlaybackBuffer::new(4, shared));
+            ring.push(99);
+            *self.buffer.lock().unwrap() = Some(ring);
+            Ok(Box::new(BlockingOwner {
+                release: self.release.clone(),
+                _not_send: std::rc::Rc::new(()),
+            }))
+        }
+    }
+    impl native_io::NativeOwner for BlockingOwner {
+        fn stop_capture(&mut self) -> AppResult<()> {
+            Ok(())
+        }
+        fn discard_pending(&mut self) -> AppResult<()> {
+            Ok(())
+        }
+        fn seal_playback(&mut self) -> AppResult<()> {
+            Ok(())
+        }
+        fn playback_drained(&mut self) -> AppResult<Option<PlaybackReport>> {
+            Ok(None)
+        }
+        fn close(&mut self) -> AppResult<()> {
+            while !self.release.load(Ordering::Acquire) {
+                thread::sleep(Duration::from_millis(1));
+            }
+            Ok(())
+        }
+    }
+    #[tokio::test]
+    async fn blocked_owner_cannot_block_statistics_or_callback_suppression() {
+        let release = Arc::new(AtomicBool::new(false));
+        let buffer = Arc::new(std::sync::Mutex::new(None));
+        let ports = native_io::open_owned(
+            AudioOpenRequest {
+                inventory_generation: uuid::Uuid::nil(),
+                input_id: "in".into(),
+                output_id: "out".into(),
+                source: AudioSource::Microphone,
+            },
+            Arc::new(BlockingFactory {
+                release: release.clone(),
+                buffer: buffer.clone(),
+            }),
+            None,
+            native_io::Deadlines {
+                open: Duration::from_secs(1),
+                close: Duration::from_millis(30),
+                drain: Duration::from_millis(30),
+            },
         )
-        .is_ok()
-}
-
-fn clear_underflow(state: &AtomicU8) -> bool {
-    state
-        .compare_exchange(
-            STATE_UNDERFLOW,
-            STATE_RUNNING,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        )
-        .is_ok()
+        .await
+        .unwrap();
+        let result = ports.control.close().await;
+        ports.control.suppress_now();
+        let stats = ports.control.statistics();
+        let ring = buffer.lock().unwrap().clone().unwrap();
+        let (events, _) = mpsc::channel(1);
+        let mut out = [9i16; 4];
+        render(&mut out, 2, &ring, &AtomicU8::new(STATE_RUNNING), &events);
+        release.store(true, Ordering::Release);
+        assert!(matches!(
+            result,
+            Err(crate::error::AppError::Audio {
+                code: RuntimeFailureCode::CleanupTimeout,
+                ..
+            })
+        ));
+        assert_eq!(out, [0; 4]);
+        assert!(!stats.playback.finalized);
+        assert_eq!(
+            stats
+                .playback
+                .native
+                .unwrap()
+                .callback_consumed_mono_samples,
+            0
+        );
+        assert_eq!(*ports.health.borrow(), AudioHealth::NeedsRestart);
+    }
 }

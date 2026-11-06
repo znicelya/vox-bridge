@@ -25,6 +25,20 @@ console.log(report);
 
 `frames` may be omitted (50). The shared module, command, and invoke-handler entry are all excluded when `debug_assertions` is false. The example in a normal release build exits 2 without opening devices. No configuration enables this command in a normal release build.
 
+## Runtime ports (injected default checks)
+
+The runtime/backend tests use injected non-Send owners, in-memory process pipes, and replayable child-exit signals. They do not enumerate or open hardware, run `pactl`/`parec`/`pacat`, access a keyring, or contact a provider:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml --lib audio::runtime
+cargo test --manifest-path src-tauri/Cargo.toml --lib audio::platform
+cargo test --manifest-path src-tauri/Cargo.toml --lib audio
+```
+
+These checks cover exact private locator and inventory-generation validation, atomic pair leases and quarantine, non-Send owner-thread confinement, bounded cleanup and truthful drain, outside-owner suppression/statistics, native capture discontinuities, Pulse argv and stream association, process timeout/size bounds, EOF and odd-byte handling, and legacy/new diagnostic serialization. Passing them is implementation evidence only; it is not platform acceptance.
+
+The following Task 3 gates remain manual on both PulseAudio and pipewire-pulse and must be recorded separately for each server: actual utility versions; bounded JSON compatibility for sources, sinks, modules, source-outputs, and sink-inputs; the exact `VoxBridge_M1` and `VoxBridge_Output` sink set; `VoxBridge_Input` remapped from `VoxBridge_M1.monitor`; `VoxBridge_Output.monitor` linked to the output sink; unique `media.name` association to the requested indices; `parec` odd/clean EOF behavior; `pacat` exit-zero drain after stdin EOF; cancellation of a blocked write; and loss without automatic resume. Do not change system defaults during these checks. Until evidence is attached to the OS-specific file, mark the corresponding result **PENDING**, not PASS.
+
 ## Physical diagnostic (explicit opt-in)
 
 Run only on the selected acceptance machine after connecting the intended loopback route. Start with low monitoring volume. This command opens **both named devices**, emits a finite 1 kHz tone, and captures PCM. It does not change OS defaults, install drivers, configure routes, retry, or resume a disconnected stream.

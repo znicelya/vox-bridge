@@ -72,8 +72,42 @@ pub enum PlaybackBoundary {
     Discarded,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureStatistics {
+    pub dropped_native_blocks: u64,
+    pub dropped_normalized_frames: u64,
+    pub finalized: bool,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativePlaybackStatistics {
+    pub sample_rate_hz: u32,
+    pub generated_mono_samples: u64,
+    pub callback_consumed_mono_samples: u64,
+    pub discarded_mono_samples: u64,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlaybackStatistics {
+    pub input_sample_rate_hz: u32,
+    pub accepted_for_processing_samples: u64,
+    pub discarded_before_conversion_samples: u64,
+    pub native: Option<NativePlaybackStatistics>,
+    pub finalized: bool,
+    pub tail_disposition_known: bool,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AudioStatistics {
+    pub capture: CaptureStatistics,
+    pub playback: PlaybackStatistics,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DiagnosticPayload {
+    CaptureAccounting {
+        statistics: CaptureStatistics,
+    },
+    PlaybackAccounting {
+        boundary: Option<PlaybackBoundary>,
+        statistics: PlaybackStatistics,
+    },
     Gap {
         cause: GapCause,
         dropped_frames: u64,

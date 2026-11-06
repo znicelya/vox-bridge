@@ -18,3 +18,8 @@ mod router_tests;
 
 pub use frame::{AudioFrame, PcmSpec, SampleFormat};
 pub use resample::Resampler;
+
+#[cfg(test)]
+mod runtime_tests;
+
+pub mod runtime;

@@ -149,3 +149,8 @@ pub(crate) fn readiness(endpoints: &[AudioEndpoint]) -> DriverStatus {
         )
     }
 }
+
+pub mod inventory;
+pub mod native_io;
+pub mod process_io;
+pub mod pulse_io;

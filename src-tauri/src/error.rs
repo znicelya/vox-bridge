@@ -12,6 +12,11 @@ pub enum AppError {
     Configuration(String),
     #[error("session not found: {0}")]
     SessionNotFound(uuid::Uuid),
+    #[error("audio error ({code:?}): {message}")]
+    Audio {
+        code: crate::domain::transcript::RuntimeFailureCode,
+        message: &'static str,
+    },
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -23,6 +28,7 @@ impl AppError {
             Self::Storage(_) => "STORAGE_ERROR",
             Self::Configuration(_) => "CONFIGURATION_ERROR",
             Self::SessionNotFound(_) => "SESSION_NOT_FOUND",
+            Self::Audio { .. } => "AUDIO_ERROR",
             Self::Internal(_) => "INTERNAL_ERROR",
         }
     }
