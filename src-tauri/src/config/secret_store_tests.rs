@@ -197,6 +197,27 @@ fn legacy_provider_json_defaults_display_name_to_provider_id() {
 }
 
 #[test]
+fn provider_json_rejects_invalid_display_names_during_deserialization() {
+    let valid = serde_json::json!({
+        "id": Uuid::new_v4(),
+        "provider": "volcengine",
+        "display_name": "valid profile",
+        "endpoint": "https://api.example.com",
+        "llm": null,
+        "embedding": null,
+        "tavily": null,
+        "language_capabilities": ["zh", "en"],
+        "secret_reference": null
+    });
+
+    for invalid in ["   ".to_owned(), "x".repeat(81)] {
+        let mut malformed = valid.clone();
+        malformed["display_name"] = serde_json::Value::String(invalid);
+        assert!(serde_json::from_value::<ProviderConfig>(malformed).is_err());
+    }
+}
+
+#[test]
 fn concurrent_config_stores_preserve_every_read_modify_write() {
     let dir = tempfile::tempdir().unwrap();
     let backend = SecretStore::test_backend();

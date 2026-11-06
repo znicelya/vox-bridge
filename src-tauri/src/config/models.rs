@@ -65,11 +65,9 @@ impl<'de> Deserialize<'de> for ProviderConfig {
         D: serde::Deserializer<'de>,
     {
         let wire = ProviderConfigWire::deserialize(deserializer)?;
-        let display_name = wire
-            .display_name
-            .unwrap_or_else(|| wire.provider.clone())
-            .trim()
-            .to_owned();
+        let display_name =
+            normalize_display_name(wire.display_name.unwrap_or_else(|| wire.provider.clone()))
+                .map_err(serde::de::Error::custom)?;
         Ok(Self {
             id: wire.id,
             provider: wire.provider,
@@ -97,7 +95,7 @@ impl ProviderConfig {
         let provider = provider.into();
         let value = Self {
             id,
-            display_name: provider.trim().to_owned(),
+            display_name: normalize_display_name(provider.clone())?,
             provider,
             endpoint: endpoint.into(),
             llm: model.map(|model| LlmConfig { model, resource_id }),
@@ -125,7 +123,7 @@ impl ProviderConfig {
         &self.endpoint
     }
     pub fn with_display_name(mut self, name: String) -> AppResult<Self> {
-        self.display_name = name.trim().to_owned();
+        self.display_name = normalize_display_name(name)?;
         self.validate()?;
         Ok(self)
     }
@@ -150,12 +148,7 @@ impl ProviderConfig {
         if self.provider.trim().is_empty() {
             return Err(AppError::Configuration("provider is required".into()));
         }
-        let name_len = self.display_name.chars().count();
-        if !(1..=80).contains(&name_len) {
-            return Err(AppError::Configuration(
-                "provider display name must contain 1 to 80 characters".into(),
-            ));
-        }
+        validate_display_name(&self.display_name)?;
         if self.endpoint.trim().is_empty() {
             return Err(AppError::Configuration("endpoint is required".into()));
         }
@@ -192,6 +185,21 @@ impl ProviderConfig {
         }
         Ok(())
     }
+}
+
+fn normalize_display_name(name: String) -> AppResult<String> {
+    let name = name.trim().to_owned();
+    validate_display_name(&name)?;
+    Ok(name)
+}
+
+fn validate_display_name(name: &str) -> AppResult<()> {
+    if !(1..=80).contains(&name.chars().count()) {
+        return Err(AppError::Configuration(
+            "provider display name must contain 1 to 80 characters".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_remote_url(value: &str, allow_wss: bool) -> AppResult<()> {

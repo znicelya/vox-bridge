@@ -57,6 +57,51 @@ impl Latch {
     }
 }
 
+struct LatchReleaseGuard {
+    latch: Arc<Latch>,
+}
+
+impl LatchReleaseGuard {
+    fn new(latch: Arc<Latch>) -> Self {
+        Self { latch }
+    }
+
+    fn release(&self) {
+        self.latch.release();
+    }
+}
+
+impl Drop for LatchReleaseGuard {
+    fn drop(&mut self) {
+        self.latch.release();
+    }
+}
+
+#[test]
+fn latch_release_guard_releases_waiters_during_unwind() {
+    let latch = Arc::new(Latch::default());
+    let waiting = Arc::clone(&latch);
+    let (released_tx, released_rx) = std::sync::mpsc::channel();
+    let waiter = std::thread::spawn(move || {
+        waiting.wait();
+        released_tx.send(()).unwrap();
+    });
+
+    let unwind = std::panic::catch_unwind({
+        let latch = Arc::clone(&latch);
+        move || {
+            let _release = LatchReleaseGuard::new(latch);
+            panic!("injected assertion failure");
+        }
+    });
+    let released = released_rx.recv_timeout(Duration::from_secs(1));
+    latch.release();
+    waiter.join().unwrap();
+
+    assert!(unwind.is_err());
+    assert!(released.is_ok());
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn timed_out_native_jobs_retain_both_capacity_slots_until_they_return() {
     let root = tempfile::tempdir().unwrap();
@@ -78,6 +123,7 @@ async fn timed_out_native_jobs_retain_both_capacity_slots_until_they_return() {
     );
     let entered = Arc::new(AtomicUsize::new(0));
     let latch = Arc::new(Latch::default());
+    let release_latch = LatchReleaseGuard::new(Arc::clone(&latch));
 
     let mut calls = Vec::new();
     for io in [first_io, second_io] {
@@ -115,7 +161,7 @@ async fn timed_out_native_jobs_retain_both_capacity_slots_until_they_return() {
     assert!(result.is_err());
     assert_eq!(third_started.load(Ordering::SeqCst), 0);
 
-    latch.release();
+    release_latch.release();
     tokio::time::timeout(Duration::from_secs(2), async {
         while gate.available_permits() != 2 {
             tokio::task::yield_now().await;
@@ -133,6 +179,7 @@ async fn cancelling_a_job_queued_before_transaction_entry_never_mutates_disk() {
     let io = test_io(dir.path(), Arc::clone(&gate), Duration::from_secs(2));
     let entered = Arc::new(AtomicUsize::new(0));
     let latch = Arc::new(Latch::default());
+    let release_latch = LatchReleaseGuard::new(Arc::clone(&latch));
 
     let first_io = io.clone();
     let first_entered = Arc::clone(&entered);
@@ -176,7 +223,7 @@ async fn cancelling_a_job_queued_before_transaction_entry_never_mutates_disk() {
     queued.abort();
     assert!(queued.await.unwrap_err().is_cancelled());
     assert_eq!(gate.available_permits(), 0);
-    latch.release();
+    release_latch.release();
     first.await.unwrap().unwrap();
 
     tokio::time::timeout(Duration::from_secs(2), async {
@@ -209,6 +256,7 @@ async fn cross_instance_transactions_are_serialized_for_the_whole_closure() {
     );
     let entered = Arc::new(AtomicUsize::new(0));
     let latch = Arc::new(Latch::default());
+    let release_latch = LatchReleaseGuard::new(Arc::clone(&latch));
 
     let count = Arc::clone(&entered);
     let hold = Arc::clone(&latch);
@@ -240,7 +288,7 @@ async fn cross_instance_transactions_are_serialized_for_the_whole_closure() {
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert_eq!(entered.load(Ordering::SeqCst), 1);
-    latch.release();
+    release_latch.release();
     first_call.await.unwrap().unwrap();
     second_call.await.unwrap().unwrap();
     assert_eq!(entered.load(Ordering::SeqCst), 2);
