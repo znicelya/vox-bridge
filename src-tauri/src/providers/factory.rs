@@ -134,6 +134,23 @@ impl ProviderFactory {
     }
 }
 impl PreparedProviderSession {
+    pub(crate) fn revalidate(&self) -> ProviderResult<()> {
+        let capabilities = self.provider.capabilities();
+        if !capabilities.ready {
+            return Err(ProviderError::Unavailable);
+        }
+        if !capabilities.supports_tts {
+            return Err(ProviderError::UnsupportedTts);
+        }
+        if capabilities.input_audio != PcmSpec::pcm16_mono(16_000) {
+            return Err(ProviderError::UnsupportedAudioFormat);
+        }
+        for config in &self.configs {
+            capabilities.validate(config)?;
+        }
+        Ok(())
+    }
+
     pub fn configs(&self) -> &[ProviderSessionConfig] {
         &self.configs
     }

@@ -358,3 +358,38 @@ fn deserialized_configuration_is_revalidated_before_selection() {
         Err(ProviderError::InvalidConfiguration)
     ));
 }
+
+#[test]
+fn prepared_revalidation_checks_complete_profile_and_both_language_directions() {
+    let (_dir, factory) = factory();
+    let provider = Arc::new(ControlledProvider::new());
+    let config = saved("controlled", "https://controlled.example");
+    let session = SessionConfig::call(LanguagePair::new("en", "zh").unwrap()).unwrap();
+    let prepared = factory
+        .with_test_provider(provider)
+        .prepare(&config, Uuid::new_v4(), &session, INPUT, OUTPUT)
+        .unwrap();
+    for field in 0..6 {
+        let mut changed = ControlledProvider::new();
+        match field {
+            0 => changed.caps.ready = false,
+            1 => changed.caps.supports_tts = false,
+            2 => changed.caps.input_audio = PcmSpec::pcm16_mono(24_000),
+            3 => changed.caps.output_audio = PcmSpec::pcm16_mono(16_000),
+            4 => changed.caps.supports_bidirectional = false,
+            5 => {
+                changed.caps.language_pairs.pop();
+            }
+            _ => unreachable!(),
+        }
+        let revalidated = PreparedProviderSession {
+            provider: Arc::new(changed),
+            configs: prepared.configs.clone(),
+        };
+        assert!(
+            revalidated.revalidate().is_err(),
+            "changed capability {field} was accepted"
+        );
+    }
+    assert!(prepared.revalidate().is_ok());
+}

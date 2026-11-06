@@ -231,6 +231,7 @@ pub(crate) struct FixtureAudioBackend {
     state: Arc<Mutex<FixtureAudioState>>,
     open_ports: Arc<AtomicUsize>,
     total_opens: Arc<AtomicUsize>,
+    open_calls: Arc<AtomicUsize>,
 }
 
 impl FixtureAudioBackend {
@@ -277,6 +278,7 @@ impl FixtureAudioBackend {
             })),
             open_ports: Arc::new(AtomicUsize::new(0)),
             total_opens: Arc::new(AtomicUsize::new(0)),
+            open_calls: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -391,6 +393,10 @@ impl FixtureAudioBackend {
 
     pub(crate) fn open_ports(&self) -> usize {
         self.open_ports.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn open_calls(&self) -> usize {
+        self.open_calls.load(Ordering::SeqCst)
     }
 
     pub(crate) fn total_opens(&self) -> usize {
@@ -668,6 +674,7 @@ impl AudioBackend for FixtureAudioBackend {
     }
 
     async fn open(&self, request: AudioOpenRequest) -> AppResult<AudioPorts> {
+        self.open_calls.fetch_add(1, Ordering::SeqCst);
         let delayed = {
             let mut state = self.state.lock().unwrap();
             validate_fixture_open(&state, &request)?;

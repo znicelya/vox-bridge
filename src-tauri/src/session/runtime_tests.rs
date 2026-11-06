@@ -361,7 +361,12 @@ async fn restored_device_does_not_reconnect_until_explicit_resume() {
         .unwrap();
     wait_phase(&run, RuntimePhase::Running).await;
     assert_eq!(h.provider.connect_counts(), [2, 0]);
-    assert_eq!(run.stop().await, RuntimeOutcome::Completed);
+    assert_eq!(
+        run.stop().await,
+        RuntimeOutcome::Failed {
+            codes: vec![RuntimeFailureCode::DeviceUnavailable]
+        }
+    );
 }
 
 #[tokio::test]
@@ -657,6 +662,7 @@ async fn not_started_before_delivered_gap_keeps_final_and_reuses_connection() {
     .unwrap();
     let h = RuntimeHarness::live(script).unwrap();
     let release = h.provider.delay_gap(SessionDirection::SourceToTarget);
+    let final_release = h.provider.delay_final(SessionDirection::SourceToTarget);
     let run = h
         .runtime
         .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
@@ -674,13 +680,11 @@ async fn not_started_before_delivered_gap_keeps_final_and_reuses_connection() {
         )
         .await
         .unwrap();
-    tokio::time::timeout(Duration::from_secs(1), async {
-        while h.store.transcript_page(h.id, None, 50).unwrap().rows.len() != 1 {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .unwrap();
+    assert!(
+        timeout(Duration::from_secs(1), final_release.wait_entered())
+            .await
+            .unwrap()
+    );
     h.audio
         .send_capture(
             "live-input",
@@ -706,6 +710,20 @@ async fn not_started_before_delivered_gap_keeps_final_and_reuses_connection() {
     .await
     .unwrap();
     assert_eq!(run.status().borrow().directions[0].stream_epoch, 0);
+    assert_eq!(
+        h.store.transcript_page(h.id, None, 50).unwrap().rows.len(),
+        0
+    );
+    final_release.release();
+    eventually(|| h.store.transcript_page(h.id, None, 50).unwrap().rows.len() == 1).await;
+    assert_eq!(
+        h.store.transcript_page(h.id, None, 50).unwrap().rows[0]
+            .details
+            .as_ref()
+            .unwrap()
+            .stream_epoch,
+        0
+    );
     release.release();
     tokio::time::timeout(Duration::from_secs(1), async {
         loop {
@@ -741,6 +759,7 @@ async fn not_started_before_delivered_gap_keeps_final_and_reuses_connection() {
     .await
     .unwrap();
     assert_eq!(h.provider.connect_counts(), [1, 0]);
+    assert_eq!(h.audio.total_opens(), 2);
     assert_eq!(run.stop().await, RuntimeOutcome::Completed);
 }
 
@@ -1030,7 +1049,10 @@ async fn missing_provider_terminal_fails_without_claiming_completion() {
     assert_eq!(
         run.stop().await,
         RuntimeOutcome::Failed {
-            codes: vec![RuntimeFailureCode::FinishTimeout]
+            codes: vec![
+                RuntimeFailureCode::CleanupTimeout,
+                RuntimeFailureCode::FinishTimeout
+            ]
         }
     );
     release.release();
@@ -1061,8 +1083,9 @@ async fn missing_audio_close_ack_reports_cleanup_timeout() {
             codes: vec![RuntimeFailureCode::CleanupTimeout]
         }
     );
+    assert_eq!(h.audio.open_ports(), 1);
     let _ = release.send(());
-    assert_eq!(h.audio.open_ports(), 0);
+    eventually(|| h.audio.open_ports() == 0).await;
 }
 
 #[tokio::test]
@@ -1290,4 +1313,1072 @@ async fn cancel_request_does_not_pause_until_terminal_cleanup_is_observed() {
             codes: vec![RuntimeFailureCode::DeviceUnavailable]
         }
     );
+}
+
+fn ready_script() -> FixtureScript {
+    FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::WaitForFinish,
+        ],
+    )
+    .unwrap()
+}
+
+async fn eventually(mut predicate: impl FnMut() -> bool) {
+    timeout(Duration::from_secs(2), async {
+        while !predicate() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
+fn capture(sequence: u64, samples: usize, value: i16) -> AudioFrame {
+    AudioFrame::new(
+        AudioSource::Microphone,
+        sequence,
+        PcmSpec::pcm16_mono(16_000),
+        vec![value; samples],
+    )
+    .unwrap()
+}
+
+#[tokio::test]
+async fn repair_stop_during_replacement_is_persistent_and_owns_late_ports() {
+    let script = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::ReceiveAudio { count: 1 },
+            FixtureStep::Emit(ProviderEvent::Gap {
+                metadata: metadata(),
+            }),
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::WaitForFinish,
+        ],
+    )
+    .unwrap();
+    let h = RuntimeHarness::live(script).unwrap();
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    let release = h.audio.delay_open("live-input");
+    h.audio
+        .send_capture("live-input", capture(0, 1280, 1))
+        .await
+        .unwrap();
+    eventually(|| run.status().borrow().directions[0].phase == DirectionPhase::Reconnecting).await;
+    let stop = tokio::spawn({
+        let run = run.clone();
+        async move { run.stop().await }
+    });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let _ = release.send(Ok(()));
+    let result = timeout(Duration::from_secs(2), stop).await;
+    assert!(
+        result.is_ok(),
+        "stop notification was consumed during recovery"
+    );
+    assert_eq!(h.audio.open_ports(), 0);
+}
+
+#[tokio::test]
+async fn repair_pending_admission_does_not_block_provider_final_or_stop() {
+    let script = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::Delay(Duration::from_millis(80)),
+            FixtureStep::Emit(ProviderEvent::SourceFinal {
+                metadata: metadata(),
+                text: final_text("en", "while send pending"),
+            }),
+            FixtureStep::WaitForFinish,
+        ],
+    )
+    .unwrap();
+    let h = RuntimeHarness::live(script).unwrap();
+    let release = h.provider.delay_send(SessionDirection::SourceToTarget);
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    h.audio
+        .send_capture("live-input", capture(0, 1280, 1))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let final_count = h.store.transcript_page(h.id, None, 50).unwrap().rows.len();
+    let stopped = timeout(Duration::from_secs(2), run.stop()).await;
+    release.release();
+    if stopped.is_err() {
+        let _ = timeout(Duration::from_secs(2), run.stop()).await;
+    }
+    assert_eq!(final_count, 1, "event consumer blocked behind send_audio");
+    assert_eq!(
+        h.provider.send_calls(),
+        [1, 0],
+        "admission future was recreated after an event"
+    );
+    assert!(stopped.is_ok(), "stop blocked behind send_audio");
+}
+
+#[tokio::test]
+async fn repair_startup_stop_retains_late_open_failure() {
+    let h = RuntimeHarness::live(ready_script()).unwrap();
+    let release = h.audio.delay_open("live-input");
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    eventually(|| h.provider.connect_counts()[0] == 1).await;
+    let stop = tokio::spawn({
+        let run = run.clone();
+        async move { run.stop().await }
+    });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let _ = release.send(Err(RuntimeFailureCode::CleanupTimeout));
+    assert_eq!(
+        timeout(Duration::from_secs(2), stop)
+            .await
+            .unwrap()
+            .unwrap(),
+        RuntimeOutcome::Failed {
+            codes: vec![RuntimeFailureCode::CleanupTimeout]
+        }
+    );
+}
+
+#[tokio::test]
+async fn repair_ready_peer_failure_terminates_initial_aggregate_startup() {
+    let h = RuntimeHarness::call(ready_script(), ready_script()).unwrap();
+    let release = h.audio.delay_open("m2-capture");
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    eventually(|| run.status().borrow().directions[0].phase == DirectionPhase::Running).await;
+    h.audio.lose("a-input");
+    tokio::time::sleep(Duration::from_millis(60)).await;
+    let phase = run.status().borrow().phase.clone();
+    let _ = release.send(Ok(()));
+    let _ = timeout(Duration::from_secs(2), run.stop()).await;
+    assert_eq!(phase, RuntimePhase::Stopping);
+    assert_eq!(h.audio.open_ports(), 0);
+}
+
+#[tokio::test]
+async fn repair_resume_stop_and_saturation_keep_call_peer_responsive() {
+    let peer = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::ReceiveAudio { count: 1 },
+            FixtureStep::Emit(ProviderEvent::Audio {
+                metadata: metadata(),
+                frame: AudioFrame::new(
+                    AudioSource::Microphone,
+                    0,
+                    PcmSpec::pcm16_mono(24_000),
+                    vec![9; 1920],
+                )
+                .unwrap(),
+            }),
+            FixtureStep::WaitForFinish,
+        ],
+    )
+    .unwrap();
+    let forward = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::Delay(Duration::from_millis(40)),
+            FixtureStep::Disconnect,
+        ],
+    )
+    .unwrap();
+    let h = RuntimeHarness::call(forward, peer).unwrap();
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    eventually(|| run.status().borrow().directions[0].phase == DirectionPhase::Paused).await;
+    let release = h.provider.delay_started(SessionDirection::SourceToTarget);
+    let resume = tokio::spawn({
+        let run = run.clone();
+        async move { run.resume_direction(SessionDirection::SourceToTarget).await }
+    });
+    assert!(
+        timeout(Duration::from_secs(1), release.wait_entered())
+            .await
+            .unwrap()
+    );
+    let mut duplicates = Vec::new();
+    for _ in 0..8 {
+        duplicates.push(tokio::spawn({
+            let run = run.clone();
+            async move { run.resume_direction(SessionDirection::SourceToTarget).await }
+        }));
+    }
+    let mut rejected = 0;
+    for duplicate in duplicates {
+        if matches!(
+            timeout(Duration::from_millis(100), duplicate).await,
+            Ok(Ok(Err(_)))
+        ) {
+            rejected += 1;
+        }
+    }
+    h.audio
+        .send_capture(
+            "m2-capture",
+            AudioFrame::new(
+                AudioSource::System,
+                0,
+                PcmSpec::pcm16_mono(16_000),
+                vec![4; 1280],
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let played = timeout(
+        Duration::from_secs(1),
+        h.audio.next_playback("physical-output"),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let stopped = tokio::spawn({
+        let run = run.clone();
+        async move { run.stop().await }
+    });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let phase = run.status().borrow().phase.clone();
+    release.release();
+    let result = timeout(Duration::from_secs(2), stopped).await;
+    let _ = timeout(Duration::from_secs(2), resume).await;
+    assert_eq!(
+        rejected, 8,
+        "multiple resumes admitted or supervisor blocked"
+    );
+    assert_eq!(played.samples(), &[9; 1920]);
+    assert_eq!(phase, RuntimePhase::Stopping);
+    assert!(result.is_ok(), "stop consumed during resumed handshake");
+    assert_eq!(h.provider.connect_counts(), [2, 1]);
+    assert_eq!(h.audio.open_ports(), 0);
+}
+
+#[tokio::test]
+async fn repair_failed_resume_open_and_roles_restore_paused_snapshot() {
+    use crate::audio::platform::inventory::EndpointRole;
+    let h = RuntimeHarness::live(ready_script()).unwrap();
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    h.audio.lose("live-input");
+    wait_phase(&run, RuntimePhase::Paused).await;
+    h.audio.restore("live-input");
+    h.audio.set_role("m1-render", EndpointRole::PhysicalOutput);
+    assert!(
+        run.resume_direction(SessionDirection::SourceToTarget)
+            .await
+            .is_err()
+    );
+    assert_eq!(h.provider.connect_counts(), [1, 0]);
+    h.audio.set_role("m1-render", EndpointRole::M1Render);
+    let release = h.audio.delay_open("live-input");
+    let resume = tokio::spawn({
+        let run = run.clone();
+        async move { run.resume_direction(SessionDirection::SourceToTarget).await }
+    });
+    eventually(|| h.provider.connect_counts()[0] == 2).await;
+    let _ = release.send(Err(RuntimeFailureCode::DeviceUnavailable));
+    assert!(resume.await.unwrap().is_err());
+    let phase = run.status().borrow().directions[0].phase.clone();
+    let _ = run.stop().await;
+    assert_eq!(phase, DirectionPhase::Paused);
+    assert_eq!(h.audio.open_ports(), 0);
+}
+
+#[tokio::test]
+async fn repair_failed_resume_handshake_closes_new_ports() {
+    let h = RuntimeHarness::live(ready_script()).unwrap();
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    h.audio.lose("live-input");
+    wait_phase(&run, RuntimePhase::Paused).await;
+    h.audio.restore("live-input");
+    let release = h.provider.delay_started(SessionDirection::SourceToTarget);
+    let resume = tokio::spawn({
+        let run = run.clone();
+        async move { run.resume_direction(SessionDirection::SourceToTarget).await }
+    });
+    assert!(
+        timeout(Duration::from_secs(1), release.wait_entered())
+            .await
+            .unwrap()
+    );
+    h.audio.lose("m1-render");
+    release.release();
+    assert!(
+        timeout(Duration::from_secs(2), resume)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err()
+    );
+    let phase = run.status().borrow().directions[0].phase.clone();
+    let _ = run.stop().await;
+    assert_eq!(phase, DirectionPhase::Paused);
+    assert_eq!(h.audio.open_ports(), 0);
+}
+
+async fn check_pending_control_keeps_final_consumer_live_and_bounded(cancel: bool) {
+    let script = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::Delay(Duration::from_millis(60)),
+            FixtureStep::Emit(ProviderEvent::SourceFinal {
+                metadata: metadata(),
+                text: final_text("en", "operation pending"),
+            }),
+            FixtureStep::WaitForFinish,
+        ],
+    )
+    .unwrap();
+    let h = RuntimeHarness::live(script).unwrap();
+    let release = if cancel {
+        h.provider.delay_cancel(SessionDirection::SourceToTarget)
+    } else {
+        h.provider.delay_finish(SessionDirection::SourceToTarget)
+    };
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    let stopped = if cancel {
+        h.audio.lose("live-input");
+        None
+    } else {
+        Some(tokio::spawn({
+            let run = run.clone();
+            async move { run.stop().await }
+        }))
+    };
+    assert!(
+        timeout(Duration::from_secs(1), release.wait_entered())
+            .await
+            .unwrap()
+    );
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let count = h.store.transcript_page(h.id, None, 50).unwrap().rows.len();
+    let bounded = if let Some(stopped) = stopped {
+        timeout(Duration::from_secs(2), stopped).await.is_ok()
+    } else {
+        timeout(Duration::from_secs(2), async {
+            eventually(|| run.status().borrow().phase == RuntimePhase::Paused).await;
+            run.stop().await
+        })
+        .await
+        .is_ok()
+    };
+    release.release();
+    if !bounded {
+        let _ = timeout(Duration::from_secs(2), run.stop()).await;
+    }
+    assert_eq!(count, 1, "pending provider control blocked final consumer");
+    assert!(bounded, "provider control exceeded its deadline");
+    assert_eq!(h.audio.open_ports(), 0);
+    if cancel {
+        assert_eq!(h.provider.cancel_counts(), [1, 0]);
+    } else {
+        assert_eq!(h.provider.finish_counts(), [1, 0]);
+    }
+}
+
+#[tokio::test]
+async fn repair_pending_finish_keeps_final_consumer_live_and_bounded() {
+    check_pending_control_keeps_final_consumer_live_and_bounded(false).await;
+}
+#[tokio::test]
+async fn repair_pending_cancel_keeps_final_consumer_live_and_bounded() {
+    check_pending_control_keeps_final_consumer_live_and_bounded(true).await;
+}
+
+#[tokio::test]
+async fn repair_stop_keeps_packet_pacing_and_counts_total_deadline_remainder() {
+    let h = RuntimeHarness::live(ready_script()).unwrap();
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    h.audio
+        .send_capture("live-input", capture(0, 12_800, 1))
+        .await
+        .unwrap();
+    eventually(|| h.provider.sent_at(SessionDirection::SourceToTarget).len() == 1).await;
+    let result = run.stop().await;
+    let sent = h.provider.sent_at(SessionDirection::SourceToTarget);
+    assert!(sent.len() >= 4 && sent.len() <= 6);
+    for pair in sent.windows(2) {
+        assert!(pair[1].duration_since(pair[0]) >= Duration::from_millis(70));
+    }
+    assert!(
+        matches!(result, RuntimeOutcome::Failed { codes } if codes.contains(&RuntimeFailureCode::Interrupted))
+    );
+    let gaps = h.store.diagnostic_page(h.id, None, 100).unwrap().rows;
+    assert!(gaps.iter().any(|row| matches!(row.payload, DiagnosticPayload::Gap { cause: GapCause::CaptureOverflow, dropped_frames } if dropped_frames == (10 - sent.len()) as u64)));
+}
+
+#[tokio::test]
+async fn repair_two_real_boundaries_during_replacement_advance_each_epoch() {
+    let script = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::ReceiveAudio { count: 1 },
+            FixtureStep::Emit(ProviderEvent::Gap {
+                metadata: metadata(),
+            }),
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::Emit(ProviderEvent::SourceFinal {
+                metadata: metadata(),
+                text: final_text("en", "first epoch"),
+            }),
+            FixtureStep::Emit(ProviderEvent::Gap {
+                metadata: metadata(),
+            }),
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::Emit(ProviderEvent::SourceFinal {
+                metadata: metadata(),
+                text: final_text("en", "second epoch"),
+            }),
+            FixtureStep::WaitForFinish,
+        ],
+    )
+    .unwrap();
+    let h = RuntimeHarness::live(script).unwrap();
+    let close = h.audio.delay_close("live-input");
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    h.audio
+        .send_capture("live-input", capture(0, 1280, 1))
+        .await
+        .unwrap();
+    eventually(|| h.store.transcript_page(h.id, None, 50).unwrap().rows.len() == 2).await;
+    let epochs = h
+        .store
+        .transcript_page(h.id, None, 50)
+        .unwrap()
+        .rows
+        .into_iter()
+        .map(|r| r.details.unwrap().stream_epoch)
+        .collect::<Vec<_>>();
+    let _ = close.send(());
+    eventually(|| run.status().borrow().directions[0].phase == DirectionPhase::Running).await;
+    let result = run.stop().await;
+    assert_eq!(epochs, [1, 2]);
+    assert_eq!(h.audio.total_opens(), 2);
+    assert_eq!(h.provider.connect_counts(), [1, 0]);
+    assert_eq!(result, RuntimeOutcome::Completed);
+}
+
+#[tokio::test]
+async fn repair_provider_failure_during_pending_replacement_settles_late_open() {
+    let script = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::ReceiveAudio { count: 1 },
+            FixtureStep::Emit(ProviderEvent::Gap {
+                metadata: metadata(),
+            }),
+            FixtureStep::Delay(Duration::from_millis(60)),
+            FixtureStep::Disconnect,
+        ],
+    )
+    .unwrap();
+    let h = RuntimeHarness::live(script).unwrap();
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    let open = h.audio.delay_open("live-input");
+    h.audio
+        .send_capture("live-input", capture(0, 1280, 1))
+        .await
+        .unwrap();
+    eventually(|| run.status().borrow().directions[0].phase == DirectionPhase::Reconnecting).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let phase_before_release = run.status().borrow().directions[0].phase.clone();
+    let _ = open.send(Ok(()));
+    wait_phase(&run, RuntimePhase::Paused).await;
+    let result = run.stop().await;
+    assert!(
+        matches!(result,RuntimeOutcome::Failed { codes } if codes.contains(&RuntimeFailureCode::Provider))
+    );
+    assert_eq!(
+        phase_before_release,
+        DirectionPhase::Reconnecting,
+        "failure published before replacement was settled"
+    );
+    assert_eq!(h.audio.open_ports(), 0);
+    assert_eq!(h.audio.total_opens(), 2);
+    assert_eq!(h.provider.connect_counts(), [1, 0]);
+}
+
+#[tokio::test]
+async fn repair_replacement_close_failure_prevents_new_open_and_retains_accounting() {
+    let script = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::ReceiveAudio { count: 1 },
+            FixtureStep::Emit(ProviderEvent::Gap {
+                metadata: metadata(),
+            }),
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::WaitForFinish,
+        ],
+    )
+    .unwrap();
+    let h = RuntimeHarness::live(script).unwrap();
+    let close = h.audio.delay_close_result("live-input");
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    h.audio
+        .send_capture("live-input", capture(0, 1280, 1))
+        .await
+        .unwrap();
+    eventually(|| run.status().borrow().directions[0].phase == DirectionPhase::Reconnecting).await;
+    let _ = close.send(Err(RuntimeFailureCode::DeviceUnavailable));
+    wait_phase(&run, RuntimePhase::Paused).await;
+    let result = run.stop().await;
+    assert!(
+        matches!(result,RuntimeOutcome::Failed { codes } if codes.contains(&RuntimeFailureCode::DeviceUnavailable))
+    );
+    assert_eq!(h.audio.total_opens(), 1);
+    assert_eq!(
+        h.audio.open_calls(),
+        1,
+        "failed close must not attempt a replacement open"
+    );
+    assert_eq!(
+        h.audio.open_ports(),
+        1,
+        "failed acknowledgement must keep quarantine"
+    );
+    assert!(!h.audio.playback_statistics("m1-render").unwrap().finalized);
+}
+
+#[tokio::test]
+async fn repair_early_stop_observes_failure_after_open_deadline_inside_rollback_allowance() {
+    let h = RuntimeHarness::live(ready_script()).unwrap();
+    let open = h.audio.delay_open("live-input");
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    eventually(|| h.provider.connect_counts()[0] == 1).await;
+    let stopped = tokio::spawn({
+        let run = run.clone();
+        async move { run.stop().await }
+    });
+    tokio::time::sleep(Duration::from_millis(3200)).await;
+    let remained_owned = !stopped.is_finished();
+    let _ = open.send(Err(RuntimeFailureCode::DeviceUnavailable));
+    let outcome = timeout(Duration::from_secs(2), stopped)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        remained_owned,
+        "early stop truncated the remaining open plus rollback budget"
+    );
+    assert_eq!(
+        outcome,
+        RuntimeOutcome::Failed {
+            codes: vec![RuntimeFailureCode::DeviceUnavailable]
+        }
+    );
+}
+
+#[tokio::test]
+async fn repair_two_provider_failures_in_distinct_epochs_are_both_persisted() {
+    let script = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::Delay(Duration::from_millis(30)),
+            FixtureStep::Emit(ProviderEvent::Failed {
+                metadata: metadata(),
+                error: ProviderError::RemoteFailure { code: 42 },
+            }),
+        ],
+    )
+    .unwrap();
+    let h = RuntimeHarness::live(script).unwrap();
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    wait_phase(&run, RuntimePhase::Paused).await;
+    run.resume_direction(SessionDirection::SourceToTarget)
+        .await
+        .unwrap();
+    wait_phase(&run, RuntimePhase::Paused).await;
+    let result = run.stop().await;
+    let rows = h.store.diagnostic_page(h.id, None, 100).unwrap().rows;
+    let epochs = rows
+        .iter()
+        .filter_map(|row| match row.payload {
+            DiagnosticPayload::Failure {
+                code: RuntimeFailureCode::Provider,
+                provider_code: Some(42),
+                ..
+            } => row.stream_epoch,
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(epochs, [0, 1]);
+    assert_eq!(
+        result,
+        RuntimeOutcome::Failed {
+            codes: vec![RuntimeFailureCode::Provider]
+        }
+    );
+}
+
+async fn check_capture_replacement_preserves_peer_and_accounting(local_backlog: bool) {
+    let output = |sample| ProviderEvent::Audio {
+        metadata: metadata(),
+        frame: AudioFrame::new(
+            AudioSource::Microphone,
+            0,
+            PcmSpec::pcm16_mono(24_000),
+            vec![sample; 1920],
+        )
+        .unwrap(),
+    };
+    let forward = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::Emit(output(5)),
+            FixtureStep::ReceiveAudio { count: 1 },
+            FixtureStep::Emit(output(9)),
+            FixtureStep::WaitForFinish,
+        ],
+    )
+    .unwrap();
+    let peer = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::Emit(output(4)),
+            FixtureStep::WaitForFinish,
+        ],
+    )
+    .unwrap();
+    let h = RuntimeHarness::call(forward, peer).unwrap();
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    eventually(|| {
+        h.audio
+            .playback_statistics("m1-render")
+            .is_some_and(|s| s.accepted_for_processing_samples == 1920)
+    })
+    .await;
+    let open = h.audio.delay_open("a-input");
+    let send = h.provider.delay_send(SessionDirection::SourceToTarget);
+    if local_backlog {
+        h.audio
+            .send_capture("a-input", capture(0, 16000, 2))
+            .await
+            .unwrap();
+        assert!(
+            timeout(Duration::from_secs(1), send.wait_entered())
+                .await
+                .unwrap()
+        );
+        h.audio
+            .send_capture("a-input", capture(1, 8000, 3))
+            .await
+            .unwrap();
+    } else {
+        h.audio
+            .send_capture("a-input", capture(0, 640, 2))
+            .await
+            .unwrap();
+        tokio::task::yield_now().await;
+        h.audio.inject_capture_loss("a-input", 3, 2);
+        h.audio
+            .send_capture("a-input", capture(1, 640, 3))
+            .await
+            .unwrap();
+    }
+    let recovering = timeout(Duration::from_secs(1), async {
+        while run.status().borrow().directions[0].phase != DirectionPhase::Reconnecting {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    // Release every barrier before assertions, including the RED path.
+    let peer_audio = timeout(
+        Duration::from_secs(1),
+        h.audio.next_playback("physical-output"),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let _ = open.send(Ok(()));
+    send.release();
+    if recovering.is_err() {
+        let _ = timeout(Duration::from_secs(2), run.stop()).await;
+    }
+    assert!(recovering.is_ok(), "capture loss did not enter replacement");
+    eventually(|| {
+        h.audio.total_opens() == 3
+            && run.status().borrow().directions[0].phase == DirectionPhase::Running
+    })
+    .await;
+    h.audio
+        .send_capture("a-input", capture(2, 640, 9))
+        .await
+        .unwrap();
+    h.audio
+        .send_capture("a-input", capture(3, 640, 9))
+        .await
+        .unwrap();
+    let fresh = timeout(Duration::from_secs(1), h.audio.next_playback("m1-render"))
+        .await
+        .unwrap()
+        .unwrap();
+    let result = run.stop().await;
+    assert_eq!(fresh.samples(), &[9; 1920]);
+    assert_eq!(peer_audio.samples(), &[4; 1920]);
+    assert_eq!(
+        h.provider.sent_samples(SessionDirection::SourceToTarget),
+        vec![vec![9; 1280]]
+    );
+    assert_eq!(h.provider.connect_counts(), [1, 1]);
+    assert_eq!(h.audio.total_opens(), 3);
+    assert_eq!(h.audio.open_ports(), 0);
+    assert_eq!(result, RuntimeOutcome::Completed);
+    let rows = h.store.diagnostic_page(h.id, None, 100).unwrap().rows;
+    assert!(rows.iter().any(|r|matches!(&r.payload,DiagnosticPayload::PlaybackAccounting {statistics,..} if statistics.finalized && statistics.accepted_for_processing_samples==1920 && statistics.native.as_ref().is_some_and(|n|n.discarded_mono_samples==1920))));
+    if local_backlog {
+        assert!(rows.iter().any(|r|matches!(&r.payload,DiagnosticPayload::CaptureAccounting {statistics} if statistics.finalized && statistics.dropped_native_blocks==0 && statistics.dropped_normalized_frames==0)));
+    } else {
+        assert!(rows.iter().any(|r|matches!(&r.payload,DiagnosticPayload::CaptureAccounting {statistics} if statistics.finalized && statistics.dropped_native_blocks==3 && statistics.dropped_normalized_frames==2)));
+        assert!(rows.iter().any(|r| matches!(
+            r.payload,
+            DiagnosticPayload::Gap {
+                cause: GapCause::CaptureOverflow,
+                dropped_frames: 2
+            }
+        )));
+    }
+}
+
+#[tokio::test]
+async fn repair_runtime_backlog_overflow_clears_stale_audio_and_keeps_peer() {
+    check_capture_replacement_preserves_peer_and_accounting(true).await;
+}
+#[tokio::test]
+async fn repair_native_loss_keeps_units_and_flushes_old_port_discard_accounting() {
+    check_capture_replacement_preserves_peer_and_accounting(false).await;
+}
+
+#[tokio::test]
+async fn repair_startup_stop_retains_failed_close_and_missing_terminal_ack() {
+    let h = RuntimeHarness::live(ready_script()).unwrap();
+    let started = h.provider.delay_started(SessionDirection::SourceToTarget);
+    let terminal = h.provider.delay_terminal(SessionDirection::SourceToTarget);
+    let close = h.audio.delay_close_result("live-input");
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    assert!(
+        timeout(Duration::from_secs(1), started.wait_entered())
+            .await
+            .unwrap()
+    );
+    let stop = tokio::spawn({
+        let run = run.clone();
+        async move { run.stop().await }
+    });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    started.release();
+    let _ = close.send(Err(RuntimeFailureCode::DeviceUnavailable));
+    let result = timeout(Duration::from_secs(2), stop).await;
+    terminal.release();
+    let outcome = result.unwrap().unwrap();
+    assert!(
+        matches!(outcome,RuntimeOutcome::Failed {codes} if codes.contains(&RuntimeFailureCode::DeviceUnavailable) && codes.contains(&RuntimeFailureCode::CleanupTimeout))
+    );
+    assert_eq!(h.audio.open_ports(), 1);
+    let statistics = h.audio.playback_statistics("m1-render").unwrap();
+    assert!(!statistics.finalized && !statistics.tail_disposition_known);
+}
+
+#[tokio::test]
+async fn repair_sink_construction_failure_is_a_storage_outcome() {
+    use crate::{
+        config::SecretStore, providers::factory::ProviderFactory, session::TranslationRuntime,
+        storage::LocalStore,
+    };
+    use std::sync::Arc;
+    let h = RuntimeHarness::live(ready_script()).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(LocalStore::open(dir.path()).unwrap());
+    let factory = Arc::new(
+        ProviderFactory::new(Arc::new(SecretStore::for_tests(dir.path()).unwrap()))
+            .with_test_provider(h.provider.clone()),
+    );
+    let runtime = TranslationRuntime::new(factory, h.audio.clone(), store, h.bus.clone());
+    let prepared = runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap();
+    rusqlite::Connection::open(dir.path().join("vox-bridge.sqlite"))
+        .unwrap()
+        .execute_batch("DROP TABLE translation_segments")
+        .unwrap();
+    let run = runtime.start(prepared);
+    assert_eq!(
+        timeout(Duration::from_secs(1), run.stop()).await.unwrap(),
+        RuntimeOutcome::Failed {
+            codes: vec![RuntimeFailureCode::Storage]
+        }
+    );
+    assert_eq!(h.provider.connect_counts(), [0, 0]);
+    assert_eq!(h.audio.open_ports(), 0);
+}
+
+#[tokio::test]
+async fn repair_output_overflow_coalesces_one_replacement_and_discards_stale_carry() {
+    let output = |sample| ProviderEvent::Audio {
+        metadata: metadata(),
+        frame: AudioFrame::new(
+            AudioSource::Microphone,
+            0,
+            PcmSpec::pcm16_mono(24_000),
+            vec![sample; 1920],
+        )
+        .unwrap(),
+    };
+    let forward = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::Delay(Duration::from_millis(60)),
+            FixtureStep::EmitRepeated {
+                event: output(2),
+                count: 24,
+            },
+            FixtureStep::Emit(ProviderEvent::SourceFinal {
+                metadata: metadata(),
+                text: final_text("en", "old output drained"),
+            }),
+            FixtureStep::ReceiveAudio { count: 1 },
+            FixtureStep::Emit(output(9)),
+            FixtureStep::WaitForFinish,
+        ],
+    )
+    .unwrap();
+    let peer = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::Emit(output(4)),
+            FixtureStep::WaitForFinish,
+        ],
+    )
+    .unwrap();
+    let h = RuntimeHarness::call(forward, peer).unwrap();
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    let open = h.audio.delay_open("a-input");
+    h.audio
+        .send_capture("a-input", capture(0, 640, 2))
+        .await
+        .unwrap();
+    eventually(|| h.store.transcript_page(h.id, None, 50).unwrap().rows.len() == 1).await;
+    assert_eq!(
+        run.status().borrow().directions[0].phase,
+        DirectionPhase::Reconnecting
+    );
+    assert_eq!(
+        h.audio
+            .next_playback("physical-output")
+            .await
+            .unwrap()
+            .samples(),
+        &[4; 1920]
+    );
+    let _ = open.send(Ok(()));
+    eventually(|| {
+        h.audio.total_opens() == 3
+            && run.status().borrow().directions[0].phase == DirectionPhase::Running
+    })
+    .await;
+    h.audio
+        .send_capture("a-input", capture(1, 640, 9))
+        .await
+        .unwrap();
+    h.audio
+        .send_capture("a-input", capture(2, 640, 9))
+        .await
+        .unwrap();
+    assert_eq!(
+        timeout(Duration::from_secs(1), h.audio.next_playback("m1-render"))
+            .await
+            .unwrap()
+            .unwrap()
+            .samples(),
+        &[9; 1920]
+    );
+    assert_eq!(run.stop().await, RuntimeOutcome::Completed);
+    assert_eq!(
+        h.provider.sent_samples(SessionDirection::SourceToTarget),
+        vec![vec![9; 1280]]
+    );
+    assert_eq!(h.provider.connect_counts(), [1, 1]);
+    assert_eq!(h.audio.total_opens(), 3);
+    assert_eq!(h.audio.open_ports(), 0);
+}
+
+#[tokio::test]
+async fn repair_terminal_during_delayed_old_close_prevents_late_reopen() {
+    let script = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::ReceiveAudio { count: 1 },
+            FixtureStep::Emit(ProviderEvent::Gap {
+                metadata: metadata(),
+            }),
+            FixtureStep::Delay(Duration::from_millis(40)),
+            FixtureStep::Disconnect,
+        ],
+    )
+    .unwrap();
+    let h = RuntimeHarness::live(script).unwrap();
+    let close = h.audio.delay_close("live-input");
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    h.audio
+        .send_capture("live-input", capture(0, 1280, 1))
+        .await
+        .unwrap();
+    eventually(|| run.status().borrow().directions[0].phase == DirectionPhase::Reconnecting).await;
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    let _ = close.send(());
+    wait_phase(&run, RuntimePhase::Paused).await;
+    let _ = run.stop().await;
+    // Let a wrongly detached replacement attempt finish so this assertion catches it.
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    assert_eq!(
+        h.audio.total_opens(),
+        1,
+        "provider terminal must prevent pending replacement reopening after old close"
+    );
+    assert_eq!(h.audio.open_ports(), 0);
+}
+
+#[tokio::test]
+async fn repair_stop_during_resumed_handshake_without_inventory_change() {
+    let script = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::Delay(Duration::from_millis(100)),
+            FixtureStep::Disconnect,
+        ],
+    )
+    .unwrap();
+    let h = RuntimeHarness::live(script).unwrap();
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    wait_phase(&run, RuntimePhase::Paused).await;
+    let started = h.provider.delay_started(SessionDirection::SourceToTarget);
+    let resumed = tokio::spawn({
+        let run = run.clone();
+        async move { run.resume_direction(SessionDirection::SourceToTarget).await }
+    });
+    assert!(
+        timeout(Duration::from_secs(1), started.wait_entered())
+            .await
+            .unwrap()
+    );
+    let stopped = tokio::spawn({
+        let run = run.clone();
+        async move { run.stop().await }
+    });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    started.release();
+    let outcome = timeout(Duration::from_secs(2), stopped).await;
+    let _ = timeout(Duration::from_secs(2), resumed).await;
+    assert!(
+        outcome.is_ok(),
+        "resume consumed the only stop notification"
+    );
+    assert_eq!(h.audio.open_ports(), 0);
+    assert_eq!(h.provider.connect_counts(), [2, 0]);
 }

@@ -503,3 +503,29 @@ fn checking_one_direction_does_not_hold_the_other_direction_gate() {
         .unwrap();
     assert_eq!(speaker_rx.try_recv().unwrap().sequence(), 2);
 }
+
+#[tokio::test]
+async fn unbound_routes_require_real_output_and_explicit_independent_resume() {
+    let graph = AudioGraph::for_call(
+        endpoint("a", AudioDirection::Input),
+        endpoint("m2", AudioDirection::Input),
+        endpoint("m1", AudioDirection::Output),
+        endpoint("speaker", AudioDirection::Output),
+    )
+    .unwrap();
+    let router = AudioRouter::paused_unbound(graph, health_for(&["a", "m2", "m1", "speaker"]));
+    assert!(router.resume_direction(Direction::AtoB).is_err());
+    let (sender, mut receiver) = mpsc::channel(2);
+    router
+        .replace_direction_output(Direction::AtoB, sender)
+        .unwrap();
+    assert!(router.route_direction(frame(1), Direction::AtoB).is_err());
+    router.resume_direction(Direction::AtoB).unwrap();
+    router.route_direction(frame(2), Direction::AtoB).unwrap();
+    assert_eq!(receiver.recv().await.unwrap().sequence(), 2);
+    assert!(router.route_direction(frame(3), Direction::BtoA).is_err());
+    assert!(matches!(
+        router.direction_status(Direction::BtoA).unwrap(),
+        AudioRouterStatus::Paused { .. }
+    ));
+}

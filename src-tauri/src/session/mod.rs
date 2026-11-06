@@ -23,3 +23,5 @@ pub(crate) mod test_support;
 
 #[cfg(test)]
 mod runtime_tests;
+
+mod resources;

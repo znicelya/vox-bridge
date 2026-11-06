@@ -119,6 +119,36 @@ pub struct AudioRouter<H> {
 }
 
 impl<H: EndpointHealthCheck> AudioRouter<H> {
+    /// Builds a validated graph with every route paused and without fabricated
+    /// playback senders. Runtime owners bind each real sender with
+    /// `replace_direction_output` before explicitly resuming that direction.
+    pub(crate) fn paused_unbound(graph: AudioGraph, health: H) -> Self {
+        let mut routes = std::array::from_fn(|_| None);
+        for direction in graph.directions() {
+            routes[index(direction)] = Some(RouteState {
+                status: AudioRouterStatus::Paused {
+                    reason: "audio route is not bound".into(),
+                },
+                output: None,
+            });
+        }
+        let (events, _) = broadcast::channel(32);
+        Self {
+            graph,
+            health,
+            state: Mutex::new(RouterState {
+                whole_pause: None,
+                routes,
+                dropped: [0; 2],
+            }),
+            route_gates: std::array::from_fn(|_| Mutex::new(())),
+            status_gate: Mutex::new(()),
+            events,
+            session_id: None,
+            state_sink: None,
+        }
+    }
+
     pub fn for_live(graph: AudioGraph, m1: mpsc::Sender<AudioFrame>, health: H) -> Self {
         Self::new(graph, m1, None, health, None, None)
     }
