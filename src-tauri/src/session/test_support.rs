@@ -1,8 +1,8 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet, VecDeque},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -22,17 +22,15 @@ use crate::{
         platform::{AudioDirection, AudioEndpoint, DriverStatus},
         queue::BoundedAudioQueue,
         runtime::{
-            AudioBackend, AudioControl, AudioHealth, AudioOpenRequest, AudioPorts, PlaybackReport,
+            AudioBackend, AudioControl, AudioFailure, AudioHealth, AudioOpenRequest, AudioPorts,
+            AudioShared, PlaybackReport, add, audio_error, validate_playback,
         },
     },
     config::{ProviderConfig, SecretStore},
     domain::{
         launch::{DeviceSelection, RuntimePhase, SessionLaunch},
         session::{LanguagePair, ProviderId, SessionConfig, SessionDirection},
-        transcript::{
-            AudioStatistics, CaptureStatistics, PlaybackBoundary, PlaybackStatistics,
-            RuntimeFailureCode,
-        },
+        transcript::{AudioStatistics, PlaybackBoundary, PlaybackStatistics, RuntimeFailureCode},
         translation::{TimedTranslation, Translation},
     },
     error::{AppError, AppResult},
@@ -46,6 +44,9 @@ use crate::{
     session::{RunningSession, TranslationRuntime},
     storage::{LocalStore, StoredSession},
 };
+
+#[path = "fixture_audio_tests.rs"]
+mod fixture_audio_tests;
 
 pub(crate) fn metadata() -> ProviderEventMetadata {
     ProviderEventMetadata {
@@ -84,27 +85,146 @@ pub(crate) async fn wait_phase(run: &RunningSession, phase: RuntimePhase) {
     .unwrap();
 }
 
-#[derive(Default)]
 struct FixtureAudioState {
+    inventory: AudioInventory,
     captures: HashMap<String, BoundedAudioQueue>,
     outputs: HashMap<String, Arc<PlaybackProbe>>,
+    input_outputs: HashMap<String, String>,
+    playback_observations: HashMap<String, AudioShared>,
     health: HashMap<String, watch::Sender<AudioHealth>>,
-    ready: HashMap<String, bool>,
+    leases: HashSet<String>,
+    quarantined: HashSet<String>,
     delayed_opens: HashMap<String, oneshot::Receiver<Result<(), RuntimeFailureCode>>>,
-    delayed_closes: HashMap<String, oneshot::Receiver<()>>,
+    delayed_closes: HashMap<String, CloseAcknowledgement>,
 }
 
 struct PlaybackProbe {
-    receiver: AsyncMutex<mpsc::Receiver<AudioFrame>>,
-    accepted: AtomicUsize,
-    consumed: AtomicUsize,
+    // The worker owns ingress; callback waits never hold its receiver lock.
+    pending: Mutex<VecDeque<AudioFrame>>,
+    shared: AudioShared,
+    injected_normalized_loss: AtomicU64,
     sealed: AtomicBool,
+    worker_done: AtomicBool,
+    failure: Mutex<Option<AudioFailure>>,
     changed: Notify,
+}
+
+impl PlaybackProbe {
+    fn suppress(&self) {
+        let mut pending = self.pending.lock().unwrap();
+        self.shared.suppress();
+        for frame in pending.drain(..) {
+            add(
+                &self.shared.counters.native_discarded,
+                frame.samples().len() as u64,
+            );
+        }
+        self.changed.notify_waiters();
+    }
+
+    async fn wait_worker_done(&self) {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if self.worker_done.load(Ordering::Acquire) {
+                return;
+            }
+            changed.await;
+        }
+    }
+}
+
+async fn playback_worker(probe: Arc<PlaybackProbe>, mut receiver: mpsc::Receiver<AudioFrame>) {
+    loop {
+        let changed = probe.shared.changed.notified();
+        tokio::pin!(changed);
+        changed.as_mut().enable();
+        if probe
+            .shared
+            .gates
+            .playback_suppressed
+            .load(Ordering::Acquire)
+        {
+            receiver.close();
+            while let Ok(frame) = receiver.try_recv() {
+                if validate_playback(&frame).is_ok() {
+                    let samples = frame.samples().len() as u64;
+                    add(&probe.shared.counters.accepted, samples);
+                    add(&probe.shared.counters.pre_conversion_discarded, samples);
+                }
+            }
+            break;
+        }
+        if probe.sealed.load(Ordering::Acquire) {
+            receiver.close();
+        }
+        let frame = tokio::select! {
+            biased;
+            _ = &mut changed => continue,
+            frame = receiver.recv() => frame,
+        };
+        let Some(frame) = frame else {
+            break;
+        };
+        if let Err(error) = validate_playback(&frame) {
+            *probe.failure.lock().unwrap() = Some(AudioFailure::from_error(error));
+            probe.suppress();
+            continue;
+        }
+        let samples = frame.samples().len() as u64;
+        add(&probe.shared.counters.accepted, samples);
+        let mut pending = probe.pending.lock().unwrap();
+        if probe
+            .shared
+            .gates
+            .playback_suppressed
+            .load(Ordering::Acquire)
+        {
+            add(&probe.shared.counters.pre_conversion_discarded, samples);
+        } else {
+            // Synthetic native playback is identity conversion at 24 kHz.
+            add(&probe.shared.counters.native_generated, samples);
+            if pending.len() == 8 {
+                let discarded = pending.pop_front().unwrap();
+                add(
+                    &probe.shared.counters.native_discarded,
+                    discarded.samples().len() as u64,
+                );
+            }
+            pending.push_back(frame);
+        }
+        drop(pending);
+        probe.changed.notify_waiters();
+    }
+    probe.worker_done.store(true, Ordering::Release);
+    probe.changed.notify_waiters();
+}
+
+enum CloseAcknowledgement {
+    Success(oneshot::Receiver<()>),
+    Result(oneshot::Receiver<Result<(), RuntimeFailureCode>>),
+}
+
+impl CloseAcknowledgement {
+    async fn wait(self) -> Result<(), AudioFailure> {
+        let result = match self {
+            Self::Success(wait) => wait.await.map(|()| Ok(())),
+            Self::Result(wait) => wait.await,
+        };
+        result
+            .map_err(|_| {
+                AudioFailure::new(
+                    RuntimeFailureCode::CleanupTimeout,
+                    "fixture close acknowledgement was dropped",
+                )
+            })?
+            .map_err(|code| AudioFailure::new(code, "injected fixture close failure"))
+    }
 }
 
 #[derive(Clone)]
 pub(crate) struct FixtureAudioBackend {
-    inventory: AudioInventory,
     state: Arc<Mutex<FixtureAudioState>>,
     open_ports: Arc<AtomicUsize>,
     total_opens: Arc<AtomicUsize>,
@@ -135,19 +255,22 @@ impl FixtureAudioBackend {
                 EndpointRole::PhysicalOutput,
             ),
         ];
-        let ready = endpoints
-            .iter()
-            .map(|endpoint| (endpoint.endpoint.id.clone(), true))
-            .collect();
         Self {
-            inventory: AudioInventory {
-                generation: Uuid::new_v4(),
-                driver: DriverStatus::Ready,
-                endpoints,
-            },
             state: Arc::new(Mutex::new(FixtureAudioState {
-                ready,
-                ..Default::default()
+                inventory: AudioInventory {
+                    generation: Uuid::new_v4(),
+                    driver: DriverStatus::Ready,
+                    endpoints,
+                },
+                captures: HashMap::new(),
+                outputs: HashMap::new(),
+                input_outputs: HashMap::new(),
+                playback_observations: HashMap::new(),
+                health: HashMap::new(),
+                leases: HashSet::new(),
+                quarantined: HashSet::new(),
+                delayed_opens: HashMap::new(),
+                delayed_closes: HashMap::new(),
             })),
             open_ports: Arc::new(AtomicUsize::new(0)),
             total_opens: Arc::new(AtomicUsize::new(0)),
@@ -155,6 +278,11 @@ impl FixtureAudioBackend {
     }
 
     pub(crate) async fn send_capture(&self, input_id: &str, frame: AudioFrame) -> AppResult<()> {
+        if frame.spec() != PcmSpec::pcm16_mono(16_000) {
+            return Err(AppError::InvalidRequest(
+                "invalid fixture capture frame".into(),
+            ));
+        }
         let queue = self
             .state
             .lock()
@@ -171,26 +299,91 @@ impl FixtureAudioBackend {
 
     pub(crate) async fn next_playback(&self, output_id: &str) -> Option<AudioFrame> {
         let probe = self.state.lock().unwrap().outputs.get(output_id).cloned()?;
-        let mut receiver = probe.receiver.lock().await;
-        let frame = receiver.recv().await;
-        if frame.is_some() {
-            probe.consumed.fetch_add(1, Ordering::SeqCst);
-            probe.changed.notify_waiters();
+        loop {
+            let changed = probe.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            {
+                let mut pending = probe.pending.lock().unwrap();
+                if probe
+                    .shared
+                    .gates
+                    .playback_suppressed
+                    .load(Ordering::Acquire)
+                {
+                    return None;
+                }
+                if let Some(frame) = pending.pop_front() {
+                    add(
+                        &probe.shared.counters.native_consumed,
+                        frame.samples().len() as u64,
+                    );
+                    probe.changed.notify_waiters();
+                    return Some(frame);
+                }
+                if probe.worker_done.load(Ordering::Acquire) {
+                    return None;
+                }
+            }
+            changed.await;
         }
-        drop(receiver);
-        frame
     }
 
     pub(crate) fn lose(&self, id: &str) {
-        let mut state = self.state.lock().unwrap();
-        state.ready.insert(id.into(), false);
+        self.set_ready(id, false);
+        let state = self.state.lock().unwrap();
         if let Some(health) = state.health.get(id) {
-            health.send_replace(AudioHealth::Lost);
+            crate::audio::runtime::mark_lost(health);
+        }
+        let output_id = state.input_outputs.get(id).map_or(id, String::as_str);
+        let probe = state.outputs.get(output_id).cloned();
+        if let Some(capture) = state.captures.get(id) {
+            capture.close();
+        }
+        drop(state);
+        if let Some(probe) = probe {
+            probe.suppress();
         }
     }
 
     pub(crate) fn restore(&self, id: &str) {
-        self.state.lock().unwrap().ready.insert(id.into(), true);
+        self.set_ready(id, true);
+    }
+
+    pub(crate) fn set_ready(&self, id: &str, ready: bool) {
+        let mut state = self.state.lock().unwrap();
+        let endpoint = state
+            .inventory
+            .endpoints
+            .iter_mut()
+            .find(|e| e.endpoint.id == id)
+            .expect("known fixture endpoint");
+        if endpoint.endpoint.ready != ready {
+            endpoint.endpoint.ready = ready;
+            state.inventory.generation = Uuid::new_v4();
+        }
+    }
+
+    pub(crate) fn set_role(&self, id: &str, role: EndpointRole) {
+        let mut state = self.state.lock().unwrap();
+        let endpoint = state
+            .inventory
+            .endpoints
+            .iter_mut()
+            .find(|e| e.endpoint.id == id)
+            .expect("known fixture endpoint");
+        if endpoint.role != role {
+            endpoint.role = role;
+            state.inventory.generation = Uuid::new_v4();
+        }
+    }
+
+    pub(crate) fn set_driver_status(&self, driver: DriverStatus) {
+        let mut state = self.state.lock().unwrap();
+        if state.inventory.driver != driver {
+            state.inventory.driver = driver;
+            state.inventory.generation = Uuid::new_v4();
+        }
     }
 
     pub(crate) fn open_ports(&self) -> usize {
@@ -199,6 +392,31 @@ impl FixtureAudioBackend {
 
     pub(crate) fn total_opens(&self) -> usize {
         self.total_opens.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn playback_statistics(&self, output_id: &str) -> Option<PlaybackStatistics> {
+        self.state
+            .lock()
+            .unwrap()
+            .playback_observations
+            .get(output_id)
+            .map(|shared| shared.statistics().playback)
+    }
+
+    pub(crate) fn inject_capture_loss(
+        &self,
+        input_id: &str,
+        raw_blocks: u64,
+        normalized_frames: u64,
+    ) {
+        let state = self.state.lock().unwrap();
+        let output_id = state
+            .input_outputs
+            .get(input_id)
+            .expect("open fixture input");
+        let probe = state.outputs.get(output_id).unwrap();
+        add(&probe.shared.counters.native_blocks, raw_blocks);
+        add(&probe.injected_normalized_loss, normalized_frames);
     }
 
     pub(crate) fn delay_open(
@@ -220,7 +438,20 @@ impl FixtureAudioBackend {
             .lock()
             .unwrap()
             .delayed_closes
-            .insert(input_id.into(), wait);
+            .insert(input_id.into(), CloseAcknowledgement::Success(wait));
+        release
+    }
+
+    pub(crate) fn delay_close_result(
+        &self,
+        input_id: &str,
+    ) -> oneshot::Sender<Result<(), RuntimeFailureCode>> {
+        let (release, wait) = oneshot::channel();
+        self.state
+            .lock()
+            .unwrap()
+            .delayed_closes
+            .insert(input_id.into(), CloseAcknowledgement::Result(wait));
         release
     }
 }
@@ -231,114 +462,214 @@ struct FixtureControl {
     capture: BoundedAudioQueue,
     probe: Arc<PlaybackProbe>,
     backend: FixtureAudioBackend,
-    closed: AtomicBool,
-    delayed_close: AsyncMutex<Option<oneshot::Receiver<()>>>,
+    health: watch::Sender<AudioHealth>,
+    delayed_close: Mutex<Option<CloseAcknowledgement>>,
+    close_result: Mutex<Option<watch::Receiver<Option<Result<(), AudioFailure>>>>>,
 }
 
 impl FixtureControl {
-    fn close_once(&self) {
-        if !self.closed.swap(true, Ordering::SeqCst) {
-            self.capture.close();
-            let mut state = self.backend.state.lock().unwrap();
-            state.captures.remove(&self.input_id);
-            state.outputs.remove(&self.output_id);
-            self.backend.open_ports.fetch_sub(1, Ordering::SeqCst);
+    fn begin_close(&self) -> watch::Receiver<Option<Result<(), AudioFailure>>> {
+        self.suppress_now();
+        let mut entry = self.close_result.lock().unwrap();
+        if let Some(result) = &*entry {
+            return result.clone();
         }
+        let (publish, result) = watch::channel(None);
+        *entry = Some(result.clone());
+        let backend = self.backend.clone();
+        let ids = [self.input_id.clone(), self.output_id.clone()];
+        let capture = self.capture.clone();
+        let probe = self.probe.clone();
+        let health = self.health.clone();
+        let delayed = self.delayed_close.lock().unwrap().take();
+        tokio::spawn(async move {
+            let acknowledgement = async {
+                probe.wait_worker_done().await;
+                if let Some(delayed) = delayed {
+                    delayed.wait().await?;
+                }
+                Ok(())
+            };
+            tokio::pin!(acknowledgement);
+            let value = tokio::select! {
+                value = &mut acknowledgement => value,
+                _ = tokio::time::sleep(Duration::from_secs(2)) => {
+                    backend.state.lock().unwrap().quarantined.extend(ids.clone());
+                    health.send_replace(AudioHealth::NeedsRestart);
+                    publish.send_replace(Some(Err(AudioFailure::new(RuntimeFailureCode::CleanupTimeout, "fixture close acknowledgement timed out"))));
+                    // The owner can still acknowledge later; the timeout result and quarantine persist.
+                    acknowledgement.await
+                }
+            };
+            match &value {
+                Ok(()) => {
+                    capture.close();
+                    probe
+                        .shared
+                        .counters
+                        .capture_finalized
+                        .store(true, Ordering::Release);
+                    probe
+                        .shared
+                        .counters
+                        .playback_finalized
+                        .store(true, Ordering::Release);
+                    probe
+                        .shared
+                        .counters
+                        .tail_known
+                        .store(true, Ordering::Release);
+                    let mut state = backend.state.lock().unwrap();
+                    state.captures.remove(&ids[0]);
+                    state.outputs.remove(&ids[1]);
+                    state.input_outputs.remove(&ids[0]);
+                    for id in &ids {
+                        state.health.remove(id);
+                        if !state.quarantined.contains(id) {
+                            state.leases.remove(id);
+                        }
+                    }
+                    backend.open_ports.fetch_sub(1, Ordering::SeqCst);
+                }
+                Err(_) => {
+                    backend.state.lock().unwrap().quarantined.extend(ids);
+                    health.send_replace(AudioHealth::NeedsRestart);
+                }
+            }
+            if publish.borrow().is_none() {
+                publish.send_replace(Some(value));
+            }
+        });
+        result
     }
 }
 
 #[async_trait]
 impl AudioControl for FixtureControl {
     fn suppress_now(&self) {
+        self.probe.suppress();
         self.capture.close();
         self.capture.clear();
     }
 
     fn statistics(&self) -> AudioStatistics {
-        AudioStatistics {
-            capture: CaptureStatistics {
-                dropped_native_blocks: 0,
-                dropped_normalized_frames: self.capture.dropped_frames(),
-                finalized: self.closed.load(Ordering::SeqCst),
-            },
-            playback: PlaybackStatistics {
-                input_sample_rate_hz: 24_000,
-                accepted_for_processing_samples: self.probe.accepted.load(Ordering::SeqCst) as u64,
-                discarded_before_conversion_samples: 0,
-                native: None,
-                finalized: self.closed.load(Ordering::SeqCst),
-                tail_disposition_known: self.closed.load(Ordering::SeqCst),
-            },
-        }
+        let mut statistics = self.probe.shared.statistics();
+        statistics.capture.dropped_normalized_frames = statistics
+            .capture
+            .dropped_normalized_frames
+            .saturating_add(self.probe.injected_normalized_loss.load(Ordering::Acquire));
+        statistics
     }
 
     async fn stop_capture(&self) -> AppResult<()> {
         self.capture.close();
+        self.probe.shared.stop_capture();
+        self.probe
+            .shared
+            .counters
+            .capture_finalized
+            .store(true, Ordering::Release);
         Ok(())
     }
 
     async fn discard_pending(&self) -> AppResult<()> {
-        self.capture.close();
-        self.capture.clear();
-        while self.probe.receiver.lock().await.try_recv().is_ok() {}
-        self.probe.changed.notify_waiters();
+        self.suppress_now();
+        self.probe.wait_worker_done().await;
         Ok(())
     }
 
     async fn drain_playback(&self) -> AppResult<PlaybackReport> {
         self.probe.sealed.store(true, Ordering::SeqCst);
-        loop {
-            let changed = self.probe.changed.notified();
-            if self.probe.receiver.lock().await.is_empty() {
-                return Ok(PlaybackReport {
-                    boundary: PlaybackBoundary::CallbackConsumed,
-                    statistics: self.statistics().playback,
-                });
+        self.probe.shared.changed.notify_waiters();
+        let drained = async {
+            loop {
+                let changed = self.probe.changed.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                if let Some(error) = self.probe.failure.lock().unwrap().clone() {
+                    return Err(error.into());
+                }
+                if self
+                    .probe
+                    .shared
+                    .gates
+                    .playback_suppressed
+                    .load(Ordering::Acquire)
+                {
+                    return Err(audio_error("fixture playback was suppressed"));
+                }
+                if self.probe.worker_done.load(Ordering::Acquire)
+                    && self.probe.pending.lock().unwrap().is_empty()
+                {
+                    self.probe
+                        .shared
+                        .counters
+                        .playback_finalized
+                        .store(true, Ordering::Release);
+                    self.probe
+                        .shared
+                        .counters
+                        .tail_known
+                        .store(true, Ordering::Release);
+                    return Ok(PlaybackReport {
+                        boundary: PlaybackBoundary::CallbackConsumed,
+                        statistics: self.statistics().playback,
+                    });
+                }
+                changed.await;
             }
-            changed.await;
-        }
+        };
+        tokio::time::timeout(Duration::from_secs(5), drained)
+            .await
+            .map_err(|_| {
+                self.suppress_now();
+                self.backend
+                    .state
+                    .lock()
+                    .unwrap()
+                    .quarantined
+                    .extend([self.input_id.clone(), self.output_id.clone()]);
+                self.health.send_replace(AudioHealth::NeedsRestart);
+                AppError::from(AudioFailure::new(
+                    RuntimeFailureCode::PlaybackTimeout,
+                    "fixture playback drain timed out",
+                ))
+            })?
     }
 
     async fn close(&self) -> AppResult<()> {
-        if let Some(wait) = self.delayed_close.lock().await.take() {
-            let _ = wait.await;
+        let mut result = self.begin_close();
+        loop {
+            if let Some(value) = result.borrow_and_update().clone() {
+                return value.map_err(Into::into);
+            }
+            result
+                .changed()
+                .await
+                .map_err(|_| audio_error("fixture close acknowledgement closed"))?;
         }
-        self.close_once();
-        Ok(())
     }
 }
 
 impl Drop for FixtureControl {
     fn drop(&mut self) {
-        self.close_once();
+        // Dropping the client requests owner cleanup, but is never its acknowledgement.
+        self.begin_close();
     }
 }
 
 #[async_trait]
 impl AudioBackend for FixtureAudioBackend {
     async fn inventory(&self) -> AppResult<AudioInventory> {
-        let state = self.state.lock().unwrap();
-        let mut inventory = self.inventory.clone();
-        for endpoint in &mut inventory.endpoints {
-            endpoint.endpoint.ready = state
-                .ready
-                .get(&endpoint.endpoint.id)
-                .copied()
-                .unwrap_or(false);
-        }
-        Ok(inventory)
+        Ok(self.state.lock().unwrap().inventory.clone())
     }
 
     async fn open(&self, request: AudioOpenRequest) -> AppResult<AudioPorts> {
-        if request.inventory_generation != self.inventory.generation {
-            return Err(AppError::InvalidRequest("stale fixture inventory".into()));
-        }
-        let delayed = self
-            .state
-            .lock()
-            .unwrap()
-            .delayed_opens
-            .remove(&request.input_id);
+        let delayed = {
+            let mut state = self.state.lock().unwrap();
+            validate_fixture_open(&state, &request)?;
+            state.delayed_opens.remove(&request.input_id)
+        };
         if let Some(delayed) = delayed {
             match delayed.await {
                 Ok(Ok(())) => {}
@@ -357,26 +688,21 @@ impl AudioBackend for FixtureAudioBackend {
             }
         }
         let mut state = self.state.lock().unwrap();
-        if !state.ready.get(&request.input_id).copied().unwrap_or(false)
-            || !state
-                .ready
-                .get(&request.output_id)
-                .copied()
-                .unwrap_or(false)
-        {
-            return Err(AppError::InvalidRequest(
-                "fixture endpoint unavailable".into(),
-            ));
-        }
+        validate_fixture_open(&state, &request)?;
         let capture = BoundedAudioQueue::new(8);
         let (playback, receiver) = mpsc::channel(8);
+        let shared = AudioShared::new(capture.clone());
+        shared.counters.native_rate.store(24_000, Ordering::Release);
         let probe = Arc::new(PlaybackProbe {
-            receiver: AsyncMutex::new(receiver),
-            accepted: AtomicUsize::new(0),
-            consumed: AtomicUsize::new(0),
+            pending: Mutex::new(VecDeque::new()),
+            shared,
+            injected_normalized_loss: AtomicU64::new(0),
             sealed: AtomicBool::new(false),
+            worker_done: AtomicBool::new(false),
+            failure: Mutex::new(None),
             changed: Notify::new(),
         });
+        tokio::spawn(playback_worker(probe.clone(), receiver));
         let (health, receiver) = watch::channel(AudioHealth::Ready);
         state
             .captures
@@ -385,9 +711,20 @@ impl AudioBackend for FixtureAudioBackend {
             .outputs
             .insert(request.output_id.clone(), probe.clone());
         state
+            .input_outputs
+            .insert(request.input_id.clone(), request.output_id.clone());
+        state
+            .playback_observations
+            .insert(request.output_id.clone(), probe.shared.clone());
+        state
             .health
             .insert(request.input_id.clone(), health.clone());
-        state.health.insert(request.output_id.clone(), health);
+        state
+            .health
+            .insert(request.output_id.clone(), health.clone());
+        state
+            .leases
+            .extend([request.input_id.clone(), request.output_id.clone()]);
         self.open_ports.fetch_add(1, Ordering::SeqCst);
         self.total_opens.fetch_add(1, Ordering::SeqCst);
         let delayed_close = state.delayed_closes.remove(&request.input_id);
@@ -397,8 +734,9 @@ impl AudioBackend for FixtureAudioBackend {
             capture: capture.clone(),
             probe,
             backend: self.clone(),
-            closed: AtomicBool::new(false),
-            delayed_close: AsyncMutex::new(delayed_close),
+            health,
+            delayed_close: Mutex::new(delayed_close),
+            close_result: Mutex::new(None),
         });
         Ok(AudioPorts {
             capture,
@@ -407,6 +745,45 @@ impl AudioBackend for FixtureAudioBackend {
             control,
         })
     }
+}
+
+fn validate_fixture_open(state: &FixtureAudioState, request: &AudioOpenRequest) -> AppResult<()> {
+    if request.inventory_generation != state.inventory.generation
+        || state.inventory.driver != DriverStatus::Ready
+    {
+        return Err(audio_error(
+            "fixture inventory is stale or driver is not ready",
+        ));
+    }
+    let endpoint = |id: &str| {
+        state
+            .inventory
+            .endpoints
+            .iter()
+            .find(|e| e.endpoint.id == id && e.endpoint.ready)
+    };
+    let input =
+        endpoint(&request.input_id).ok_or_else(|| audio_error("fixture input is unavailable"))?;
+    let output =
+        endpoint(&request.output_id).ok_or_else(|| audio_error("fixture output is unavailable"))?;
+    if input.endpoint.direction != AudioDirection::Input
+        || !matches!(input.role, EndpointRole::Input | EndpointRole::M2Capture)
+        || output.endpoint.direction != AudioDirection::Output
+        || !matches!(
+            output.role,
+            EndpointRole::M1Render | EndpointRole::PhysicalOutput
+        )
+        || request.input_id == request.output_id
+    {
+        return Err(audio_error("invalid fixture endpoint directions or roles"));
+    }
+    if state.leases.len() >= 4
+        || state.leases.contains(&request.input_id)
+        || state.leases.contains(&request.output_id)
+    {
+        return Err(audio_error("fixture endpoint is busy or requires restart"));
+    }
+    Ok(())
 }
 
 pub(crate) struct ObservedFixtureProvider {
