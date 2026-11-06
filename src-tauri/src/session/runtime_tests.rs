@@ -2541,3 +2541,64 @@ async fn fix2_retired_accounting_failure_cleans_new_ports_and_preserves_call_pee
         }
     );
 }
+
+#[tokio::test]
+async fn rereview_fix2_final_accounting_failure_preserves_pending_latency() {
+    let script = FixtureScript::with_output_audio(
+        PcmSpec::pcm16_mono(24_000),
+        [
+            FixtureStep::Emit(ProviderEvent::SessionStarted {
+                metadata: metadata(),
+            }),
+            FixtureStep::ReceiveAudio { count: 1 },
+            FixtureStep::Emit(ProviderEvent::Audio {
+                metadata: metadata(),
+                frame: AudioFrame::new(
+                    AudioSource::Microphone,
+                    0,
+                    PcmSpec::pcm16_mono(24_000),
+                    vec![6; 1920],
+                )
+                .unwrap(),
+            }),
+            FixtureStep::WaitForFinish,
+        ],
+    )
+    .unwrap();
+    let h = RuntimeHarness::live(script).unwrap();
+    h.fail_final_capture_accounting_writes();
+    let run = h
+        .runtime
+        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+    wait_phase(&run, RuntimePhase::Running).await;
+    let captured = h
+        .audio
+        .send_capture(
+            "live-input",
+            AudioFrame::new(
+                AudioSource::Microphone,
+                0,
+                PcmSpec::pcm16_mono(16_000),
+                vec![1; 1280],
+            )
+            .unwrap(),
+        )
+        .await;
+    let played = timeout(Duration::from_secs(1), h.audio.next_playback("m1-render")).await;
+    // Settle the runtime before inspecting playback or durability assertions.
+    let outcome = timeout(Duration::from_secs(2), run.stop()).await.unwrap();
+    assert_eq!(h.audio.open_ports(), 0);
+    captured.unwrap();
+    assert_eq!(played.unwrap().unwrap().samples()[0], 6);
+    assert!(
+        matches!(outcome, RuntimeOutcome::Failed { codes } if codes.contains(&RuntimeFailureCode::Storage))
+    );
+    let diagnostics = h.store.diagnostic_page(h.id, None, 50).unwrap().rows;
+    assert!(diagnostics.iter().any(|row| matches!(
+        row.payload,
+        DiagnosticPayload::Latency {
+            capture_to_send_ms: Some(_),
+            ..
+        }
+    )));
+}

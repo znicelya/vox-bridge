@@ -1173,6 +1173,17 @@ pub(crate) struct RuntimeHarness {
 }
 
 impl RuntimeHarness {
+    pub(crate) fn fail_final_capture_accounting_writes(&self) {
+        rusqlite::Connection::open(self._dir.path().join("vox-bridge.sqlite"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TRIGGER reject_final_capture BEFORE INSERT ON session_diagnostics
+                WHEN json_extract(NEW.payload_json, '$.payload.capture_accounting.statistics.finalized') = 1
+                BEGIN SELECT RAISE(FAIL, 'injected capture-accounting write failure'); END;",
+            )
+            .unwrap();
+    }
+
     pub(crate) fn fail_forward_diagnostic_writes(&self) {
         rusqlite::Connection::open(self._dir.path().join("vox-bridge.sqlite"))
             .unwrap()

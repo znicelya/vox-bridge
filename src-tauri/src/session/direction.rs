@@ -763,8 +763,11 @@ impl DirectionActor {
         self.pause_route();
         let failure = report.failures.first().cloned();
         let boundary = failure.is_none().then_some(playback.boundary);
-        self.record_cleanup_with_boundary(report, boundary)?;
-        self.flush_diagnostics(&resources, true, None)?;
+        let accounting = self.record_cleanup_with_boundary(report, boundary);
+        // Attempt pending measured diagnostics even when finalized accounting fails.
+        let diagnostics = self.flush_diagnostics(&resources, true, None);
+        accounting?;
+        diagnostics?;
         match failure {
             Some(code) => Err(code),
             None => Ok(()),
