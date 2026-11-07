@@ -1,0 +1,10 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.62s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 2 tests
+test knowledge::index_tests::binding::knowledge_binding_concurrent_first_index_conflicting_actual_dimensions_has_one_winner ... ok
+test knowledge::index_tests::binding::knowledge_binding_none_to_same_dimension_and_profile_endpoint_model_edits ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 684 filtered out; finished in 1.30s
+

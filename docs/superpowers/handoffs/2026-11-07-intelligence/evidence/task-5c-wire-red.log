@@ -1,0 +1,38 @@
+
+ RUN  v5.1.0 /mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation
+
+ ❯ src/lib/knowledge-wire.test.ts (6 tests | 2 failed) 13ms
+   × preserves legal headings exceeding eight MiB and rejects headings beyond sixteen MiB 4ms
+   × validates knowledge result identity, finite scores, chunk scalar and aggregate budgets 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/lib/knowledge-wire.test.ts > preserves legal headings exceeding eight MiB and rejects headings beyond sixteen MiB
+WireDecodeError: 桌面数据格式无效，请重试。
+ ❯ invalid src/lib/wire.ts:13:9
+     11| type Decoded<D> = D extends Decoder<infer T> ? T : never;
+     12| const invalid = (): never => {
+     13|   throw new WireDecodeError();
+       |         ^
+     14| };
+     15| const record = (value: unknown): Record<string, unknown> =>
+ ❯ src/lib/wire.ts:41:9
+ ❯ Object.heading src/lib/wire.ts:63:29
+ ❯ Module.<anonymous> src/lib/wire.ts:29:31
+ ❯ src/lib/knowledge-wire.test.ts:33:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/lib/knowledge-wire.test.ts > validates knowledge result identity, finite scores, chunk scalar and aggregate budgets
+TypeError: decodeKnowledgeResults is not a function
+ ❯ src/lib/knowledge-wire.test.ts:39:15
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 4 passed (6)
+   Start at  14:50:10
+   Duration  22.44s (environment 83%, setup 15%, transform 1%)
+

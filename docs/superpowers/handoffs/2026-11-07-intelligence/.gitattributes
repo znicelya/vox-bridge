@@ -1,0 +1,2 @@
+# Preserve the original bytes and whitespace of archived review evidence.
+evidence/* -text -whitespace

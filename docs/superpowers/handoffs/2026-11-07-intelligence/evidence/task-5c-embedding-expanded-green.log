@@ -1,0 +1,15 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 19.50s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 7 tests
+test knowledge::embedding::tests::knowledge_embedding_semantics_bind_endpoint_profile_model_without_actual_dimension ... ok
+test knowledge::embedding_tests::knowledge_embedding_shared_four_request_gate_is_held_until_http_finishes ... ok
+test knowledge::embedding_tests::knowledge_embedding_rejects_dimension_inconsistency_duplicate_missing_nonfinite_and_extremes ... ok
+test knowledge::embedding::tests::knowledge_embeddings_restore_response_order_and_normalize_full_precision ... ok
+test knowledge::embedding::tests::knowledge_embeddings_reject_snapshot_edits_before_http_and_invalid_indexes ... ok
+test knowledge::embedding_tests::knowledge_embedding_eight_mib_response_limit_is_checked_even_for_a_port_ignoring_the_bound ... ok
+test knowledge::embedding::tests::knowledge_embeddings_enforce_json_bytes_and_text_count_before_http ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 660 filtered out; finished in 0.09s
+

@@ -1,0 +1,10 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 23.25s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 2 tests
+test knowledge::index_tests::publication::knowledge_publication_real_multi_page_ready_and_dense_rebuild ... ok
+test knowledge::index_tests::publication::knowledge_publication_rolls_back_every_page_on_document_location_pointer_or_evidence_change ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 659 filtered out; finished in 5.36s
+

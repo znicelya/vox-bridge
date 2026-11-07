@@ -1,0 +1,15 @@
+{
+  "base": "1ea0bdd6309e8fee1cacc28b4ae79ec58e2783ee",
+  "review_tree": "76677da1a712b77a10f17fd59b1bfcc2c31553a2",
+  "activated_utc": "2026-11-07T10:27:50.150375+00:00",
+  "source_manifest_sha256": "172d891e12bb5dcd0997d27957439696f6ec827f61cd8c5b6c34fc7171f4222c",
+  "owned_paths": 53,
+  "input_hashes": {
+    "task-5c-review-brief.md": "dc3986481e6dc77e3c30efdebf4b827b13ca835c34998a1b1f3adfbc94842381",
+    "task-5c-report.md": "3a4946395654abd5a7900c1b1bd6d57d24e9fc52c28f7da83dcb542b298678e3",
+    "task-5c-review-package.md": "a56a2449327caaea8486c08bfecf3f5e6ee8c7426283a7e5f2946d3469786a3f",
+    "task-5c-final-verification.json": "d8a80abfb78e33cfa88197f5342fc1b2b11aa44c8f7f21a98827224d47057928",
+    "task-5c-owned-source-sha256.txt": "172d891e12bb5dcd0997d27957439696f6ec827f61cd8c5b6c34fc7171f4222c"
+  },
+  "reviewer": "dispatch pending"
+}

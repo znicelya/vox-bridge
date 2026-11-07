@@ -1,0 +1,18 @@
+Status: read-only reconciliation complete at HEAD 1ea0bdd; the only write is the checkpoint. No Cargo, source, index, HEAD, network, or native operations were performed.
+
+Checkpoint path: [task-5c-architecture-reconciliation.md](/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-architecture-reconciliation.md)
+
+Controller decisions needed before 5C source (detailed with file:line evidence in the checkpoint):
+
+D1. Extend the fenced publication: typed `PublicationPlan` through `IndexOwner::publish` → `IndexRepository::publish`, plus facade `close`; Ready/mapping/pointer/state changes only inside that one transaction.
+D2. Approve migration 5 as specified: `semantic_key`, `requested_dimension`, `updated_at_ms` on `knowledge_index_generations`, two partial unique binding indexes, typed state values, no table rebuild or trusted backfill.
+D3. Approve binding semantics: canonical semantic key, recorded requestedDimension option, winner-first with loser-fails-fence for concurrent first indexing.
+D4. Approve `EmbeddingExecution`/`Embeddings` signature (AppResult), shared 4-request gate, OnceTransient retry, 32 texts/128 KiB request/8 MiB response bounds.
+D5. Approve the `AfterTerminal` collaborator seam in `jobs.rs` and the single-gate `selected_embedding_snapshot()` config capture; fallback keeps Parsed with a deferred reason, never downgrades the parent.
+D6. Approve `reconcile_owned(lease)` running in `start_intelligence` after index readiness and before jobs start, with zero paid re-embedding.
+D7. Approve the 16 MiB heading correction in `knowledge-wire.ts` plus the conservative frontend aggregate estimator.
+D8. Approve delete work-item/cleanup-ack ordering and rebuild close-then-delete ordering (including publishing the source refresh receipt before retiring the old generation).
+D9. Approve `KnowledgeService::new(store, config, jobs, embeddings, index, data_dir)` and the two-outstanding search gate with cancel-on-replacement.
+D10. Approve the four test-only `CommitPoint` seams and the `KnowledgeHarness` shape.
+
+No success claim is made; 5C remains unimplemented.

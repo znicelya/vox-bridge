@@ -1,0 +1,47 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+warning: type `HeaderSnapshot` is more private than the item `Seal::metadata_header`
+   --> src/knowledge/index/seal.rs:105:5
+    |
+105 |     pub metadata_header: HeaderSnapshot,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ field `Seal::metadata_header` is reachable at visibility `pub(crate)`
+    |
+note: but type `HeaderSnapshot` is only usable at visibility `pub(in crate::knowledge::index)`
+   --> src/knowledge/index/redb_header.rs:15:1
+    |
+ 15 | pub(super) struct HeaderSnapshot {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: type `FileSeal` is more private than the item `Seal::files`
+   --> src/knowledge/index/seal.rs:106:5
+    |
+106 |     pub files: Vec<FileSeal>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^ field `Seal::files` is reachable at visibility `pub(crate)`
+    |
+note: but type `FileSeal` is only usable at visibility `pub(in crate::knowledge::index)`
+   --> src/knowledge/index/seal.rs:90:1
+    |
+ 90 | pub(super) struct FileSeal {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `data_dir` is never read
+  --> src/knowledge/service.rs:13:161
+   |
+12 | ...ct Core {
+   |       ---- field in this struct
+13 | ...store:Arc<LocalStore>,pub(crate) config:Arc<ServiceConfigStore>,pub(crate) embeddings:Arc<dyn Embeddings>,pub(crate) index:IndexOwner,pub(crate) data_dir:Pa...
+   |                                                                                                                                                     ^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `vox-bridge` (lib test) generated 3 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 33.70s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 3 tests
+test knowledge::index_tests::knowledge_empty_library_and_broken_readiness_never_embed ... ok
+test knowledge::index_tests::knowledge_crash_after_vector_persist_never_exposes_an_uncommitted_document ... ok
+test knowledge::index_tests::knowledge_reindex_publishes_authoritative_ready_mapping_and_consecutive_searches_reopen_cleanly ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 635 filtered out; finished in 0.45s
+

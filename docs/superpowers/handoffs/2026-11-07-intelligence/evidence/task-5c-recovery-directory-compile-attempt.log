@@ -1,0 +1,33 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+error[E0599]: no method named `clone` found for struct `jobs::AfterTerminalNotice` in the current scope
+   --> src/knowledge/service/continuation.rs:71:35
+    |
+ 71 |             hook.succeeded(notice.clone(),Arc::new(()),fence).await;
+    |                                   ^^^^^ method not found in `jobs::AfterTerminalNotice`
+    |
+   ::: src/intelligence/jobs.rs:108:1
+    |
+108 | pub(crate) struct AfterTerminalNotice {pub(crate) parent_id:Uuid,pub(crate) document_id:Uuid,pub(crate) version:u32,pub(crate) sha2...
+    | ------------------------------------- method `clone` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following trait defines an item `clone`, perhaps you need to implement it:
+            candidate #1: `Clone`
+
+error[E0599]: no method named `clone` found for struct `jobs::AfterTerminalNotice` in the current scope
+   --> src/knowledge/service/continuation.rs:89:35
+    |
+ 89 |             hook.succeeded(notice.clone(),Arc::new(()),fence).await;
+    |                                   ^^^^^ method not found in `jobs::AfterTerminalNotice`
+    |
+   ::: src/intelligence/jobs.rs:108:1
+    |
+108 | pub(crate) struct AfterTerminalNotice {pub(crate) parent_id:Uuid,pub(crate) document_id:Uuid,pub(crate) version:u32,pub(crate) sha2...
+    | ------------------------------------- method `clone` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following trait defines an item `clone`, perhaps you need to implement it:
+            candidate #1: `Clone`
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `vox-bridge` (lib test) due to 2 previous errors

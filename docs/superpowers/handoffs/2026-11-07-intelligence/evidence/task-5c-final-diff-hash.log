@@ -1,0 +1,36 @@
+{
+  "patch_whitespace_checks": [
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--cached",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "1ea0bdd6309e8fee1cacc28b4ae79ec58e2783ee",
+        "76677da1a712b77a10f17fd59b1bfcc2c31553a2"
+      ],
+      "exit_code": 0,
+      "output": ""
+    }
+  ],
+  "source_hash_check": "all53 and protected.gitignore verified",
+  "package_hash_check": "verified unchanged"
+}

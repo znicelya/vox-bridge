@@ -1,0 +1,30 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 32.24s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 22 tests
+test knowledge::index_tests::knowledge_empty_library_and_broken_readiness_never_embed ... ok
+test knowledge::index_tests::continuation::knowledge_import_without_selected_embedding_stays_parsed_with_deferred_reason ... ok
+test knowledge::index_tests::recovery::knowledge_dirty_delete_changed_vector_witness_preserves_bytes_and_deleting_work ... ok
+test knowledge::index_tests::knowledge_reconcile_marks_stale_authoritative_hash_without_embedding ... ok
+test knowledge::index_tests::continuation::knowledge_import_continues_only_committed_success_into_reindex ... ok
+test knowledge::index_tests::knowledge_delete_survives_clean_reopen_and_never_embeds ... ok
+test knowledge::index_tests::knowledge_search_preserves_healthy_hits_and_repairs_the_inverse_owner_of_malformed_metadata ... ok
+test knowledge::index_tests::knowledge_reindex_replacement_persists_a_new_vector_id ... ok
+test knowledge::index_tests::knowledge_crash_after_vector_persist_never_exposes_an_uncommitted_document ... ok
+test knowledge::index_tests::recovery::knowledge_dirty_delete_reader_source_lock_is_exclusive_and_release_is_owned ... ok
+test knowledge::index_tests::recovery::knowledge_dirty_delete_last_document_publishes_empty_destination ... ok
+test knowledge::index_tests::knowledge_reindex_publishes_authoritative_ready_mapping_and_consecutive_searches_reopen_cleanly ... ok
+test knowledge::index_tests::recovery::knowledge_dirty_delete_pointer_crash_resumes_retirement_and_work_ack ... ok
+test knowledge::index_tests::search::knowledge_search_late_loss_of_last_ready_document_returns_repair ... ok
+test knowledge::index_tests::knowledge_rebuild_reclaims_tombstone_ids_and_atomically_repoints_ready_mappings ... ok
+test knowledge::index_tests::search::knowledge_reconcile_malformed_metadata_repairs_only_current_inverse_owner ... ok
+test knowledge::index_tests::search::knowledge_search_during_replacement_preserves_parsing_and_parsed_states ... ok
+test knowledge::index_tests::search::knowledge_search_submitted_partial_and_multi_row_selection_is_authoritative ... ok
+test knowledge::index_tests::recovery::knowledge_dirty_delete_destination_persist_crash_keeps_source_and_retry_finishes ... ok
+test knowledge::index_tests::search::knowledge_search_two_slots_retain_capacity_until_cancelled_entered_work_finishes ... ok
+test knowledge::index_tests::search::knowledge_search_removes_earlier_hits_when_later_candidate_repairs_same_document ... ok
+test knowledge::index_tests::recovery::knowledge_dirty_delete_recovers_survivor_bits_locally_and_reopen_is_idempotent ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 636 filtered out; finished in 2.01s
+

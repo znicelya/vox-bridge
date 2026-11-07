@@ -1,0 +1,9 @@
+
+ RUN  v5.1.0 /mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation
+
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  16:37:11
+   Duration  1.18s (environment 64%, setup 17%, tests 14%, transform 4%, import 1%)
+

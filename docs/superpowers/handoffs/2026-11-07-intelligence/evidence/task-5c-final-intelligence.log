@@ -1,0 +1,139 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.04s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 100 tests
+test app::intelligence::tests::intelligence_app_close_keeps_index_owned_until_job_cleanup_finishes ... ok
+test app::intelligence::tests::intelligence_app_close_fences_a_startup_that_was_waiting_for_admission ... ok
+test app::intelligence::tests::intelligence_app_inert_construction_projects_empty_library_directory_and_recovers_jobs ... ok
+test app::intelligence::tests::intelligence_app_dropping_external_handles_releases_process_after_worker_cleanup ... ok
+test app::intelligence::tests::intelligence_app_close_cancels_jobs_and_restarts_only_on_explicit_host_start ... ok
+test app::intelligence::tests::intelligence_app_close_timeout_keeps_index_for_retry_until_jobs_drain ... ok
+test app::intelligence::tests::intelligence_app_close_waits_for_entered_index_startup_to_join ... ok
+test app::intelligence::tests::intelligence_app_reopen_starts_a_fresh_owned_index_generation ... ok
+test app::intelligence::tests::child_operations::child_operations_app_process_lock_after_observer_drop ... ok
+test app::intelligence::tests::child_operations::child_operations_app_close_and_rearm_after_observer_drop ... ok
+test intelligence::config::tests::clear_cleanup_failure_and_keep_cannot_resurrect_an_orphan ... ok
+test intelligence::config::tests::compensation_failure_is_safe_and_clear_write_failure_preserves_reference ... ok
+test app::intelligence::tests::intelligence_app_startup_failure_waits_for_direct_operation_drain ... ok
+test commands::intelligence::tests::intelligence_commands_dispatch_all_thirteen_and_project_injected_empty_directory ... ok
+test intelligence::config::tests::embedding_and_tavily_validate_fields_and_tavily_defaults_endpoint ... ok
+test app::intelligence::tests::child_operations::child_operations_app_close_and_rearm_after_config_timeout ... ok
+test app::intelligence::tests::child_operations::child_operations_app_process_lock_after_config_timeout ... ok
+test intelligence::config::tests::intelligence_embedding_probe_cannot_change_an_admitted_dimension_identity ... ok
+test app::intelligence::tests::intelligence_close_stops_capture_while_snapshot_sqlite_is_blocked ... ok
+test intelligence::config::tests::service_endpoint_preserves_base_path_and_appends_once ... ok
+test intelligence::config::tests::intelligence_scoped_config_retains_owner_after_entered_observer_cancellation ... ok
+test intelligence::config::tests::missing_invalid_utf8_and_corrupt_encrypted_credentials_are_local_errors ... ok
+test intelligence::config::tests::replace_restores_encrypted_before_image_when_profile_write_fails ... ok
+test intelligence::config::tests::profile_round_trip_never_returns_saved_key_and_defaults_settings ... ok
+test intelligence::config::tests::profile_validation_rejects_unsafe_urls_and_kind_limits_without_writing ... ok
+test intelligence::config::tests::service_file_reopens_and_preserves_legacy_provider_fields_byte_for_byte ... ok
+test intelligence::config::tests::profile_file_count_and_bytes_are_bounded_without_partial_mutation ... ok
+test intelligence::config::tests::settings_validate_kinds_and_selected_profiles_cannot_change_kind_or_delete ... ok
+test intelligence::contract_tests::credential_input_cannot_supply_a_private_reference ... ok
+test intelligence::contract_tests::job_and_probe_wire_values_use_tagged_events_epoch_milliseconds_and_safe_metadata ... ok
+test intelligence::contract_tests::stable_intelligence_error_envelopes_match_wire_subcodes ... ok
+test intelligence::http::tests::bearer_rejects_empty_whitespace_controls_non_ascii_and_oversize ... ok
+test intelligence::config::tests::snapshot_admission_holds_config_lock_through_sqlite_commit_and_edits_keep_snapshot ... ok
+test intelligence::config::tests::snapshot_credentials::snapshot_credentials_missing_profile_and_invalid_references_never_enter_secret_get ... ok
+test intelligence::http::transport_tests::intelligence_http_cancel_drops_blocked_body_and_pre_cancel_makes_no_request ... ok
+test intelligence::http::transport_tests::intelligence_http_constructor_needs_no_global_crypto_provider ... ok
+test intelligence::config::tests::snapshot_credentials::snapshot_credentials_require_every_admitted_public_field ... ok
+test intelligence::http::transport_tests::intelligence_http_rejects_remote_cleartext_and_userinfo ... ok
+test intelligence::config::tests::snapshot_credentials::snapshot_credentials_reject_mismatches_before_secret_entry ... ok
+test intelligence::http::transport_tests::intelligence_http_stream_cap_ignores_content_length ... ok
+test intelligence::http::transport_tests::intelligence_http_retry_is_explicit_once_and_validated ... ok
+test app::intelligence::tests::knowledge::knowledge_app_process_lock_outlives_search_observer_until_entered_work_finishes ... ok
+test intelligence::http::transport_tests::intelligence_http_valid_json_and_status_categories_are_safe ... ok
+test intelligence::http::transport_tests::intelligence_http_tls_trust_and_hostname_are_enforced ... ok
+test intelligence::http::transport_tests::intelligence_http_valid_retry_after_dates_obey_same_bound ... ok
+test intelligence::jobs::tests::child_operations::child_operations_failed_process_upgrade_rolls_back_the_reserved_slot ... ok
+test intelligence::http::transport_tests::intelligence_http_original_deadline_and_retry_sleep_cancellation ... ok
+test intelligence::http::tests::resolved_credentials_are_isolated_sensitive_headers ... ok
+test intelligence::jobs::tests::child_operations::child_operations_release_process_before_publishing_slot_completion ... ok
+test intelligence::config::tests::terminal_jobs_release_profile_use_and_corrupt_unfinished_jobs_fail_closed ... ok
+test intelligence::config::tests::snapshot_credentials::snapshot_credentials_validate_and_read_before_an_already_queued_profile_clear ... ok
+test app::intelligence::tests::intelligence_app_entered_clear_retains_process_and_close_barrier_after_observer_loss ... ok
+test intelligence::config::tests::missing_foreign_and_malformed_reference_are_gated_before_secret_access ... ok
+test intelligence::http::transport_tests::intelligence_http_actual_authorization_is_isolated_for_two_profiles ... ok
+test intelligence::jobs::tests::child_operations::child_operations_old_context_and_observer_cannot_affect_rearmed_generation ... ok
+test intelligence::config::tests::intelligence_probe_revision_fences_edits_credential_changes_and_deletion ... ok
+test intelligence::jobs::tests::child_operations::child_operations_reject_terminal_context_in_open_generation ... ok
+test intelligence::jobs::tests::child_operations::child_operations_reject_cancelled_and_closed_jobs ... ok
+test intelligence::jobs::tests::child_operations::child_operations_share_sixteen_slots_and_hold_each_until_final_clone_drop ... ok
+test intelligence::jobs::tests::child_operations::child_operations_retained_context_does_not_keep_process_after_generation_done ... ok
+test intelligence::jobs::tests::child_operations::child_operations_drain_after_handler_completion_before_process_release_and_rearm ... ok
+test intelligence::jobs::tests::continuations::intelligence_after_terminal_reserves_before_success_releases_exclusion_and_drains_actual_child ... ok
+test app::intelligence::tests::knowledge::knowledge_app_close_and_rearm_wait_for_entered_search_after_observer_loss ... ok
+test intelligence::jobs::tests::handler_fixture_replacement_is_only_available_before_first_start ... ok
+test intelligence::jobs::tests::intelligence_jobs_registry_is_frozen_and_missing_handlers_reject_before_admission ... ok
+test intelligence::jobs::tests::intelligence_jobs_snapshot_admission_retains_public_identity ... ok
+test intelligence::jobs::tests::intelligence_jobs_two_workers_capacity_cancel_and_terminal_persistence ... ok
+test intelligence::jobs::tests::intelligence_jobs_actual_config_snapshot_and_shutdown_share_one_order ... ok
+test intelligence::jobs::tests::documents::documents_interrupt_publishes_actual_changed_job_beyond_first_history_page ... ok
+test intelligence::jobs::tests::intelligence_jobs_sqlite_wait_does_not_block_snapshot_admission_control ... ok
+test intelligence::probes::tests::intelligence_probes_bad_credentials_make_zero_requests_and_invalid_embedding_fails ... ok
+test intelligence::jobs::tests::intelligence_jobs_uncertain_shutdown_retains_lease_and_fences_late_success_and_restart ... ok
+test intelligence::probes::tests::intelligence_probe_late_http_result_cannot_overwrite_edited_profile ... ok
+test intelligence::probes::tests::intelligence_probes_global_exclusion_observer_drop_close_and_reopen ... ok
+test intelligence::jobs::tests::intelligence_jobs_success_failure_release_exclusion_and_parser_is_shared ... ok
+test intelligence::probes::tests::intelligence_probes_use_minimal_kind_specific_requests_and_persist_safe_results ... ok
+test intelligence::jobs::tests::continuations::intelligence_after_terminal_does_not_run_success_hook_for_failed_or_cancelled_parent ... ok
+test intelligence::probes::tests::intelligence_translation_probe_handshakes_finishes_joins_without_audio_and_rejects_orphan ... ok
+test intelligence::probes::tests::intelligence_translation_actual_native_lookup_retains_global_probe_slot_after_timeout ... ok
+test intelligence::subscriptions::tests::intelligence_subscriptions_lag_continues_and_close_releases_capacity ... ok
+test intelligence::subscriptions::tests::intelligence_subscriptions_mutation_queue_is_bounded_and_dropped_waiters_release_receivers ... ok
+test intelligence::probes::tests::intelligence_translation_probe_timeout_retains_global_and_process_owner_until_joined ... ok
+test intelligence::subscriptions::tests::intelligence_subscriptions_unclaimed_ticket_and_cancelled_close_own_cleanup ... ok
+test intelligence::store::tests::concurrent_manual_admission_has_one_winner_and_transaction_rollback_has_no_row ... ok
+test intelligence::wire_tests::intelligence_wire_contract_real_dtos_match_shared_fixture ... ok
+test intelligence::store::tests::automatic_failure_markers_bypass_full_capacity_but_validate_identity_and_error ... ok
+test providers::volc::client_tests::intelligence_translation_wait_closed_joins_cancelled_handshake_socket ... ok
+test intelligence::store::tests::automatic_identity_survives_terminal_reopen_and_full_capacity ... ok
+test storage::sqlite_tests::intelligence_migration_failure_rolls_back_all_new_tables_and_version ... ok
+test intelligence::store::tests::manual_collision_and_terminal_release_are_transactional ... ok
+test intelligence::store::tests::manual_scope_is_exact_and_all_document_mutations_share_exclusion ... ok
+test intelligence::store::tests::paging_is_exclusive_bounded_and_payload_is_versioned_and_bounded ... ok
+test intelligence::store::tests::snapshot_payload_caps_three_unique_profiles_and_rejects_four_or_duplicates ... ok
+test providers::volc::client_tests::intelligence_translation_owned_lookup_retains_lease_after_connect_timeout ... ok
+test intelligence::subscriptions::tests::intelligence_subscriptions_terminal_job_does_not_end_global_stream ... ok
+test intelligence::probes::tests::intelligence_probes_foreign_missing_or_invalid_secrets_never_reach_http ... ok
+test intelligence::test_support::tests::independent_fixture_directories_do_not_share_config_admission_capacity ... ok
+test intelligence::store::tests::every_terminal_status_releases_manual_but_retains_automatic_identity ... ok
+test intelligence::probes::tests::intelligence_translation_probe_bounds_connect_handshake_and_finish ... ok
+test storage::sqlite_tests::intelligence_migration_from_v2_reopens_twice_and_preserves_rows ... FAILED
+
+failures:
+
+---- storage::sqlite_tests::intelligence_migration_from_v2_reopens_twice_and_preserves_rows stdout ----
+
+thread 'storage::sqlite_tests::intelligence_migration_from_v2_reopens_twice_and_preserves_rows' (396725) panicked at src/storage/sqlite_tests.rs:217:9:
+assertion `left == right` failed
+  left: 5
+ right: 4
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/std/src/panicking.rs:679:5
+   1: core::panicking::panic_fmt
+             at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/core/src/panicking.rs:452:17
+   3: core::panicking::assert_failed::<i64, i64>
+             at /home/mint/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/panicking.rs:407:5
+   4: vox_bridge_lib::storage::sqlite_tests::intelligence_migration_from_v2_reopens_twice_and_preserves_rows
+             at ./src/storage/sqlite_tests.rs:217:9
+   5: vox_bridge_lib::storage::sqlite_tests::intelligence_migration_from_v2_reopens_twice_and_preserves_rows::{closure#0}
+             at ./src/storage/sqlite_tests.rs:199:69
+   6: <vox_bridge_lib::storage::sqlite_tests::intelligence_migration_from_v2_reopens_twice_and_preserves_rows::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /home/mint/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    storage::sqlite_tests::intelligence_migration_from_v2_reopens_twice_and_preserves_rows
+
+test result: FAILED. 99 passed; 1 failed; 0 ignored; 0 measured; 593 filtered out; finished in 1.91s
+
+error: test failed, to rerun pass `--lib`

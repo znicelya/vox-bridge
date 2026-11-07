@@ -1,0 +1,285 @@
+{
+  "base": "1ea0bdd6309e8fee1cacc28b4ae79ec58e2783ee",
+  "cached_tree": "76677da1a712b77a10f17fd59b1bfcc2c31553a2",
+  "owned_path_count": 53,
+  "author_path_count": 52,
+  "controller_plan_path_count": 1,
+  "manifest_sha256": "172d891e12bb5dcd0997d27957439696f6ec827f61cd8c5b6c34fc7171f4222c",
+  "patch_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-round1-frozen-source.diff",
+  "patch_bytes": 560422,
+  "patch_sha256": "28896f767f931a2807de84ed3bee10dc998b901627ce0d02f04d60d43e97aaa5",
+  "review_package_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-review-package.md",
+  "review_package_sha256": "a56a2449327caaea8486c08bfecf3f5e6ee8c7426283a7e5f2946d3469786a3f",
+  "protected_gitignore_sha256": "1e708ede61f6522d88e4bea58f5c55e70831f404fd00f7a6710d424446e57a3a",
+  "entries": [
+    {
+      "path": "docs/superpowers/plans/2026-11-04-workbench-intelligence.md",
+      "bytes": 118295,
+      "sha256": "913dc0d8aab773024ebe9fc6ef9e7a3542dd4038a8ef93641c14f5cff49691f7"
+    },
+    {
+      "path": "src-tauri/migrations/0005_knowledge_index.sql",
+      "bytes": 1736,
+      "sha256": "975e5769adcb1320cca526cc02cc0c5d16ba4a627d390e92cd344523d068a624"
+    },
+    {
+      "path": "src-tauri/src/app/document_test_support.rs",
+      "bytes": 1253,
+      "sha256": "bb01d690df5c1be7cb47c09e655e8b78064b68a1026550fb69b502ff559ddce8"
+    },
+    {
+      "path": "src-tauri/src/app/intelligence.rs",
+      "bytes": 7714,
+      "sha256": "1f33969ea7ee8b6776c33b6f3ce156ce8ce82cb32aa06b209a999d14adc77c5a"
+    },
+    {
+      "path": "src-tauri/src/app/intelligence/tests.rs",
+      "bytes": 16230,
+      "sha256": "929ae8d338393898b9911c016b8f2e25dec43b51414218c9753417cfa8fc83ce"
+    },
+    {
+      "path": "src-tauri/src/app/intelligence/tests/child_operations.rs",
+      "bytes": 7117,
+      "sha256": "4f75aac9e89042433ca2ca723cc569c83636401c5a263deec41f89a3045b44bd"
+    },
+    {
+      "path": "src-tauri/src/app/intelligence/tests/knowledge.rs",
+      "bytes": 5542,
+      "sha256": "9d0b7e43570eff8444aed32abe7008cc02600b43000584126a1160beaf4c74d0"
+    },
+    {
+      "path": "src-tauri/src/app/lifecycle.rs",
+      "bytes": 10815,
+      "sha256": "6025a9e929c8082fb22d0ede58df9cebbb61975e76eeabb11d939dcd5dbf0394"
+    },
+    {
+      "path": "src-tauri/src/app/mod.rs",
+      "bytes": 16817,
+      "sha256": "ad58a4d065dbfd2fdaf4d50edc700849a5101c95325a1e0ffc319ed86bfcfc08"
+    },
+    {
+      "path": "src-tauri/src/commands/knowledge.rs",
+      "bytes": 2480,
+      "sha256": "d85045b0751ec6a27f46ba1caed617e8e4b3ea510f0f3482a957d3f708bc5a3f"
+    },
+    {
+      "path": "src-tauri/src/commands/knowledge/tests.rs",
+      "bytes": 17871,
+      "sha256": "41d3509ca1f239022dc81bc6ae8191b8e1ab0587e91f282c98f6b0dfcf326951"
+    },
+    {
+      "path": "src-tauri/src/intelligence/config.rs",
+      "bytes": 16942,
+      "sha256": "e416e0046b3834f9362b5c8bba310645770458456c529eb2a42916598d900bf8"
+    },
+    {
+      "path": "src-tauri/src/intelligence/jobs.rs",
+      "bytes": 30736,
+      "sha256": "59d60b311685bb89d270bf7ba771f31b7a1e99b97c99d168a32f0ceb594daefc"
+    },
+    {
+      "path": "src-tauri/src/intelligence/jobs/test_support.rs",
+      "bytes": 509,
+      "sha256": "789d38f1525281b3e1a0f376a1bcce5f4aea1f415300a45955707a237a95fe18"
+    },
+    {
+      "path": "src-tauri/src/intelligence/jobs/tests.rs",
+      "bytes": 12204,
+      "sha256": "997179a7f5e220eab9909ad8a9fccd13aec5dab3e61c0ea012fe293f3fbb6233"
+    },
+    {
+      "path": "src-tauri/src/intelligence/jobs/tests/continuations.rs",
+      "bytes": 6627,
+      "sha256": "069172007a66c1cce47e0f51e209bce16957f1006548b7b38cb292966086d7b4"
+    },
+    {
+      "path": "src-tauri/src/knowledge/document_tests.rs",
+      "bytes": 14678,
+      "sha256": "b7587481caa900d557906dc3f35fcfd590a19856965ff43ffb20b2c6eaa58a44"
+    },
+    {
+      "path": "src-tauri/src/knowledge/documents.rs",
+      "bytes": 7386,
+      "sha256": "86cece8e6c1b12f4947a08bfb5ab2d8131846e22a5f9fdd25c9b9f722cfe233a"
+    },
+    {
+      "path": "src-tauri/src/knowledge/documents/handler.rs",
+      "bytes": 15193,
+      "sha256": "2014511bb5c2f81d80290d96d94ea901a6b464f798fbdd72fb2a5f5c4e1f0ddf"
+    },
+    {
+      "path": "src-tauri/src/knowledge/embedding.rs",
+      "bytes": 13000,
+      "sha256": "8b546cd13e27a4b90cac047e505e40d8f1a52cda4c3dc639750012c2df6d46e6"
+    },
+    {
+      "path": "src-tauri/src/knowledge/embedding_tests.rs",
+      "bytes": 7478,
+      "sha256": "929ec862a0d697706d5c97e16d2f78be71979fe0af1174d9459816eba2454174"
+    },
+    {
+      "path": "src-tauri/src/knowledge/identity.rs",
+      "bytes": 3038,
+      "sha256": "4d452569d66e53d4ecd95374da298d9c15bf9cafd1181a36522001b6ea06cb97"
+    },
+    {
+      "path": "src-tauri/src/knowledge/index.rs",
+      "bytes": 757,
+      "sha256": "02771d170ce3b768ebd702fe9b115fc632ebfd8f1f3f8a49650e869800092dbc"
+    },
+    {
+      "path": "src-tauri/src/knowledge/index/codec.rs",
+      "bytes": 4625,
+      "sha256": "4498997f02dba59c2cb9ec45d9cb51ca77641917cff1194fbe2f404d0fa91748"
+    },
+    {
+      "path": "src-tauri/src/knowledge/index/lifecycle.rs",
+      "bytes": 45231,
+      "sha256": "d29e42c665b7a0c31439335a0612f7c2679cdbe94609fb805cc2c7c694637a46"
+    },
+    {
+      "path": "src-tauri/src/knowledge/index/owner.rs",
+      "bytes": 36715,
+      "sha256": "02f1744dc75b47e0838086231495cd9cafeb2573ca4593ad3f0521b373376832"
+    },
+    {
+      "path": "src-tauri/src/knowledge/index/preflight.rs",
+      "bytes": 7792,
+      "sha256": "80ccaedd0ea4f7fa7843031670313e5f9e7f4b3131929fcd1f3849585119eae5"
+    },
+    {
+      "path": "src-tauri/src/knowledge/index/publication.rs",
+      "bytes": 29544,
+      "sha256": "eaed13d9ded4ba5e35a3965b6ead0b7ee16cb2b9be532ff82960f947456accee"
+    },
+    {
+      "path": "src-tauri/src/knowledge/index/recovery.rs",
+      "bytes": 9557,
+      "sha256": "9ebc721997fc8c800acbb99a064065d15df490da2e8371a39f3198ed1c39ccd3"
+    },
+    {
+      "path": "src-tauri/src/knowledge/index/repository.rs",
+      "bytes": 10402,
+      "sha256": "452558c1b0bdf3962fe13e2decd9dfa684cef9df8c8be3eadda82a242a6eba43"
+    },
+    {
+      "path": "src-tauri/src/knowledge/index/seal.rs",
+      "bytes": 10514,
+      "sha256": "2c2ddc87a841b9378f415af37c2bb0cc6e6b124e5dde153335a05c7ad52fe46f"
+    },
+    {
+      "path": "src-tauri/src/knowledge/index/tests/lifecycle.rs",
+      "bytes": 23983,
+      "sha256": "a4b947394141e37c310bf9dcef0142a2bb61cc25c3c825de3377b47f7fb16ceb"
+    },
+    {
+      "path": "src-tauri/src/knowledge/index_tests.rs",
+      "bytes": 16760,
+      "sha256": "74639146af3bea60d1555b3ecc5b1f91a4132371c14cdb9551e237db99a2ab1d"
+    },
+    {
+      "path": "src-tauri/src/knowledge/index_tests/binding.rs",
+      "bytes": 6475,
+      "sha256": "eec4af8f7789a8ad2781dc921362614fc3eb86ad6bb0b1f3f074cd61573a18d4"
+    },
+    {
+      "path": "src-tauri/src/knowledge/index_tests/continuation.rs",
+      "bytes": 4821,
+      "sha256": "f0cc9f2beda372179ffc72c10c58b9f739563b3fb639c1a385f56af819797960"
+    },
+    {
+      "path": "src-tauri/src/knowledge/index_tests/publication.rs",
+      "bytes": 20700,
+      "sha256": "8b5da04c0d99990e81c49b98e56fc12ee259c7d8479c8c82bfe955c40eaab22d"
+    },
+    {
+      "path": "src-tauri/src/knowledge/index_tests/recovery.rs",
+      "bytes": 16207,
+      "sha256": "7fc892e326e9d4a6096b5566ab421fa6a08c880b4be4496bbe912045e22652c6"
+    },
+    {
+      "path": "src-tauri/src/knowledge/index_tests/search.rs",
+      "bytes": 27838,
+      "sha256": "48f7692c8998980f5501f8490a248d629cb3c47189975dfea68ba95b5b6ce12e"
+    },
+    {
+      "path": "src-tauri/src/knowledge/mod.rs",
+      "bytes": 813,
+      "sha256": "f3e0b8a4a39729915b508ea80a0d237b6e53c2272313139ca8552df54285c1b8"
+    },
+    {
+      "path": "src-tauri/src/knowledge/reconcile.rs",
+      "bytes": 23799,
+      "sha256": "78f4894ea2397a99e1213c0aa31c62ff719a2b8568266119553c850e16883bc5"
+    },
+    {
+      "path": "src-tauri/src/knowledge/search.rs",
+      "bytes": 15184,
+      "sha256": "26c428a970126d609c6fa4ce118e567cdd78dd17a7547b11dd0ebc479d177abe"
+    },
+    {
+      "path": "src-tauri/src/knowledge/service.rs",
+      "bytes": 9981,
+      "sha256": "4f0e4eed1a8e066c725c8ad53159990b930f09fda51cd33884d4513d43b7caef"
+    },
+    {
+      "path": "src-tauri/src/knowledge/service/continuation.rs",
+      "bytes": 16921,
+      "sha256": "6cabc3e3ab0a03dd98e1f3c96168f045308098e267c165f73aa278238e9b1672"
+    },
+    {
+      "path": "src-tauri/src/knowledge/service/delete.rs",
+      "bytes": 12487,
+      "sha256": "609a226cc48b580393d47ee9b10a72ef9af7010fd62f6d5b3df8e61465f485fa"
+    },
+    {
+      "path": "src-tauri/src/knowledge/service/recovery.rs",
+      "bytes": 13834,
+      "sha256": "a966266fa0b9f8403fab5551af87a9665e2e23e7238dbcf574ce4fa9665cc71c"
+    },
+    {
+      "path": "src-tauri/src/knowledge/service/reindex.rs",
+      "bytes": 8570,
+      "sha256": "0b5ff3ca51b8da8f6fe1cc88bd43ceca7fad9fc6072ff5f29e1aee0302fcff2d"
+    },
+    {
+      "path": "src-tauri/src/knowledge/service/searches.rs",
+      "bytes": 3475,
+      "sha256": "08380ee76f4fae1ffe70556f31c52cda2c5c8f35415fdc44c8ce9d3de567d33e"
+    },
+    {
+      "path": "src-tauri/src/knowledge/service/state.rs",
+      "bytes": 16790,
+      "sha256": "9f164ed48c311132f100fed55583b3312a7854d55a3ae92ee93e9222586501d9"
+    },
+    {
+      "path": "src-tauri/src/knowledge/types.rs",
+      "bytes": 2793,
+      "sha256": "15c6973387b2905154d69d06d8920bdde03248d472e42a65f19cac4692d9381b"
+    },
+    {
+      "path": "src-tauri/src/storage/sqlite.rs",
+      "bytes": 25790,
+      "sha256": "d0bb39397b1aecd6bd95ec78f59e976b008d9c543ff9943bd5d40f44bf972abf"
+    },
+    {
+      "path": "src-tauri/src/storage/sqlite_tests.rs",
+      "bytes": 16041,
+      "sha256": "870f11d06ef46820eed09b644d1c22654c1f2082196e6aaed6f78ea2618f2232"
+    },
+    {
+      "path": "src/lib/knowledge-wire.test.ts",
+      "bytes": 5792,
+      "sha256": "3459e330a35595927e84b8449fd3ea2a68d7c9100f366c13b96d60950b35ab1b"
+    },
+    {
+      "path": "src/lib/knowledge-wire.ts",
+      "bytes": 5050,
+      "sha256": "6e25c3a05ee71af8f537da6db813e50cea1b9e5ab61165e6bdfcb0d636bb5205"
+    }
+  ],
+  "source_owner": "/root",
+  "cargo_owner": "/root",
+  "final_gates": "required gates passed; task-5c-final-verification.json contains actual commands/exits/log hashes",
+  "independent_review": "not yet dispatched"
+}

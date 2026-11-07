@@ -1,0 +1,8 @@
+npm error code EROFS
+npm error syscall open
+npm error path /home/mint/.npm/_cacache/tmp/***
+npm error errno EROFS
+npm error rofs Invalid response body while trying to fetch https://registry.npmjs.org/prettier: EROFS: read-only file system, open '/home/mint/.npm/_cacache/tmp/***'
+npm error rofs Often virtualized file systems, or other file systems that don't support symlinks, give this error.
+npm error Log files were not written due to an error writing to the directory: /home/mint/.npm/_logs
+npm error You can rerun the command with `--loglevel=verbose` to see the logs in your terminal

@@ -1,0 +1,22 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.73s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 15 tests
+test app::intelligence::tests::intelligence_app_close_fences_a_startup_that_was_waiting_for_admission ... ok
+test app::intelligence::tests::intelligence_app_close_keeps_index_owned_until_job_cleanup_finishes ... ok
+test app::intelligence::tests::intelligence_app_inert_construction_projects_empty_library_directory_and_recovers_jobs ... ok
+test app::intelligence::tests::intelligence_app_close_cancels_jobs_and_restarts_only_on_explicit_host_start ... ok
+test app::intelligence::tests::intelligence_app_dropping_external_handles_releases_process_after_worker_cleanup ... ok
+test app::intelligence::tests::intelligence_app_close_timeout_keeps_index_for_retry_until_jobs_drain ... ok
+test app::intelligence::tests::intelligence_app_close_waits_for_entered_index_startup_to_join ... ok
+test app::intelligence::tests::intelligence_app_reopen_starts_a_fresh_owned_index_generation ... ok
+test app::intelligence::tests::child_operations::child_operations_app_close_and_rearm_after_observer_drop ... ok
+test app::intelligence::tests::child_operations::child_operations_app_process_lock_after_observer_drop ... ok
+test app::intelligence::tests::intelligence_app_startup_failure_waits_for_direct_operation_drain ... ok
+test app::intelligence::tests::intelligence_close_stops_capture_while_snapshot_sqlite_is_blocked ... ok
+test app::intelligence::tests::child_operations::child_operations_app_close_and_rearm_after_config_timeout ... ok
+test app::intelligence::tests::child_operations::child_operations_app_process_lock_after_config_timeout ... ok
+test app::intelligence::tests::intelligence_app_entered_clear_retains_process_and_close_barrier_after_observer_loss ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 654 filtered out; finished in 0.59s
+

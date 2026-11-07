@@ -1,0 +1,891 @@
+{
+  "created_utc": "2026-11-07T10:47:31.467753+00:00",
+  "source_commit": "d802613670a1e3e6776edbb720b4fdda6d9d66e3",
+  "review_base": "1ea0bdd6309e8fee1cacc28b4ae79ec58e2783ee",
+  "verified_source_tree": "76677da1a712b77a10f17fd59b1bfcc2c31553a2",
+  "review_status": "deferred at explicit user request; no independent verdict",
+  "notes": [
+    "Artifacts preserve original bytes and historical paths. The pending-review document is the current authoritative status.",
+    "CLI model-session logs, caches, build products, keys, audio and native index files are not included."
+  ],
+  "file_count": 146,
+  "total_bytes": 2686318,
+  "entries": [
+    {
+      "artifact": "evidence/global-constraints.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/global-constraints.md",
+      "bytes": 2278,
+      "sha256": "2f8690a16c7bb0b179f3de67229cba377ab05f7673e336631a8eeb8ae5c1f063"
+    },
+    {
+      "artifact": "evidence/preflight-current-10-tasks.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/preflight-current-10-tasks.md",
+      "bytes": 23348,
+      "sha256": "339bc498e1bb5ecc59598adfd3f8201d95d0b9cd809288e73a160fbb633c0c1e"
+    },
+    {
+      "artifact": "evidence/progress.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/progress.md",
+      "bytes": 145481,
+      "sha256": "9855a65c936f1796e05a763d2b3fbb5728f9d9aa719f6727e4edd7394cfee760"
+    },
+    {
+      "artifact": "evidence/spec-coverage-current-10-tasks.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/spec-coverage-current-10-tasks.md",
+      "bytes": 5229,
+      "sha256": "651137b16c40e16631713fecd8470ed8a2d0c4b3c86fd4bc1164dbdceb6475b3"
+    },
+    {
+      "artifact": "evidence/task-10-brief.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-10-brief.md",
+      "bytes": 5171,
+      "sha256": "6e2c2fff67b40daded833c04e17fadbe43f5d16d854076204d63362adc2c01b3"
+    },
+    {
+      "artifact": "evidence/task-4b-work-tables-checkpoint.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-4b-work-tables-checkpoint.md",
+      "bytes": 3991,
+      "sha256": "d81557d9086a646c2310112c22bf8cfcb29dc7d426abc1eb5f9bc6e79db8435d"
+    },
+    {
+      "artifact": "evidence/task-5-brief.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5-brief.md",
+      "bytes": 19824,
+      "sha256": "f517ccdb07ef8bf946884bb4cbf7cdd22efc110d5a85134654d0c64337e64e82"
+    },
+    {
+      "artifact": "evidence/task-5-import-continuation-handoff.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5-import-continuation-handoff.md",
+      "bytes": 3790,
+      "sha256": "82517116995bbc7fc416fd6726a5c4e28b4d592c15b8277b007614191952edec"
+    },
+    {
+      "artifact": "evidence/task-5-job-credential-ownership-handoff.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5-job-credential-ownership-handoff.md",
+      "bytes": 4079,
+      "sha256": "b651e92e9aaf3d5507ef9bf551d32c3bd1c6041cb3fc1751217bb9fcf4bf0d3e"
+    },
+    {
+      "artifact": "evidence/task-5-managed-caps-handoff.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5-managed-caps-handoff.md",
+      "bytes": 22157,
+      "sha256": "957a3db0f806e714d5a2e9152bc8dac28cde30e3bd060b5cd3691423a922a6e9"
+    },
+    {
+      "artifact": "evidence/task-5-seal-format-handoff.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5-seal-format-handoff.md",
+      "bytes": 17156,
+      "sha256": "909862c49c5cb16cd9d2721d02e560bac4d43d2b2ed3f6bbdbcc2f14703de5fb"
+    },
+    {
+      "artifact": "evidence/task-5-search-budget-handoff.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5-search-budget-handoff.md",
+      "bytes": 3921,
+      "sha256": "6422902f59a46c43b0f1c9d16b8d188fde68d5a17fa8cb2d80e0dc212c656d21"
+    },
+    {
+      "artifact": "evidence/task-5-srvdb-owner-handoff.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5-srvdb-owner-handoff.md",
+      "bytes": 29687,
+      "sha256": "9ada4c4079da14149320b95f2c9140a789b049b7670adfd6cdd4537a5ccb3816"
+    },
+    {
+      "artifact": "evidence/task-5b-index-owner-checkpoint.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5b-index-owner-checkpoint.md",
+      "bytes": 15221,
+      "sha256": "c81eb763a93b9611ff987ad44ec8004371145bc63812c0c8206c45edc116a420"
+    },
+    {
+      "artifact": "evidence/task-5b-index-owner-report.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5b-index-owner-report.md",
+      "bytes": 13679,
+      "sha256": "c451d99e6707d7d4f1148575985f041a707b226395fe5f99d4e0c31fda38d06c"
+    },
+    {
+      "artifact": "evidence/task-5b-index-owner-review.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5b-index-owner-review.md",
+      "bytes": 15550,
+      "sha256": "715b2cd6e1b9d84a64e37bbb108acf0a84051ac23a3ff4c156c4b49f6fd8cbfb"
+    },
+    {
+      "artifact": "evidence/task-5c-active-brief.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-active-brief.md",
+      "bytes": 9061,
+      "sha256": "3872c74941e56cadfb0c243b2aa6b9f08663de81d3dad73d72cfca7dbde7819c"
+    },
+    {
+      "artifact": "evidence/task-5c-admission-owner-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-admission-owner-green.log",
+      "bytes": 564,
+      "sha256": "0f34b2ad774bb989371dd53aa0c41b6d1c64164a272fc6d574c89726658a90d6"
+    },
+    {
+      "artifact": "evidence/task-5c-admission-owner-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-admission-owner-red.log",
+      "bytes": 12288,
+      "sha256": "d2e134e4f5f56287b7bbb15f4514241c21ad8d95ea926bff3137021b5e14aa09"
+    },
+    {
+      "artifact": "evidence/task-5c-after-terminal-owned-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-after-terminal-owned-green.log",
+      "bytes": 732,
+      "sha256": "f79ee68a774f777119c5f0653f6cf0dab6606f916a265973240df73cf5bb51c2"
+    },
+    {
+      "artifact": "evidence/task-5c-app-ownership-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-app-ownership-green.log",
+      "bytes": 1989,
+      "sha256": "4ce15de292f916315ab058c43a900d4986ad58d92fe5c95260b7da7b09e556cf"
+    },
+    {
+      "artifact": "evidence/task-5c-app-search-owned-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-app-search-owned-green.log",
+      "bytes": 12792,
+      "sha256": "b4747ed718af48df086b9696c5a332754613f8b4f292b215feb36d3431596ec3"
+    },
+    {
+      "artifact": "evidence/task-5c-app-search-owned-rerun.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-app-search-owned-rerun.log",
+      "bytes": 577,
+      "sha256": "1c756d7bea02dbfff5a63ac71695482c564dd19df35958c5785883ec43c6f73d"
+    },
+    {
+      "artifact": "evidence/task-5c-architecture-final.txt",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-architecture-final.txt",
+      "bytes": 2177,
+      "sha256": "ac54b7af0368e5a88ae151dbe3983c245079f42fb48e8e5b187f9f6fbd70c06f"
+    },
+    {
+      "artifact": "evidence/task-5c-architecture-reconciliation.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-architecture-reconciliation.md",
+      "bytes": 48282,
+      "sha256": "3505a5fb8e4e95bf0ef2ae054b0b9113641982cf12c39b2c3e52e7841400f75c"
+    },
+    {
+      "artifact": "evidence/task-5c-baseline.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-baseline.log",
+      "bytes": 80981,
+      "sha256": "3688dbe8ff1c3c6e8f781e3d16296074dfd66b3cc047935a5405ff6a3b3c64eb"
+    },
+    {
+      "artifact": "evidence/task-5c-binding-behavior.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-binding-behavior.log",
+      "bytes": 694,
+      "sha256": "89e6083fb8a5d738454ccc989fdb3a21d2595681b76a3eda8ca1bdf63cde88f4"
+    },
+    {
+      "artifact": "evidence/task-5c-candidates-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-candidates-green.log",
+      "bytes": 570,
+      "sha256": "688f5a06ff2d0bb0e7c48ee37908355eba615954d73d4176dc6bc5f151454417"
+    },
+    {
+      "artifact": "evidence/task-5c-candidates-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-candidates-red.log",
+      "bytes": 12671,
+      "sha256": "1360659b5529ddbbffca3b59375f9e412ca65e3c9ab87b2c6044628b59fa9e33"
+    },
+    {
+      "artifact": "evidence/task-5c-command-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-command-green.log",
+      "bytes": 554,
+      "sha256": "2d79225e65a78954538a243090d27509bce2777d2a64228c60ac0ab003387041"
+    },
+    {
+      "artifact": "evidence/task-5c-command-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-command-red.log",
+      "bytes": 3722,
+      "sha256": "c069d5a10477ac9c56b09508259fd06b97b031c23598a38a2ab13914f1cc5eb2"
+    },
+    {
+      "artifact": "evidence/task-5c-command-selection-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-command-selection-green.log",
+      "bytes": 569,
+      "sha256": "f37dbd4ea10073db14b4de4dbc82cbf5fa1094803e4a77a0bba6df4156dd31d0"
+    },
+    {
+      "artifact": "evidence/task-5c-consumer-expanded-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-consumer-expanded-green.log",
+      "bytes": 3626,
+      "sha256": "43a70e35007389d3f51c523b2a91e618179a33e6deb53f0386c1e24917afb6fc"
+    },
+    {
+      "artifact": "evidence/task-5c-controller-gates.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-controller-gates.md",
+      "bytes": 7258,
+      "sha256": "c5c85872465ce2d4be79fba04c8d862643d2667318389a9a07f48a62906a0ce7"
+    },
+    {
+      "artifact": "evidence/task-5c-copy-fence-compile-attempt.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-copy-fence-compile-attempt.log",
+      "bytes": 883,
+      "sha256": "3eb59df84971607d748b31e81b1fbc25d08a035494d86fab795ab1fbd681eb2e"
+    },
+    {
+      "artifact": "evidence/task-5c-copy-fence-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-copy-fence-green.log",
+      "bytes": 678,
+      "sha256": "f009321eb547e310dc1789f60b242c3e406c08896285976aeb896328babacdd8"
+    },
+    {
+      "artifact": "evidence/task-5c-copy-fence-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-copy-fence-red.log",
+      "bytes": 23891,
+      "sha256": "1d4d8263d50b2d5ec41d0e0484842ecd03a079cdce6e3264bee1a58fe307a47a"
+    },
+    {
+      "artifact": "evidence/task-5c-delete-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-delete-green.log",
+      "bytes": 2430,
+      "sha256": "9e8012878d9208e6e83a4c1c58b260858728ae9fb98fd70bc7c9af97d1dac25d"
+    },
+    {
+      "artifact": "evidence/task-5c-delete-page-progress-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-delete-page-progress-green.log",
+      "bytes": 569,
+      "sha256": "8967f56170a195933afb8966e5653a2281d6c82b5a4f4c4746d8bd95167df3ae"
+    },
+    {
+      "artifact": "evidence/task-5c-delete-page-progress-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-delete-page-progress-red.log",
+      "bytes": 12292,
+      "sha256": "fe218503b6f0c2e84c72a99109ce4fd9c7ab7892b5c7addd44827f97f2b5711c"
+    },
+    {
+      "artifact": "evidence/task-5c-delete-payload-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-delete-payload-red.log",
+      "bytes": 12281,
+      "sha256": "eec0da4254454808b0a55b6da81098d05f143d159c95aec52719bd2f7ca034c5"
+    },
+    {
+      "artifact": "evidence/task-5c-delete-recovery-ruling.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-delete-recovery-ruling.md",
+      "bytes": 5713,
+      "sha256": "5f8803c7d6dcbce2c3589cd562afedb31ef313ea4e90084af5c7c6d28a5a8d60"
+    },
+    {
+      "artifact": "evidence/task-5c-delete-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-delete-red.log",
+      "bytes": 14011,
+      "sha256": "9590963efa9347107d34b0cfb0ae84f18f17d2a7bc448f094e283efb17204426"
+    },
+    {
+      "artifact": "evidence/task-5c-embedding-behavior-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-embedding-behavior-red.log",
+      "bytes": 50302,
+      "sha256": "abc8c84d28039a17ddf5c2c401a5e761e26b88c7350304c8e7bede398c5c8b19"
+    },
+    {
+      "artifact": "evidence/task-5c-embedding-expanded-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-embedding-expanded-green.log",
+      "bytes": 1283,
+      "sha256": "8fceec5932f2eed8037f5cfe178868eef5395147e7fce62760c03a8d7c565ee4"
+    },
+    {
+      "artifact": "evidence/task-5c-embedding-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-embedding-green.log",
+      "bytes": 12151,
+      "sha256": "70c74991af6a945fea62b83d6e9cde49819af66bf6aa05ab9db2e27c1ceef890"
+    },
+    {
+      "artifact": "evidence/task-5c-embedding-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-embedding-red.log",
+      "bytes": 4283,
+      "sha256": "ede24501d4317624c3b2ea9e1dcaf724c16604b4b6df7b745a751d65a1254195"
+    },
+    {
+      "artifact": "evidence/task-5c-evidence-catalog.json",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-evidence-catalog.json",
+      "bytes": 50979,
+      "sha256": "95fbfb96c7a072bbffef3fd2f80c3460fe628249709f7e69389567bf3a7af6f2"
+    },
+    {
+      "artifact": "evidence/task-5c-final-all-targets.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-all-targets.log",
+      "bytes": 77700,
+      "sha256": "808fa5d2f90499398d255865cf66899c2c745325358ffb95fe93d8cbbf918e35"
+    },
+    {
+      "artifact": "evidence/task-5c-final-consumer-focused.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-consumer-focused.log",
+      "bytes": 5711,
+      "sha256": "12986763abae8700b7a296c4f6e193e71069fa26b8bcec64c929bd259e90b962"
+    },
+    {
+      "artifact": "evidence/task-5c-final-desktop.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-desktop.log",
+      "bytes": 437,
+      "sha256": "1892121509650487b6170aa09b62c993a771c0ef1a64d514f34c8488764bad2b"
+    },
+    {
+      "artifact": "evidence/task-5c-final-diff-hash.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-diff-hash.log",
+      "bytes": 666,
+      "sha256": "b5a6e2d7adaede7753953db6af163e31f493e976a55d3408dc09856bfbd516b0"
+    },
+    {
+      "artifact": "evidence/task-5c-final-execution-state.json",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-execution-state.json",
+      "bytes": 71366,
+      "sha256": "1dc7c567200b51e0a848c23e8d97e5b1f480bcc577afd157782ec81b77dca6a0"
+    },
+    {
+      "artifact": "evidence/task-5c-final-fmt.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-fmt.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "artifact": "evidence/task-5c-final-frontend-build.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-frontend-build.log",
+      "bytes": 1747,
+      "sha256": "55156d4e71bc18fd274f29ec807170f67b23f9f565b2fb60279c7f2b36002a3b"
+    },
+    {
+      "artifact": "evidence/task-5c-final-frontend-format.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-frontend-format.log",
+      "bytes": 66,
+      "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+    },
+    {
+      "artifact": "evidence/task-5c-final-frontend.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-frontend.log",
+      "bytes": 268,
+      "sha256": "19917e5403679133da278f8dc6ae4a4cad5e71355c2abc97d594617c8fa244fb"
+    },
+    {
+      "artifact": "evidence/task-5c-final-intelligence-rerun.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-intelligence-rerun.log",
+      "bytes": 11782,
+      "sha256": "63c062a0ba392761b843c1259a6db48f630892db7f93fb665201d4feffd08229"
+    },
+    {
+      "artifact": "evidence/task-5c-final-intelligence.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-intelligence.log",
+      "bytes": 13811,
+      "sha256": "bc92e53981fefed475bc807d6d48ef1df4d79aa4ea993b3b62ba1ce084ae8b57"
+    },
+    {
+      "artifact": "evidence/task-5c-final-knowledge.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-knowledge.log",
+      "bytes": 19924,
+      "sha256": "dc27e0f3ec0f7234be695541787ff86d41c114786248db7c9773e3e2e415337e"
+    },
+    {
+      "artifact": "evidence/task-5c-final-production-check.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-production-check.log",
+      "bytes": 190,
+      "sha256": "dfb1c5464ba72e96392fa605d446d62c7e9d898041d612d419f6e56ec5088e5d"
+    },
+    {
+      "artifact": "evidence/task-5c-final-verification.json",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-verification.json",
+      "bytes": 7229,
+      "sha256": "d8a80abfb78e33cfa88197f5342fc1b2b11aa44c8f7f21a98827224d47057928"
+    },
+    {
+      "artifact": "evidence/task-5c-final-wire.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-wire.log",
+      "bytes": 250,
+      "sha256": "fe8bf23969e47bf8000c22154e151ac5ca450733ad71d93016ba5bb5e9c08a60"
+    },
+    {
+      "artifact": "evidence/task-5c-finite-score-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-finite-score-green.log",
+      "bytes": 250,
+      "sha256": "ca2b9b9490558a9f7c4f88f8ae4aaacd42f11be214c74b76dbf531caf401de73"
+    },
+    {
+      "artifact": "evidence/task-5c-finite-score-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-finite-score-red.log",
+      "bytes": 1133,
+      "sha256": "94ac674a62479adee09584774c936b4df59851b502e4575f6837c4eb3ad91b8f"
+    },
+    {
+      "artifact": "evidence/task-5c-focused-frontend-format-rerun.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-focused-frontend-format-rerun.log",
+      "bytes": 277,
+      "sha256": "4918ceceb724ca6657d4ed257a0e25be9950b5402f3ba74b89dea9dca4a1b3ce"
+    },
+    {
+      "artifact": "evidence/task-5c-focused-frontend-format.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-focused-frontend-format.log",
+      "bytes": 591,
+      "sha256": "19c9aa73af12eb0e796342d266ea5121d9723d9bfb77652f6fac5792d4c6b21b"
+    },
+    {
+      "artifact": "evidence/task-5c-focused-prettier-check.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-focused-prettier-check.log",
+      "bytes": 66,
+      "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+    },
+    {
+      "artifact": "evidence/task-5c-focused-rustfmt-check.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-focused-rustfmt-check.log",
+      "bytes": 8,
+      "sha256": "3c696c094e2a1323fa00cf0974a861af0cd6824b1672248c1d12791a70a61e4e"
+    },
+    {
+      "artifact": "evidence/task-5c-formatted-publication-focused.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-formatted-publication-focused.log",
+      "bytes": 696,
+      "sha256": "2db45f5f53d3a4e5a3d79d386a258047083864ff8adc33083cf7613ab225400b"
+    },
+    {
+      "artifact": "evidence/task-5c-implementation-prompt.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-implementation-prompt.md",
+      "bytes": 5186,
+      "sha256": "255a490c08111cabc14b8f5d6a79f06adf9e55c01d162e3ee5765fba74a92e33"
+    },
+    {
+      "artifact": "evidence/task-5c-import-fallback-behavior.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-import-fallback-behavior.log",
+      "bytes": 721,
+      "sha256": "512f8873481fa78cdcaf3f3fee0a21dcab93a83b60afe113c8e50b88d7c81a9d"
+    },
+    {
+      "artifact": "evidence/task-5c-import-fallback-compile-attempt.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-import-fallback-compile-attempt.log",
+      "bytes": 1912,
+      "sha256": "c132baf8a3101e52607d58f6c94e50139a6ce50097930e4a8cbdab2052f7cb74"
+    },
+    {
+      "artifact": "evidence/task-5c-import-fallback-fixture-attempt.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-import-fallback-fixture-attempt.log",
+      "bytes": 25387,
+      "sha256": "78ff957241db7c4dc9f1bc75f1aa1de61747843d168cbd77c4a9c3c7e67743c9"
+    },
+    {
+      "artifact": "evidence/task-5c-import-fallback-formatted.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-import-fallback-formatted.log",
+      "bytes": 721,
+      "sha256": "3999df01879b32447abd45473d68ef0402ebe76e6e54c4b5de32730dc41280ea"
+    },
+    {
+      "artifact": "evidence/task-5c-import-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-import-green.log",
+      "bytes": 1671,
+      "sha256": "87116a3cc35eb91a83693f7e2235f9ffce3fc3a1cd0f00776703599e6c9bc281"
+    },
+    {
+      "artifact": "evidence/task-5c-import-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-import-red.log",
+      "bytes": 25074,
+      "sha256": "c09d487881e87560f6c190ccb782ac59024757f2b724c9375143b0f51819f900"
+    },
+    {
+      "artifact": "evidence/task-5c-maintenance-owner-compile-attempt.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-maintenance-owner-compile-attempt.log",
+      "bytes": 1920,
+      "sha256": "c093257ad459ef4b94f35758b3fbc264941a6eb9f60c8974255d974b5cbcf087"
+    },
+    {
+      "artifact": "evidence/task-5c-maintenance-owner-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-maintenance-owner-green.log",
+      "bytes": 565,
+      "sha256": "3f5d49ffc5a241b17097a4096e7364d448b2dc72788d8212507202a1ee388e49"
+    },
+    {
+      "artifact": "evidence/task-5c-maintenance-owner-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-maintenance-owner-red.log",
+      "bytes": 12255,
+      "sha256": "56f462b880bb1677f8a9362c26be78a35712200d2eb1ec4d3d620f335e0e0ab7"
+    },
+    {
+      "artifact": "evidence/task-5c-migration-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-migration-green.log",
+      "bytes": 15532,
+      "sha256": "77f3a0ac4cfc14360a1c992444818c4406fc2bd4c06e006c4be47bc64dc10b48"
+    },
+    {
+      "artifact": "evidence/task-5c-migration-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-migration-red.log",
+      "bytes": 3115,
+      "sha256": "df13c38631c501ce47315c7ac76309d5c482841b943c6f4bb2f3b8fa7833d510"
+    },
+    {
+      "artifact": "evidence/task-5c-model-search-checkpoint.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-model-search-checkpoint.md",
+      "bytes": 10110,
+      "sha256": "923d2f88cbce9bb55080700915592a9cdbc8b6e38f115162a691293d79c3767d"
+    },
+    {
+      "artifact": "evidence/task-5c-owned-registration-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-owned-registration-red.log",
+      "bytes": 12439,
+      "sha256": "6cbeeb9bb19605f8ebb331888c4cf4bb21f1d956f0e023aac996260943fab875"
+    },
+    {
+      "artifact": "evidence/task-5c-owned-source-paths.txt",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-owned-source-paths.txt",
+      "bytes": 2177,
+      "sha256": "6842768c5cf71d0f6807627ce6fe978be4846cabbe4190427753cccf278eae42"
+    },
+    {
+      "artifact": "evidence/task-5c-owned-source-sha256.txt",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-owned-source-sha256.txt",
+      "bytes": 5675,
+      "sha256": "172d891e12bb5dcd0997d27957439696f6ec827f61cd8c5b6c34fc7171f4222c"
+    },
+    {
+      "artifact": "evidence/task-5c-ownership-decision.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-ownership-decision.md",
+      "bytes": 2053,
+      "sha256": "0c3653efeefe06d4b5ac55e1e867c93c3dc676e02a09d7871ed2b0ad0e5adba6"
+    },
+    {
+      "artifact": "evidence/task-5c-production-formatted-check.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-production-formatted-check.log",
+      "bytes": 190,
+      "sha256": "6f23aae8a71efb08517e183e84edc555aac0d0dda619f595bd68fff7ab02ca14"
+    },
+    {
+      "artifact": "evidence/task-5c-production-warning-check.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-production-warning-check.log",
+      "bytes": 14141,
+      "sha256": "fba36f0901329c18f73512a68e5dbcb3ee1be9fe0627eb9ade524884917b848e"
+    },
+    {
+      "artifact": "evidence/task-5c-production-warning-rerun.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-production-warning-rerun.log",
+      "bytes": 190,
+      "sha256": "c21162ab5ddc3b14271884a8a85d00c796b7d9d1d4a696e9486c4bcee38900fd"
+    },
+    {
+      "artifact": "evidence/task-5c-publication-behavior.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-publication-behavior.log",
+      "bytes": 696,
+      "sha256": "f922550955c8e98db06d54fbf94e0338db7a55ca33471de58c281677fbe6d449"
+    },
+    {
+      "artifact": "evidence/task-5c-query-wire-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-query-wire-red.log",
+      "bytes": 1204,
+      "sha256": "8d15b2b3d7f41c993c4511176f25f1be87aad4b4a0b356c76b4285b650b1ec09"
+    },
+    {
+      "artifact": "evidence/task-5c-rebuild-source-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-rebuild-source-green.log",
+      "bytes": 936,
+      "sha256": "03c2edb6e712828fd62d79e34c9d4d49e2e0de9a5d811b708f686a8eab086f85"
+    },
+    {
+      "artifact": "evidence/task-5c-rebuild-source-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-rebuild-source-red.log",
+      "bytes": 12293,
+      "sha256": "26f7eb8a384b048393cb1a4892aa4458d1030f7e44705e91aede754d03f50a37"
+    },
+    {
+      "artifact": "evidence/task-5c-rebuild-trigger-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-rebuild-trigger-green.log",
+      "bytes": 921,
+      "sha256": "3f14a7c1ff9a6be7865e09c20bb11544a22abae9f57c027883df1a742f8a4d08"
+    },
+    {
+      "artifact": "evidence/task-5c-rebuild-trigger-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-rebuild-trigger-red.log",
+      "bytes": 25160,
+      "sha256": "be992625a16e4ecfd74741630fdd831974b6b7e86f1bcac40cc14867bb500866"
+    },
+    {
+      "artifact": "evidence/task-5c-rebuild-trigger-ruling.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-rebuild-trigger-ruling.md",
+      "bytes": 2267,
+      "sha256": "82ecd8d3f0235c6d4fa11e1da588b50f9760d33ce83efb7c6a0380950b43ab07"
+    },
+    {
+      "artifact": "evidence/task-5c-reconcile-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-reconcile-green.log",
+      "bytes": 888,
+      "sha256": "d16bfb1bf26035309ff9df8b17125b9c90ec3706d667a82178a15a36a1ec2f31"
+    },
+    {
+      "artifact": "evidence/task-5c-reconcile-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-reconcile-red.log",
+      "bytes": 26215,
+      "sha256": "4cd180f37b2ceb066538169d6bb587f4a931e62963b13b10211f7aafcce18c01"
+    },
+    {
+      "artifact": "evidence/task-5c-recovery-cleanup-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-recovery-cleanup-green.log",
+      "bytes": 12908,
+      "sha256": "bc9d058ffeba22bfe3ea9c464616fa2fe56f147abe27ba25a46ba920966b3f8d"
+    },
+    {
+      "artifact": "evidence/task-5c-recovery-cleanup-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-recovery-cleanup-red.log",
+      "bytes": 24811,
+      "sha256": "9d23504c44a4e668e269d3ffce50c98b588437e3ce5b72341dfdc79633bc2df6"
+    },
+    {
+      "artifact": "evidence/task-5c-recovery-directory-compile-attempt.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-recovery-directory-compile-attempt.log",
+      "bytes": 1912,
+      "sha256": "c132baf8a3101e52607d58f6c94e50139a6ce50097930e4a8cbdab2052f7cb74"
+    },
+    {
+      "artifact": "evidence/task-5c-recovery-directory-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-recovery-directory-red.log",
+      "bytes": 12320,
+      "sha256": "002dad8ce0743e71dd79c8423aad9e0ea7dc87738143dd0a4ee589b12dfaf22d"
+    },
+    {
+      "artifact": "evidence/task-5c-recovery-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-recovery-green.log",
+      "bytes": 1218,
+      "sha256": "12cf92691dfc648afaf216406d6c9d4a65f277f1e671558215010cffb1e76a5b"
+    },
+    {
+      "artifact": "evidence/task-5c-recovery-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-recovery-red.log",
+      "bytes": 24123,
+      "sha256": "d8f31927642322e733ac525a40458eae8a9e3c085187c135366ef9089e84b15b"
+    },
+    {
+      "artifact": "evidence/task-5c-repair-fence-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-fence-red.log",
+      "bytes": 12502,
+      "sha256": "cbae5ecb498079293f76a14d7753df21e4310e3bd8a5c4c2cc0b01a59b8cd4a6"
+    },
+    {
+      "artifact": "evidence/task-5c-repair-isolation-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-isolation-red.log",
+      "bytes": 25399,
+      "sha256": "b5c0b253fe3aee37554b0296ed8d6e903e4c09b73bcb7cc8de220c531b497ac2"
+    },
+    {
+      "artifact": "evidence/task-5c-repair-recovery-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-recovery-green.log",
+      "bytes": 2994,
+      "sha256": "072bb4054f462779a3d2dc3c422d36096895d47a292388cd5bc1e4527fe20ab5"
+    },
+    {
+      "artifact": "evidence/task-5c-report.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-report.md",
+      "bytes": 25818,
+      "sha256": "3a4946395654abd5a7900c1b1bd6d57d24e9fc52c28f7da83dcb542b298678e3"
+    },
+    {
+      "artifact": "evidence/task-5c-review-brief.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-review-brief.md",
+      "bytes": 12189,
+      "sha256": "dc3986481e6dc77e3c30efdebf4b827b13ca835c34998a1b1f3adfbc94842381"
+    },
+    {
+      "artifact": "evidence/task-5c-review-inputs.json",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-review-inputs.json",
+      "bytes": 855,
+      "sha256": "307b8023265db4d033a725e06cdee144db03b42883347c01416e75ff622f724e"
+    },
+    {
+      "artifact": "evidence/task-5c-review-package.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-review-package.md",
+      "bytes": 564312,
+      "sha256": "a56a2449327caaea8486c08bfecf3f5e6ee8c7426283a7e5f2946d3469786a3f"
+    },
+    {
+      "artifact": "evidence/task-5c-round0-owned-source-paths.txt",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-round0-owned-source-paths.txt",
+      "bytes": 2139,
+      "sha256": "b51b29759fa240695a90df2914d34ffb13116dafc9b870906f81d729e69265a5"
+    },
+    {
+      "artifact": "evidence/task-5c-round0-owned-source-sha256.txt",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-round0-owned-source-sha256.txt",
+      "bytes": 5571,
+      "sha256": "7941d11a1a0174a074fab7aef935992189f06dda0a7027075c7ee3b5f756a9c1"
+    },
+    {
+      "artifact": "evidence/task-5c-round0-source-freeze.json",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-round0-source-freeze.json",
+      "bytes": 10086,
+      "sha256": "d1203560833c51b7542514fc9b994fde8ee1475fb93c1637a838216c9f429f7c"
+    },
+    {
+      "artifact": "evidence/task-5c-round1-frozen-source.diff",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-round1-frozen-source.diff",
+      "bytes": 560422,
+      "sha256": "28896f767f931a2807de84ed3bee10dc998b901627ce0d02f04d60d43e97aaa5"
+    },
+    {
+      "artifact": "evidence/task-5c-search-bytes-behavior.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-search-bytes-behavior.log",
+      "bytes": 12862,
+      "sha256": "3cca03205e7795048db3e54996b1bb99cd5086108ed3e91cc5033a11a401f1ab"
+    },
+    {
+      "artifact": "evidence/task-5c-search-ownership-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-search-ownership-green.log",
+      "bytes": 2028,
+      "sha256": "9abe298a0b60fdff7e40d9d74415c715d5f0556116ecdc9a0a308b290e75b863"
+    },
+    {
+      "artifact": "evidence/task-5c-search-ownership-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-search-ownership-red.log",
+      "bytes": 12424,
+      "sha256": "3999488d4c0d5edf77d982344842e404a1c84eb4cdcd60ac2770e8c1921f6131"
+    },
+    {
+      "artifact": "evidence/task-5c-selection-wire-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-selection-wire-green.log",
+      "bytes": 250,
+      "sha256": "ebef8085a664be588cbf22c0eed0740328bd498859d8e6b88665c7d866f606d8"
+    },
+    {
+      "artifact": "evidence/task-5c-selection-wire-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-selection-wire-red.log",
+      "bytes": 1158,
+      "sha256": "e6170fd7a482d4732f4eb11a381db8f20ab8906762fcc7a9a9669ef78067e79d"
+    },
+    {
+      "artifact": "evidence/task-5c-service-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-service-green.log",
+      "bytes": 2425,
+      "sha256": "4a8399df9cfb19637e0dc0cc8a81151e52516586e84b72a093d905363263da74"
+    },
+    {
+      "artifact": "evidence/task-5c-service-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-service-red.log",
+      "bytes": 37296,
+      "sha256": "326782d32e0c1e667c47ab2223007a302f27f16e2501cbb7b993dca0e15f5e1c"
+    },
+    {
+      "artifact": "evidence/task-5c-source-fields-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-source-fields-green.log",
+      "bytes": 564,
+      "sha256": "8d52afb9c8bedd98f328c15e4bb19382dee54322d23ad4b9be51ad3faa1c2c82"
+    },
+    {
+      "artifact": "evidence/task-5c-source-fields-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-source-fields-red.log",
+      "bytes": 12639,
+      "sha256": "6d66244e85e4220ecd5d45d85a7e2b77bec3ec9a83e5b1894a7945e3ac4ea38f"
+    },
+    {
+      "artifact": "evidence/task-5c-source-freeze.json",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-source-freeze.json",
+      "bytes": 10351,
+      "sha256": "33022cbd6d15f6502e0b7c0c6130751b7fa211c3fde15e3307d90bfc8822dc9b"
+    },
+    {
+      "artifact": "evidence/task-5c-source-plan.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-source-plan.md",
+      "bytes": 13733,
+      "sha256": "91bddd65214d61a22fe2ada7f8d89e8fea0d0ddd3e96563fa88c7c82e017b7ef"
+    },
+    {
+      "artifact": "evidence/task-5c-startup-reindex-owner-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-startup-reindex-owner-red.log",
+      "bytes": 12610,
+      "sha256": "e9fe352c24eb7919deaeb61057177d76c41813afa8798b3f7083cc5ec1cd3050"
+    },
+    {
+      "artifact": "evidence/task-5c-storage-schema-fixture-format.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-storage-schema-fixture-format.log",
+      "bytes": 8,
+      "sha256": "3c696c094e2a1323fa00cf0974a861af0cd6824b1672248c1d12791a70a61e4e"
+    },
+    {
+      "artifact": "evidence/task-5c-storage-schema-fixture-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-storage-schema-fixture-green.log",
+      "bytes": 1836,
+      "sha256": "af1583d2ba497670ed205f0c369528a373fcde6e052970bbfb7387bec2ef0554"
+    },
+    {
+      "artifact": "evidence/task-5c-survivor-coverage-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-survivor-coverage-green.log",
+      "bytes": 574,
+      "sha256": "3ea72efc1dbcfaa30b282979060ee0a1bb17ed479d51996d6fce9d68241f76ad"
+    },
+    {
+      "artifact": "evidence/task-5c-survivor-coverage-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-survivor-coverage-red.log",
+      "bytes": 12326,
+      "sha256": "9923d7a190bfca82525e4a4f23874b963f9da09d7597de58ad948535d84ffd60"
+    },
+    {
+      "artifact": "evidence/task-5c-test-fixture-ruling.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-test-fixture-ruling.md",
+      "bytes": 1927,
+      "sha256": "6c3ccd92b7b18e00eb432cc27f3bb1e4b440f5eb3059ebae216af89e47e2a183"
+    },
+    {
+      "artifact": "evidence/task-5c-user-integration-state.json",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-user-integration-state.json",
+      "bytes": 328,
+      "sha256": "0b310b2ac8a8f93a35f4d6634c53b9cdcbacd0f3275b33224e9c882c672f59cc"
+    },
+    {
+      "artifact": "evidence/task-5c-wire-green.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-wire-green.log",
+      "bytes": 238,
+      "sha256": "e21c2b1d4b3771e47c07dd3c39887a327dd6843893a158fdeed47f36823d3d68"
+    },
+    {
+      "artifact": "evidence/task-5c-wire-red.log",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-wire-red.log",
+      "bytes": 1562,
+      "sha256": "0f5a18390ae22b6bb087ad361112ba6d650a958046dfbf1299a3beb53ffb3313"
+    },
+    {
+      "artifact": "evidence/task-5c-work-evidence-ruling.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-work-evidence-ruling.md",
+      "bytes": 3446,
+      "sha256": "772db3ed78bfe3982ca8eab085f77bbc1003fbbd93aab2e2ed797235eb166ec6"
+    },
+    {
+      "artifact": "evidence/task-6-active-brief-draft.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-6-active-brief-draft.md",
+      "bytes": 5738,
+      "sha256": "9e326a2eb31d39130cf3d1f9ecc26f6da7fb442b3b4376572d162c98d42d1f5a"
+    },
+    {
+      "artifact": "evidence/task-6-current-ownership-note.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-6-current-ownership-note.md",
+      "bytes": 1920,
+      "sha256": "c12baf57f83b787a3cfb286c63558d9c0eca5301190160c4f9c29a0f3f2472bb"
+    },
+    {
+      "artifact": "evidence/task-6-snapshot-handoff.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-6-snapshot-handoff.md",
+      "bytes": 27801,
+      "sha256": "e4658c597e29969d877a142e6d9d1edfb5024776e3cbaf62a83080d89f58761f"
+    },
+    {
+      "artifact": "evidence/task-6-source-plan.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-6-source-plan.md",
+      "bytes": 14188,
+      "sha256": "9065d911eea4461c1ea4e0cfa841950572ce9b6d1f7e3a1042da4a56cd73e7d4"
+    },
+    {
+      "artifact": "evidence/task-7-brief.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-7-brief.md",
+      "bytes": 8897,
+      "sha256": "e60df81e4fbb0af6ecbf8d5d4affaaf5959903e15558da5fdd83892a3127c573"
+    },
+    {
+      "artifact": "evidence/task-7-source-plan.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-7-source-plan.md",
+      "bytes": 8102,
+      "sha256": "c4b66aa431340682880d275b89a5cd4a54fbdecdb0eb9f488814a7e988c6db11"
+    },
+    {
+      "artifact": "evidence/task-8-brief.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-8-brief.md",
+      "bytes": 7210,
+      "sha256": "aff6bef95002a75019ce18536a1343351403db0f5dde133eaa2d015dcbecf657"
+    },
+    {
+      "artifact": "evidence/task-8-jobs-controller-handoff.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-8-jobs-controller-handoff.md",
+      "bytes": 20515,
+      "sha256": "8a64e427ecfac9e6d04d93f821ff3f8cb72bc46439ae9e440a5cbf0cc728bd2c"
+    },
+    {
+      "artifact": "evidence/task-9-brief.md",
+      "original_path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-9-brief.md",
+      "bytes": 4586,
+      "sha256": "5764c0a530fc3ed9f9d23902621ea24ecfbc2eda5a6002c5a74664bbf30065a0"
+    }
+  ]
+}

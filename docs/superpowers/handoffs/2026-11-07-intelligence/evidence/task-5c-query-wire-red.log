@@ -1,0 +1,26 @@
+
+ RUN  v5.1.0 /mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation
+
+ ❯ src/lib/knowledge-wire.test.ts (7 tests | 1 failed) 136ms
+   × rejects an empty submitted knowledge query while preserving exact whitespace and Unicode 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/lib/knowledge-wire.test.ts > rejects an empty submitted knowledge query while preserving exact whitespace and Unicode
+AssertionError: expected function to throw an error, but it didn't
+ ❯ src/lib/knowledge-wire.test.ts:45:51
+     43| it('rejects an empty submitted knowledge query while preserving exact …
+     44|   const request={query:'',selected_segment_ids:[],session_id:null,limi…
+     45|   expect(()=>wire.decodeKnowledgeSearch(request)).toThrow(WireDecodeEr…
+       |                                                   ^
+     46|   expect(wire.decodeKnowledgeSearch({...request,query:'  电压\n24V  '}).…
+     47| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+   Start at  16:34:54
+   Duration  12.16s (environment 75%, setup 23%, transform 1%, tests 1%)
+

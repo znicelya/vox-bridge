@@ -1,0 +1,10 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.26s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 2 tests
+test intelligence::jobs::tests::continuations::intelligence_after_terminal_does_not_run_success_hook_for_failed_or_cancelled_parent ... ok
+test intelligence::jobs::tests::continuations::intelligence_after_terminal_reserves_before_success_releases_exclusion_and_drains_actual_child ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 677 filtered out; finished in 0.07s
+

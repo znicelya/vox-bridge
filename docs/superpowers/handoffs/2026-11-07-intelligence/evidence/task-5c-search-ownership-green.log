@@ -1,0 +1,39 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+warning: methods `shutdown_searches` and `reopen_searches` are never used
+  --> src/knowledge/service.rs:42:25
+   |
+22 | impl KnowledgeService {
+   | --------------------- methods in this implementation
+...
+42 |     pub(crate) async fn shutdown_searches(&self)->AppResult<()> {self.searches.shutdown().await}
+   |                         ^^^^^^^^^^^^^^^^^
+43 |     pub(crate) fn reopen_searches(&self)->AppResult<()> {self.searches.reopen()}
+   |                   ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `shutdown` and `reopen` are never used
+  --> src/knowledge/service/searches.rs:28:25
+   |
+10 | impl Searches {
+   | ------------- methods in this implementation
+...
+28 |     pub(super) async fn shutdown(&self)->AppResult<()> {
+   |                         ^^^^^^^^
+...
+38 |     pub(super) fn reopen(&self)->AppResult<()> {
+   |                   ^^^^^^
+
+warning: `vox-bridge` (lib test) generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.61s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 5 tests
+test knowledge::index_tests::search::knowledge_search_late_loss_of_last_ready_document_returns_repair ... ok
+test knowledge::index_tests::search::knowledge_search_submitted_partial_and_multi_row_selection_is_authoritative ... ok
+test knowledge::index_tests::knowledge_search_preserves_healthy_hits_and_repairs_the_inverse_owner_of_malformed_metadata ... ok
+test knowledge::index_tests::search::knowledge_search_two_slots_retain_capacity_until_cancelled_entered_work_finishes ... ok
+test knowledge::index_tests::search::knowledge_search_during_replacement_preserves_parsing_and_parsed_states ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 642 filtered out; finished in 0.61s
+

@@ -1,0 +1,12 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.46s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 4 tests
+test knowledge::index::seal::trigger_tests::knowledge_rebuild_certified_count_and_metadata_threshold_arithmetic ... ok
+test knowledge::index_tests::publication::knowledge_rebuild_rejects_late_uncovered_survivor_chunk_without_switching_pointer ... ok
+test knowledge::index_tests::knowledge_rebuild_reclaims_tombstone_ids_and_atomically_repoints_ready_mappings ... ok
+test knowledge::index_tests::publication::knowledge_rebuild_failed_target_keeps_source_clean_searchable_and_reopenable ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 679 filtered out; finished in 1.33s
+

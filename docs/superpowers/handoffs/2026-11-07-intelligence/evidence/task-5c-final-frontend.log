@@ -1,0 +1,10 @@
+$ vitest run
+
+ RUN  v5.1.0 /mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation
+
+
+ Test Files  12 passed (12)
+      Tests  96 passed (96)
+   Start at  17:54:21
+   Duration  16.58s (environment 32%, tests 30%, import 23%, setup 8%, transform 7%)
+

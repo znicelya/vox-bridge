@@ -1,0 +1,10 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.42s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 2 tests
+test knowledge::index_tests::publication::knowledge_local_copy_freezes_rebuild_associations_before_vector_copy ... ok
+test knowledge::index_tests::recovery::knowledge_local_copy_freezes_recovery_associations_before_vector_copy ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 680 filtered out; finished in 2.46s
+

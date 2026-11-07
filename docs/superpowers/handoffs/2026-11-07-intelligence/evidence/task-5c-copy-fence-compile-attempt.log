@@ -1,0 +1,15 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+error[E0603]: function `reassociate` is private
+  --> src/knowledge/index_tests/recovery.rs:80:88
+   |
+80 |         h.service.at_checkpoint(CommitPoint::BeforeLocalCopy,move||super::publication::reassociate(&store,survivor,mutation));
+   |                                                                                        ^^^^^^^^^^^ private function
+   |
+note: the function `reassociate` is defined here
+  --> src/knowledge/index_tests/publication.rs:64:1
+   |
+64 | fn reassociate(store:&crate::storage::LocalStore,id:Uuid,mutation:&str) {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For more information about this error, try `rustc --explain E0603`.
+error: could not compile `vox-bridge` (lib test) due to 1 previous error

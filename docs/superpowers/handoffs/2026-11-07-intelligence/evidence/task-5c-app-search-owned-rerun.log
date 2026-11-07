@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.61s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 2 tests
+test app::intelligence::tests::knowledge::knowledge_app_process_lock_outlives_search_observer_until_entered_work_finishes ... ok
+test app::intelligence::tests::knowledge::knowledge_app_close_and_rearm_wait_for_entered_search_after_observer_loss ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 678 filtered out; finished in 0.55s
+

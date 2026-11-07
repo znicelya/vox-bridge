@@ -1,0 +1,45 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 48.79s
+     Running unittests src/lib.rs (src-tauri/target/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 1 test
+test knowledge::document_tests::knowledge_migration5_binding_fences_and_reopen_preserve_untrusted_legacy_rows ... FAILED
+
+failures:
+
+---- knowledge::document_tests::knowledge_migration5_binding_fences_and_reopen_preserve_untrusted_legacy_rows stdout ----
+
+thread 'knowledge::document_tests::knowledge_migration5_binding_fences_and_reopen_preserve_untrusted_legacy_rows' (158630) panicked at src/knowledge/document_tests.rs:12:13:
+assertion `left == right` failed
+  left: 4
+ right: 5
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/std/src/panicking.rs:679:5
+   1: core::panicking::panic_fmt
+             at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/core/src/panicking.rs:452:17
+   3: core::panicking::assert_failed::<u32, u32>
+             at /home/mint/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/panicking.rs:407:5
+   4: vox_bridge_lib::knowledge::document_tests::knowledge_migration5_binding_fences_and_reopen_preserve_untrusted_legacy_rows::{closure#0}
+             at ./src/knowledge/document_tests.rs:12:13
+   5: <vox_bridge_lib::storage::sqlite::LocalStore>::transaction::<(), vox_bridge_lib::knowledge::document_tests::knowledge_migration5_binding_fences_and_reopen_preserve_untrusted_legacy_rows::{closure#0}>
+             at ./src/storage/sqlite.rs:85:21
+   6: vox_bridge_lib::knowledge::document_tests::knowledge_migration5_binding_fences_and_reopen_preserve_untrusted_legacy_rows
+             at ./src/knowledge/document_tests.rs:10:15
+   7: vox_bridge_lib::knowledge::document_tests::knowledge_migration5_binding_fences_and_reopen_preserve_untrusted_legacy_rows::{closure#0}
+             at ./src/knowledge/document_tests.rs:6:83
+   8: <vox_bridge_lib::knowledge::document_tests::knowledge_migration5_binding_fences_and_reopen_preserve_untrusted_legacy_rows::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /home/mint/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+   9: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    knowledge::document_tests::knowledge_migration5_binding_fences_and_reopen_preserve_untrusted_legacy_rows
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 630 filtered out; finished in 0.20s
+
+error: test failed, to rerun pass `--lib`

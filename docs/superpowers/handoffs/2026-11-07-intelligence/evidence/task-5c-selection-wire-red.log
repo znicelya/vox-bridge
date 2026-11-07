@@ -1,0 +1,35 @@
+
+ RUN  v5.1.0 /mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation
+
+ ❯ src/lib/knowledge-wire.test.ts (8 tests | 1 failed) 147ms
+   × clears exact-selection provenance when the submitted query was edited 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/lib/knowledge-wire.test.ts > clears exact-selection provenance when the submitted query was edited
+AssertionError: expected [ Array(1) ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   "00000000-0000-0000-0000-000000000001",
++ ]
+
+ ❯ src/lib/knowledge-wire.test.ts:54:39
+     52|   const edited=wire.knowledgeSearchRequest('edited query',selection);
+     53|   expect(edited.query).toBe('edited query');
+     54|   expect(edited.selected_segment_ids).toEqual([]);
+       |                                       ^
+     55|   expect(edited.session_id).toBe(selection.sessionId);
+     56| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 passed (8)
+   Start at  16:35:32
+   Duration  1.18s (environment 67%, setup 14%, tests 14%, transform 4%, import 1%)
+

@@ -1,0 +1,1447 @@
+{
+  "status": "in-progress historical focused evidence; source is not frozen",
+  "base": "1ea0bdd6309e8fee1cacc28b4ae79ec58e2783ee",
+  "observed_utc": "2026-11-07T09:29:48.555369+00:00",
+  "sole_source_cargo_owner": "/root/knowledge_task5c_impl_retry",
+  "source_frozen": false,
+  "final_gates_run": false,
+  "notes": [
+    "Focused groups overlap. Never sum their counts.",
+    "A filename containing green is not proof of a pass; inspect recorded result lines and actual log.",
+    "Compilation-only diagnostics and fixture-order/timeout errors are not behavioral RED.",
+    "The author owns command/session exit evidence; this catalog observes immutable log bytes at the stated time.",
+    "This is not a final frozen-source manifest or an independent review verdict."
+  ],
+  "entries": [
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-admission-owner-green.log",
+      "bytes": 564,
+      "sha256": "0f34b2ad774bb989371dd53aa0c41b6d1c64164a272fc6d574c89726658a90d6",
+      "observed_mtime_utc": "2026-11-07T08:55:58.346702+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 671,
+          "duration": "0.31s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-admission-owner-red.log",
+      "bytes": 12288,
+      "sha256": "d2e134e4f5f56287b7bbb15f4514241c21ad8d95ea926bff3137021b5e14aa09",
+      "observed_mtime_utc": "2026-11-07T08:53:45.104180+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 671,
+          "duration": "3.40s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-after-terminal-owned-green.log",
+      "bytes": 732,
+      "sha256": "f79ee68a774f777119c5f0653f6cf0dab6606f916a265973240df73cf5bb51c2",
+      "observed_mtime_utc": "2026-11-07T09:09:03.859469+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 677,
+          "duration": "0.07s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-app-ownership-green.log",
+      "bytes": 1989,
+      "sha256": "4ce15de292f916315ab058c43a900d4986ad58d92fe5c95260b7da7b09e556cf",
+      "observed_mtime_utc": "2026-11-07T08:50:19.550666+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 654,
+          "duration": "0.59s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-app-search-owned-green.log",
+      "bytes": 12792,
+      "sha256": "b4747ed718af48df086b9696c5a332754613f8b4f292b215feb36d3431596ec3",
+      "observed_mtime_utc": "2026-11-07T09:05:49.223041+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 1,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 675,
+          "duration": "0.72s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-app-search-owned-rerun.log",
+      "bytes": 577,
+      "sha256": "1c756d7bea02dbfff5a63ac71695482c564dd19df35958c5785883ec43c6f73d",
+      "observed_mtime_utc": "2026-11-07T09:17:45.199489+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 678,
+          "duration": "0.55s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-binding-behavior.log",
+      "bytes": 694,
+      "sha256": "89e6083fb8a5d738454ccc989fdb3a21d2595681b76a3eda8ca1bdf63cde88f4",
+      "observed_mtime_utc": "2026-11-07T09:27:30.498289+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 684,
+          "duration": "1.30s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-candidates-green.log",
+      "bytes": 570,
+      "sha256": "688f5a06ff2d0bb0e7c48ee37908355eba615954d73d4176dc6bc5f151454417",
+      "observed_mtime_utc": "2026-11-07T07:47:01.989738+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 642,
+          "duration": "0.40s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-candidates-red.log",
+      "bytes": 12671,
+      "sha256": "1360659b5529ddbbffca3b59375f9e412ca65e3c9ab87b2c6044628b59fa9e33",
+      "observed_mtime_utc": "2026-11-07T07:44:31.262929+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 642,
+          "duration": "0.52s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-command-green.log",
+      "bytes": 554,
+      "sha256": "2d79225e65a78954538a243090d27509bce2777d2a64228c60ac0ab003387041",
+      "observed_mtime_utc": "2026-11-07T08:05:34.319014+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 649,
+          "duration": "0.03s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-command-red.log",
+      "bytes": 3722,
+      "sha256": "c069d5a10477ac9c56b09508259fd06b97b031c23598a38a2ab13914f1cc5eb2",
+      "observed_mtime_utc": "2026-11-07T08:02:04.149167+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 649,
+          "duration": "0.19s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [
+        "warning: methods `shutdown_searches` and `reopen_searches` are never used",
+        "warning: methods `shutdown` and `reopen` are never used",
+        "warning: `vox-bridge` (lib test) generated 2 warnings"
+      ],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-command-selection-green.log",
+      "bytes": 569,
+      "sha256": "f37dbd4ea10073db14b4de4dbc82cbf5fa1094803e4a77a0bba6df4156dd31d0",
+      "observed_mtime_utc": "2026-11-07T08:52:02.927401+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 670,
+          "duration": "0.44s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-consumer-expanded-green.log",
+      "bytes": 3626,
+      "sha256": "43a70e35007389d3f51c523b2a91e618179a33e6deb53f0386c1e24917afb6fc",
+      "observed_mtime_utc": "2026-11-07T08:42:08.819255+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 27,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 637,
+          "duration": "42.97s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-copy-fence-compile-attempt.log",
+      "bytes": 883,
+      "sha256": "3eb59df84971607d748b31e81b1fbc25d08a035494d86fab795ab1fbd681eb2e",
+      "observed_mtime_utc": "2026-11-07T09:18:57.828206+00:00",
+      "rust_result_lines": [],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: could not compile `vox-bridge` (lib test) due to 1 previous error"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": false
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-copy-fence-green.log",
+      "bytes": 678,
+      "sha256": "f009321eb547e310dc1789f60b242c3e406c08896285976aeb896328babacdd8",
+      "observed_mtime_utc": "2026-11-07T09:20:37.270496+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 680,
+          "duration": "2.46s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-copy-fence-red.log",
+      "bytes": 23891,
+      "sha256": "1d4d8263d50b2d5ec41d0e0484842ecd03a079cdce6e3264bee1a58fe307a47a",
+      "observed_mtime_utc": "2026-11-07T09:19:51.949920+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 0,
+          "failed": 2,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 680,
+          "duration": "0.64s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-delete-green.log",
+      "bytes": 2430,
+      "sha256": "9e8012878d9208e6e83a4c1c58b260858728ae9fb98fd70bc7c9af97d1dac25d",
+      "observed_mtime_utc": "2026-11-07T07:24:43.247272+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 635,
+          "duration": "0.59s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [
+        "warning: unused import: `DocumentFence`",
+        "warning: type `HeaderSnapshot` is more private than the item `Seal::metadata_header`",
+        "warning: type `FileSeal` is more private than the item `Seal::files`",
+        "warning: `vox-bridge` (lib test) generated 3 warnings (run `cargo fix --lib -p vox-bridge --tests` to apply 1 suggestion)"
+      ],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-delete-red.log",
+      "bytes": 14011,
+      "sha256": "9590963efa9347107d34b0cfb0ae84f18f17d2a7bc448f094e283efb17204426",
+      "observed_mtime_utc": "2026-11-07T07:22:06.451253+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 639,
+          "duration": "0.25s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [
+        "warning: type `HeaderSnapshot` is more private than the item `Seal::metadata_header`",
+        "warning: type `FileSeal` is more private than the item `Seal::files`",
+        "warning: field `data_dir` is never read",
+        "warning: `vox-bridge` (lib test) generated 3 warnings"
+      ],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-embedding-behavior-red.log",
+      "bytes": 50302,
+      "sha256": "abc8c84d28039a17ddf5c2c401a5e761e26b88c7350304c8e7bede398c5c8b19",
+      "observed_mtime_utc": "2026-11-07T07:03:40.300206+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 0,
+          "failed": 4,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 631,
+          "duration": "0.18s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-embedding-expanded-green.log",
+      "bytes": 1283,
+      "sha256": "8fceec5932f2eed8037f5cfe178868eef5395147e7fce62760c03a8d7c565ee4",
+      "observed_mtime_utc": "2026-11-07T08:42:49.032111+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 660,
+          "duration": "0.09s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-embedding-green.log",
+      "bytes": 12151,
+      "sha256": "70c74991af6a945fea62b83d6e9cde49819af66bf6aa05ab9db2e27c1ceef890",
+      "observed_mtime_utc": "2026-11-07T07:07:30.216608+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 631,
+          "duration": "0.04s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-embedding-red.log",
+      "bytes": 4283,
+      "sha256": "ede24501d4317624c3b2ea9e1dcaf724c16604b4b6df7b745a751d65a1254195",
+      "observed_mtime_utc": "2026-11-07T06:54:32.659830+00:00",
+      "rust_result_lines": [],
+      "vitest_result_lines": [],
+      "warnings": [
+        "warning: unused import: `super::*`",
+        "warning: `vox-bridge` (lib test) generated 1 warning"
+      ],
+      "error_lines": [
+        "error: could not compile `vox-bridge` (lib test) due to 9 previous errors; 1 warning emitted"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": false
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-finite-score-green.log",
+      "bytes": 250,
+      "sha256": "ca2b9b9490558a9f7c4f88f8ae4aaacd42f11be214c74b76dbf531caf401de73",
+      "observed_mtime_utc": "2026-11-07T09:27:13.018107+00:00",
+      "rust_result_lines": [],
+      "vitest_result_lines": [
+        "Test Files  1 passed (1)",
+        "Tests  9 passed (9)"
+      ],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-finite-score-red.log",
+      "bytes": 1133,
+      "sha256": "94ac674a62479adee09584774c936b4df59851b502e4575f6837c4eb3ad91b8f",
+      "observed_mtime_utc": "2026-11-07T09:26:17.599052+00:00",
+      "rust_result_lines": [],
+      "vitest_result_lines": [
+        "Test Files  1 failed (1)",
+        "Tests  1 failed | 8 passed (9)"
+      ],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-import-fallback-behavior.log",
+      "bytes": 1912,
+      "sha256": "c132baf8a3101e52607d58f6c94e50139a6ce50097930e4a8cbdab2052f7cb74",
+      "observed_mtime_utc": "2026-11-07T09:29:05.518442+00:00",
+      "rust_result_lines": [],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: could not compile `vox-bridge` (lib test) due to 2 previous errors"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": false
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-import-green.log",
+      "bytes": 1671,
+      "sha256": "87116a3cc35eb91a83693f7e2235f9ffce3fc3a1cd0f00776703599e6c9bc281",
+      "observed_mtime_utc": "2026-11-07T07:58:50.084598+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 647,
+          "duration": "0.21s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [
+        "warning: methods `shutdown_searches` and `reopen_searches` are never used",
+        "warning: methods `shutdown` and `reopen` are never used",
+        "warning: `vox-bridge` (lib test) generated 2 warnings"
+      ],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-import-red.log",
+      "bytes": 25074,
+      "sha256": "c09d487881e87560f6c190ccb782ac59024757f2b724c9375143b0f51819f900",
+      "observed_mtime_utc": "2026-11-07T07:56:43.941456+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 0,
+          "failed": 2,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 647,
+          "duration": "3.19s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [
+        "warning: methods `shutdown_searches` and `reopen_searches` are never used",
+        "warning: methods `shutdown` and `reopen` are never used",
+        "warning: `vox-bridge` (lib test) generated 2 warnings"
+      ],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-maintenance-owner-compile-attempt.log",
+      "bytes": 1920,
+      "sha256": "c093257ad459ef4b94f35758b3fbc264941a6eb9f60c8974255d974b5cbcf087",
+      "observed_mtime_utc": "2026-11-07T08:45:47.954410+00:00",
+      "rust_result_lines": [],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: could not compile `vox-bridge` (lib test) due to 1 previous error"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": false
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-maintenance-owner-green.log",
+      "bytes": 565,
+      "sha256": "3f5d49ffc5a241b17097a4096e7364d448b2dc72788d8212507202a1ee388e49",
+      "observed_mtime_utc": "2026-11-07T08:49:18.714708+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 668,
+          "duration": "0.09s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-maintenance-owner-red.log",
+      "bytes": 12255,
+      "sha256": "56f462b880bb1677f8a9362c26be78a35712200d2eb1ec4d3d620f335e0e0ab7",
+      "observed_mtime_utc": "2026-11-07T08:47:12.427248+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 668,
+          "duration": "0.26s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-migration-green.log",
+      "bytes": 15532,
+      "sha256": "77f3a0ac4cfc14360a1c992444818c4406fc2bd4c06e006c4be47bc64dc10b48",
+      "observed_mtime_utc": "2026-11-07T07:11:46.207693+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 634,
+          "duration": "0.01s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-migration-red.log",
+      "bytes": 3115,
+      "sha256": "df13c38631c501ce47315c7ac76309d5c482841b943c6f4bb2f3b8fa7833d510",
+      "observed_mtime_utc": "2026-11-07T06:50:47.121090+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 630,
+          "duration": "0.20s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-owned-registration-red.log",
+      "bytes": 12439,
+      "sha256": "6cbeeb9bb19605f8ebb331888c4cf4bb21f1d956f0e023aac996260943fab875",
+      "observed_mtime_utc": "2026-11-07T08:37:26.094785+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 661,
+          "duration": "0.18s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-publication-behavior.log",
+      "bytes": 696,
+      "sha256": "f922550955c8e98db06d54fbf94e0338db7a55ca33471de58c281677fbe6d449",
+      "observed_mtime_utc": "2026-11-07T08:34:39.095240+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 659,
+          "duration": "5.36s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-query-wire-red.log",
+      "bytes": 1204,
+      "sha256": "8d15b2b3d7f41c993c4511176f25f1be87aad4b4a0b356c76b4285b650b1ec09",
+      "observed_mtime_utc": "2026-11-07T08:35:06.230979+00:00",
+      "rust_result_lines": [],
+      "vitest_result_lines": [
+        "Test Files  1 failed (1)",
+        "Tests  1 failed | 6 passed (7)"
+      ],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-rebuild-source-green.log",
+      "bytes": 936,
+      "sha256": "03c2edb6e712828fd62d79e34c9d4d49e2e0de9a5d811b708f686a8eab086f85",
+      "observed_mtime_utc": "2026-11-07T09:22:00.320126+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 679,
+          "duration": "1.33s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-rebuild-source-red.log",
+      "bytes": 12293,
+      "sha256": "26f7eb8a384b048393cb1a4892aa4458d1030f7e44705e91aede754d03f50a37",
+      "observed_mtime_utc": "2026-11-07T09:21:05.362799+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 682,
+          "duration": "0.42s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-rebuild-trigger-green.log",
+      "bytes": 921,
+      "sha256": "3f14a7c1ff9a6be7865e09c20bb11544a22abae9f57c027883df1a742f8a4d08",
+      "observed_mtime_utc": "2026-11-07T09:01:27.173847+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 670,
+          "duration": "0.95s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-rebuild-trigger-red.log",
+      "bytes": 25160,
+      "sha256": "be992625a16e4ecfd74741630fdd831974b6b7e86f1bcac40cc14867bb500866",
+      "observed_mtime_utc": "2026-11-07T08:59:07.959220+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 2,
+          "failed": 2,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 670,
+          "duration": "0.54s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-reconcile-green.log",
+      "bytes": 888,
+      "sha256": "d16bfb1bf26035309ff9df8b17125b9c90ec3706d667a82178a15a36a1ec2f31",
+      "observed_mtime_utc": "2026-11-07T07:35:21.618544+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 638,
+          "duration": "0.99s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-reconcile-red.log",
+      "bytes": 26215,
+      "sha256": "4cd180f37b2ceb066538169d6bb587f4a931e62963b13b10211f7aafcce18c01",
+      "observed_mtime_utc": "2026-11-07T07:27:36.265745+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 2,
+          "failed": 2,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 638,
+          "duration": "0.48s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [
+        "warning: unused import: `DocumentFence`",
+        "warning: type `HeaderSnapshot` is more private than the item `Seal::metadata_header`",
+        "warning: type `FileSeal` is more private than the item `Seal::files`",
+        "warning: `vox-bridge` (lib test) generated 3 warnings (run `cargo fix --lib -p vox-bridge --tests` to apply 1 suggestion)"
+      ],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-recovery-cleanup-green.log",
+      "bytes": 12908,
+      "sha256": "bc9d058ffeba22bfe3ea9c464616fa2fe56f147abe27ba25a46ba920966b3f8d",
+      "observed_mtime_utc": "2026-11-07T08:29:40.105495+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 5,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 650,
+          "duration": "8.30s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-recovery-cleanup-red.log",
+      "bytes": 24811,
+      "sha256": "9d23504c44a4e668e269d3ffce50c98b588437e3ce5b72341dfdc79633bc2df6",
+      "observed_mtime_utc": "2026-11-07T08:28:27.926506+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 4,
+          "failed": 2,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 650,
+          "duration": "1.07s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-recovery-directory-red.log",
+      "bytes": 1912,
+      "sha256": "c132baf8a3101e52607d58f6c94e50139a6ce50097930e4a8cbdab2052f7cb74",
+      "observed_mtime_utc": "2026-11-07T09:29:36.062507+00:00",
+      "rust_result_lines": [],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: could not compile `vox-bridge` (lib test) due to 2 previous errors"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": false
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-recovery-green.log",
+      "bytes": 1218,
+      "sha256": "12cf92691dfc648afaf216406d6c9d4a65f277f1e671558215010cffb1e76a5b",
+      "observed_mtime_utc": "2026-11-07T08:26:57.925635+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 650,
+          "duration": "0.89s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [
+        "warning: unused import: `RecoveryFence`",
+        "warning: `vox-bridge` (lib test) generated 1 warning (run `cargo fix --lib -p vox-bridge --tests` to apply 1 suggestion)"
+      ],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-recovery-red.log",
+      "bytes": 24123,
+      "sha256": "d8f31927642322e733ac525a40458eae8a9e3c085187c135366ef9089e84b15b",
+      "observed_mtime_utc": "2026-11-07T08:21:54.632906+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 1,
+          "failed": 2,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 650,
+          "duration": "0.39s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-fence-red.log",
+      "bytes": 12502,
+      "sha256": "cbae5ecb498079293f76a14d7753df21e4310e3bd8a5c4c2cc0b01a59b8cd4a6",
+      "observed_mtime_utc": "2026-11-07T08:39:02.473403+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 662,
+          "duration": "0.28s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-isolation-red.log",
+      "bytes": 25399,
+      "sha256": "b5c0b253fe3aee37554b0296ed8d6e903e4c09b73bcb7cc8de220c531b497ac2",
+      "observed_mtime_utc": "2026-11-07T08:30:55.572406+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 4,
+          "failed": 2,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 652,
+          "duration": "0.66s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-recovery-green.log",
+      "bytes": 2994,
+      "sha256": "072bb4054f462779a3d2dc3c422d36096895d47a292388cd5bc1e4527fe20ab5",
+      "observed_mtime_utc": "2026-11-07T08:32:30.892601+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 22,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 636,
+          "duration": "2.01s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-search-bytes-behavior.log",
+      "bytes": 12862,
+      "sha256": "3cca03205e7795048db3e54996b1bb99cd5086108ed3e91cc5033a11a401f1ab",
+      "observed_mtime_utc": "2026-11-07T08:36:12.032030+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 661,
+          "duration": "39.38s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-search-ownership-green.log",
+      "bytes": 2028,
+      "sha256": "9abe298a0b60fdff7e40d9d74415c715d5f0556116ecdc9a0a308b290e75b863",
+      "observed_mtime_utc": "2026-11-07T07:51:54.135011+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 642,
+          "duration": "0.61s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [
+        "warning: methods `shutdown_searches` and `reopen_searches` are never used",
+        "warning: methods `shutdown` and `reopen` are never used",
+        "warning: `vox-bridge` (lib test) generated 2 warnings"
+      ],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-search-ownership-red.log",
+      "bytes": 12424,
+      "sha256": "3999488d4c0d5edf77d982344842e404a1c84eb4cdcd60ac2770e8c1921f6131",
+      "observed_mtime_utc": "2026-11-07T07:50:12.091873+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 646,
+          "duration": "0.63s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-selection-wire-green.log",
+      "bytes": 250,
+      "sha256": "ebef8085a664be588cbf22c0eed0740328bd498859d8e6b88665c7d866f606d8",
+      "observed_mtime_utc": "2026-11-07T08:37:13.157004+00:00",
+      "rust_result_lines": [],
+      "vitest_result_lines": [
+        "Test Files  1 passed (1)",
+        "Tests  8 passed (8)"
+      ],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-selection-wire-red.log",
+      "bytes": 1158,
+      "sha256": "e6170fd7a482d4732f4eb11a381db8f20ab8906762fcc7a9a9669ef78067e79d",
+      "observed_mtime_utc": "2026-11-07T08:35:33.761214+00:00",
+      "rust_result_lines": [],
+      "vitest_result_lines": [
+        "Test Files  1 failed (1)",
+        "Tests  1 failed | 7 passed (8)"
+      ],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-service-green.log",
+      "bytes": 2425,
+      "sha256": "4a8399df9cfb19637e0dc0cc8a81151e52516586e84b72a093d905363263da74",
+      "observed_mtime_utc": "2026-11-07T07:20:11.591413+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 635,
+          "duration": "0.45s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [
+        "warning: type `HeaderSnapshot` is more private than the item `Seal::metadata_header`",
+        "warning: type `FileSeal` is more private than the item `Seal::files`",
+        "warning: field `data_dir` is never read",
+        "warning: `vox-bridge` (lib test) generated 3 warnings"
+      ],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-service-red.log",
+      "bytes": 37296,
+      "sha256": "326782d32e0c1e667c47ab2223007a302f27f16e2501cbb7b993dca0e15f5e1c",
+      "observed_mtime_utc": "2026-11-07T07:12:45.751864+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 0,
+          "failed": 3,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 635,
+          "duration": "0.20s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [
+        "warning: variants `AfterSqliteIntent`, `AfterVectorMutation`, and `BeforeReady` are never constructed",
+        "warning: `vox-bridge` (lib test) generated 1 warning"
+      ],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-source-fields-green.log",
+      "bytes": 564,
+      "sha256": "8d52afb9c8bedd98f328c15e4bb19382dee54322d23ad4b9be51ad3faa1c2c82",
+      "observed_mtime_utc": "2026-11-07T09:25:50.207944+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 683,
+          "duration": "1.05s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-source-fields-red.log",
+      "bytes": 12639,
+      "sha256": "6d66244e85e4220ecd5d45d85a7e2b77bec3ec9a83e5b1894a7945e3ac4ea38f",
+      "observed_mtime_utc": "2026-11-07T09:24:58.628897+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 683,
+          "duration": "0.40s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-survivor-coverage-green.log",
+      "bytes": 574,
+      "sha256": "3ea72efc1dbcfaa30b282979060ee0a1bb17ed479d51996d6fce9d68241f76ad",
+      "observed_mtime_utc": "2026-11-07T09:15:09.613147+00:00",
+      "rust_result_lines": [
+        {
+          "result": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 679,
+          "duration": "0.29s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-survivor-coverage-red.log",
+      "bytes": 12326,
+      "sha256": "9923d7a190bfca82525e4a4f23874b963f9da09d7597de58ad948535d84ffd60",
+      "observed_mtime_utc": "2026-11-07T09:13:02.025544+00:00",
+      "rust_result_lines": [
+        {
+          "result": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 679,
+          "duration": "0.67s"
+        }
+      ],
+      "vitest_result_lines": [],
+      "warnings": [],
+      "error_lines": [
+        "error: test failed, to rerun pass `--lib`"
+      ],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-wire-green.log",
+      "bytes": 238,
+      "sha256": "e21c2b1d4b3771e47c07dd3c39887a327dd6843893a158fdeed47f36823d3d68",
+      "observed_mtime_utc": "2026-11-07T06:51:29.954048+00:00",
+      "rust_result_lines": [],
+      "vitest_result_lines": [
+        "Test Files  1 passed (1)",
+        "Tests  6 passed (6)"
+      ],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    },
+    {
+      "path": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-wire-red.log",
+      "bytes": 1562,
+      "sha256": "0f5a18390ae22b6bb087ad361112ba6d650a958046dfbf1299a3beb53ffb3313",
+      "observed_mtime_utc": "2026-11-07T06:50:32.977439+00:00",
+      "rust_result_lines": [],
+      "vitest_result_lines": [
+        "Test Files  1 failed (1)",
+        "Tests  2 failed | 4 passed (6)"
+      ],
+      "warnings": [],
+      "error_lines": [],
+      "exit_code": null,
+      "behavioral_red": "requires assertion-level adjudication; not inferred from filename",
+      "completed_test_summary_observed": true
+    }
+  ]
+}

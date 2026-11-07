@@ -1,0 +1,190 @@
+{
+  "base": "1ea0bdd6309e8fee1cacc28b4ae79ec58e2783ee",
+  "frozen_tree": "76677da1a712b77a10f17fd59b1bfcc2c31553a2",
+  "owned_paths": 53,
+  "manifest_sha256": "172d891e12bb5dcd0997d27957439696f6ec827f61cd8c5b6c34fc7171f4222c",
+  "source_hashes_verified_utc": "2026-11-07T10:19:14.758302+00:00",
+  "required_gates": [
+    "knowledge",
+    "wire",
+    "frontend",
+    "frontend-format",
+    "frontend-build",
+    "intelligence-rerun",
+    "all-targets",
+    "desktop",
+    "fmt"
+  ],
+  "results": [
+    {
+      "name": "knowledge",
+      "command": "cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib knowledge",
+      "log": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-knowledge.log",
+      "exit_code": 0,
+      "bytes": 19924,
+      "sha256": "dc27e0f3ec0f7234be695541787ff86d41c114786248db7c9773e3e2e415337e",
+      "result_lines": [
+        "test result: ok. 163 passed; 0 failed; 0 ignored; 0 measured; 530 filtered out; finished in 77.03s"
+      ],
+      "warning_lines": [],
+      "advisory_lines": []
+    },
+    {
+      "name": "wire",
+      "command": "pnpm exec vitest run src/lib/knowledge-wire.test.ts",
+      "log": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-wire.log",
+      "exit_code": 0,
+      "bytes": 250,
+      "sha256": "fe8bf23969e47bf8000c22154e151ac5ca450733ad71d93016ba5bb5e9c08a60",
+      "result_lines": [
+        " Test Files  1 passed (1)",
+        "      Tests  9 passed (9)"
+      ],
+      "warning_lines": [],
+      "advisory_lines": []
+    },
+    {
+      "name": "frontend",
+      "command": "pnpm test:run",
+      "log": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-frontend.log",
+      "exit_code": 0,
+      "bytes": 268,
+      "sha256": "19917e5403679133da278f8dc6ae4a4cad5e71355c2abc97d594617c8fa244fb",
+      "result_lines": [
+        " Test Files  12 passed (12)",
+        "      Tests  96 passed (96)"
+      ],
+      "warning_lines": [],
+      "advisory_lines": []
+    },
+    {
+      "name": "frontend-format",
+      "command": "node /home/mint/.cache/pnpm/dlx/5ec39437e8278f141a2042960ccd5aac/mw4tnriu-ft0e/node_modules/.pnpm/prettier@3.7.4/node_modules/prettier/bin/prettier.cjs --check src/lib/knowledge-wire.ts src/lib/knowledge-wire.test.ts",
+      "log": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-frontend-format.log",
+      "exit_code": 0,
+      "bytes": 66,
+      "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20",
+      "result_lines": [],
+      "warning_lines": [],
+      "advisory_lines": []
+    },
+    {
+      "name": "intelligence",
+      "command": "cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib intelligence",
+      "log": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-intelligence.log",
+      "exit_code": 101,
+      "bytes": 13811,
+      "sha256": "bc92e53981fefed475bc807d6d48ef1df4d79aa4ea993b3b62ba1ce084ae8b57",
+      "result_lines": [
+        "test result: FAILED. 99 passed; 1 failed; 0 ignored; 0 measured; 593 filtered out; finished in 1.91s"
+      ],
+      "warning_lines": [],
+      "advisory_lines": []
+    },
+    {
+      "name": "frontend-build",
+      "command": "pnpm build",
+      "log": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-frontend-build.log",
+      "exit_code": 0,
+      "bytes": 1747,
+      "sha256": "55156d4e71bc18fd274f29ec807170f67b23f9f565b2fb60279c7f2b36002a3b",
+      "result_lines": [],
+      "warning_lines": [],
+      "advisory_lines": [
+        "\u001b[33m[PLUGIN_TIMINGS] \u001b[0mJavaScript callbacks ran for 5.7s of this 25.2s build (23%)."
+      ]
+    },
+    {
+      "name": "intelligence-rerun",
+      "command": "cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib intelligence",
+      "log": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-intelligence-rerun.log",
+      "exit_code": 0,
+      "bytes": 11782,
+      "sha256": "63c062a0ba392761b843c1259a6db48f630892db7f93fb665201d4feffd08229",
+      "result_lines": [
+        "test result: ok. 100 passed; 0 failed; 0 ignored; 0 measured; 593 filtered out; finished in 1.72s"
+      ],
+      "warning_lines": [],
+      "advisory_lines": []
+    },
+    {
+      "name": "all-targets",
+      "command": "cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --all-targets",
+      "log": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-all-targets.log",
+      "exit_code": 0,
+      "bytes": 77700,
+      "sha256": "808fa5d2f90499398d255865cf66899c2c745325358ffb95fe93d8cbbf918e35",
+      "result_lines": [
+        "test result: ok. 693 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 80.79s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s",
+        "test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "warning_lines": [],
+      "advisory_lines": []
+    },
+    {
+      "name": "desktop",
+      "command": "cargo build --offline --locked --manifest-path src-tauri/Cargo.toml --bin vox-bridge",
+      "log": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-desktop.log",
+      "exit_code": 0,
+      "bytes": 437,
+      "sha256": "1892121509650487b6170aa09b62c993a771c0ef1a64d514f34c8488764bad2b",
+      "result_lines": [],
+      "warning_lines": [],
+      "advisory_lines": []
+    },
+    {
+      "name": "fmt",
+      "command": "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
+      "log": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-final-fmt.log",
+      "exit_code": 0,
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_lines": [],
+      "warning_lines": [],
+      "advisory_lines": []
+    }
+  ],
+  "notes": [
+    "Original intelligence99/100 failed on stale schema4 fixture; scoped correction and intelligence-rerun100/100 supersede it.",
+    "Round0 knowledge/frontend/wire/build/format source files are unchanged and were not needlessly rerun; full all-targets covers final53-file Rust source.",
+    "Focused groups overlap; do not sum their counts."
+  ],
+  "patch_whitespace_check": "working/index/frozen-tree all exit0",
+  "independent_review": "not yet dispatched",
+  "external_gates": "native platforms/minimum-OS/audio/driver/keyring/paid/signing/packages/RSS/performance remain external",
+  "patch_whitespace_checks": [
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--cached",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "1ea0bdd6309e8fee1cacc28b4ae79ec58e2783ee",
+        "76677da1a712b77a10f17fd59b1bfcc2c31553a2"
+      ],
+      "exit_code": 0,
+      "output": ""
+    }
+  ]
+}
