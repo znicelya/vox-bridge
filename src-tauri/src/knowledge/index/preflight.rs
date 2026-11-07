@@ -95,7 +95,7 @@ pub(super) fn inspect(path: &Path, dimension: u32, count: u64) -> AppResult<Vec<
     }
     Ok(result)
 }
-fn directories(path: &Path, create: bool) -> AppResult<()> {
+pub(super) fn directories(path: &Path, create: bool) -> AppResult<()> {
     let mut current = PathBuf::new();
     for component in path.components() {
         if matches!(component, std::path::Component::ParentDir) {
@@ -135,7 +135,7 @@ fn check_vector_header(path: &Path, dimension: u32, count: u64, len: u64) -> App
     }
     Ok(())
 }
-fn hash_file(path: &Path, expected: u64, graph: bool) -> AppResult<String> {
+pub(super) fn hash_file(path: &Path, expected: u64, graph: bool) -> AppResult<String> {
     let mut file = File::open(path).map_err(|_| repair())?;
     if file.metadata().map_err(|_| repair())?.len() != expected {
         return Err(repair());

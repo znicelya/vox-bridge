@@ -150,6 +150,7 @@ impl AppState {
         // independent index sender remains alive until the scheduler confirms
         // that workers and child operations have actually drained.
         jobs?;
+        self.knowledge.shutdown_searches().await?;
         let _direct_operations = self
             .intelligence_operations
             .clone()

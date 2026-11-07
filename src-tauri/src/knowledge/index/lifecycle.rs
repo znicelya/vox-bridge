@@ -57,7 +57,45 @@ pub(crate) struct MaintenanceTicket {
     active: AtomicBool,
     release_requested: Arc<AtomicBool>,
 }
+pub(crate) struct RecoveryTicket {
+    owner: IndexOwner,
+    work: WorkTicket,
+    token: Uuid,
+    active: AtomicBool,
+    release_requested: Arc<AtomicBool>,
+}
+impl RecoveryTicket {
+    pub(crate) fn token(&self) -> Uuid {
+        self.token
+    }
+}
+impl Drop for RecoveryTicket {
+    fn drop(&mut self) {
+        if self.active.load(Ordering::Acquire) {
+            self.release_requested.store(true, Ordering::Release);
+            let _ =
+                self.owner
+                    .enqueue_admitted(&self.work, Command::EndRecovery(self.token), |r| match r {
+                        Reply::MaintenanceEnded => Ok(()),
+                        _ => Err(error(Code::Interrupted)),
+                    });
+        }
+    }
+}
 impl WorkTicket {
+    pub(crate) fn operation_id(&self) -> Uuid {
+        self.intent.body().operation_id
+    }
+    pub(crate) fn generation(&self) -> &seal::Generation {
+        &self.intent.body().descriptor
+    }
+    pub(crate) fn cleanup(&self) -> Self {
+        Self {
+            intent: self.intent.clone(),
+            lease: self.lease.clone(),
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
     pub(crate) fn cancel(&self) {
         self.cancelled.store(true, Ordering::Release);
     }
@@ -96,8 +134,34 @@ impl Drop for MaintenanceTicket {
 }
 
 enum Command {
+    BeginRecovery(super::recovery::RecoveryEvidence, Arc<AtomicBool>),
+    CopyRecovery {
+        token: Uuid,
+        start: u64,
+        limit: u32,
+    },
+    VerifyRecovery(Uuid),
+    EndRecovery(Uuid),
+    RetireRecovery(super::recovery::RecoveryFence),
+    RemoveGeneration(seal::Generation),
     Open,
+    PublishPlan(PersistedReceipt, super::publication::PublicationPlan),
+    Retire,
+    Candidates {
+        vector: Vec<f32>,
+        limit: u32,
+    },
+    #[cfg(test)]
+    CorruptMetadata {
+        id: u64,
+        vector: Vec<f32>,
+        metadata: String,
+    },
     Add(Vec<(Vec<f32>, ChunkMetadata)>),
+    ScanRecords {
+        start: u64,
+        limit: u32,
+    },
     Scan {
         start: u64,
         limit: u32,
@@ -124,9 +188,11 @@ enum Command {
     Acknowledge(PublicationAck),
 }
 enum Reply {
+    Candidates(Vec<super::owner::Candidate>),
     Opened(u64),
     Added(Vec<u64>),
     Scanned(Vec<(u64, Option<ChunkMetadata>)>),
+    Records(Vec<super::owner::RecordCandidate>),
     Deleted(Vec<bool>),
     Replaced(u64),
     Searched(Vec<(u64, f32, ChunkMetadata)>),
@@ -382,6 +448,21 @@ impl IndexOwner {
         .await
     }
 
+    pub(crate) async fn scan_records(
+        &self,
+        ticket: &WorkTicket,
+        start: u64,
+        limit: u32,
+    ) -> AppResult<Vec<super::owner::RecordCandidate>> {
+        self.enqueue(ticket, Command::ScanRecords { start, limit }, |r| match r {
+            Reply::Records(rows) => Ok(rows),
+            _ => Err(error(Code::Interrupted)),
+        })?
+        .observe()
+        .await
+    }
+    // Retained strict compatibility port; 5C consumes scan_records.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) async fn scan(
         &self,
         ticket: &WorkTicket,
@@ -432,6 +513,25 @@ impl IndexOwner {
         .await
     }
 
+    pub(crate) async fn candidates(
+        &self,
+        ticket: &WorkTicket,
+        vector: Vec<f32>,
+        limit: u32,
+    ) -> AppResult<Vec<super::owner::Candidate>> {
+        self.enqueue(
+            ticket,
+            Command::Candidates { vector, limit },
+            |reply| match reply {
+                Reply::Candidates(c) => Ok(c),
+                _ => Err(error(Code::Interrupted)),
+            },
+        )?
+        .observe()
+        .await
+    }
+    // Retained strict compatibility port; 5C consumes candidates.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) async fn search(
         &self,
         ticket: &WorkTicket,
@@ -450,15 +550,129 @@ impl IndexOwner {
         .await
     }
 
+    pub(crate) fn recovery_evidence(
+        &self,
+        identity: &str,
+        generation: Uuid,
+    ) -> AppResult<super::recovery::RecoveryEvidence> {
+        self.inner
+            .repository
+            .recovery_evidence(identity, generation)
+    }
+    pub(crate) async fn begin_recovery(
+        &self,
+        ticket: &WorkTicket,
+        evidence: super::recovery::RecoveryEvidence,
+    ) -> AppResult<RecoveryTicket> {
+        // Create the drop guard before awaiting entry. A disappeared observer
+        // requests release even if the reader is still being opened in the pool.
+        let mut guard = RecoveryTicket {
+            owner: self.clone(),
+            work: ticket.clone(),
+            token: Uuid::nil(),
+            active: AtomicBool::new(true),
+            release_requested: Arc::new(AtomicBool::new(false)),
+        };
+        guard.token = self
+            .enqueue(
+                ticket,
+                Command::BeginRecovery(evidence, guard.release_requested.clone()),
+                |r| match r {
+                    Reply::MaintenanceStarted(t) => Ok(t),
+                    _ => Err(error(Code::Interrupted)),
+                },
+            )?
+            .observe()
+            .await?;
+        Ok(guard)
+    }
+    pub(crate) async fn copy_recovery(
+        &self,
+        reader: &RecoveryTicket,
+        start: u64,
+        limit: u32,
+    ) -> AppResult<Vec<(u64, Vec<f32>)>> {
+        if !Arc::ptr_eq(&self.inner, &reader.owner.inner) {
+            return Err(repair());
+        }
+        self.enqueue(
+            &reader.work,
+            Command::CopyRecovery {
+                token: reader.token,
+                start,
+                limit,
+            },
+            |r| match r {
+                Reply::VectorsCopied(v) => Ok(v),
+                _ => Err(error(Code::Interrupted)),
+            },
+        )?
+        .observe()
+        .await
+    }
+    pub(crate) async fn verify_recovery(&self, reader: &RecoveryTicket) -> AppResult<()> {
+        self.enqueue(
+            &reader.work,
+            Command::VerifyRecovery(reader.token),
+            |r| match r {
+                Reply::MaintenanceEnded => Ok(()),
+                _ => Err(error(Code::Interrupted)),
+            },
+        )?
+        .observe()
+        .await
+    }
+    pub(crate) async fn end_recovery(&self, reader: RecoveryTicket) -> AppResult<()> {
+        let pending = self.enqueue_admitted(
+            &reader.work,
+            Command::EndRecovery(reader.token),
+            |r| match r {
+                Reply::MaintenanceEnded => Ok(()),
+                _ => Err(error(Code::Interrupted)),
+            },
+        )?;
+        reader.active.store(false, Ordering::Release);
+        pending.observe().await
+    }
+    pub(crate) async fn remove_generation(
+        &self,
+        ticket: &WorkTicket,
+        source: seal::Generation,
+    ) -> AppResult<()> {
+        self.enqueue_admitted(ticket, Command::RemoveGeneration(source), |r| match r {
+            Reply::MaintenanceEnded => Ok(()),
+            _ => Err(error(Code::Interrupted)),
+        })?
+        .observe()
+        .await
+    }
+    pub(crate) async fn retire_recovery(
+        &self,
+        ticket: &WorkTicket,
+        fence: super::recovery::RecoveryFence,
+    ) -> AppResult<()> {
+        self.enqueue_admitted(ticket, Command::RetireRecovery(fence), |r| match r {
+            Reply::MaintenanceEnded => Ok(()),
+            _ => Err(error(Code::Interrupted)),
+        })?
+        .observe()
+        .await
+    }
     pub(crate) async fn begin_maintenance(
         &self,
         ticket: &WorkTicket,
     ) -> AppResult<MaintenanceTicket> {
-        let release_requested = Arc::new(AtomicBool::new(false));
-        let token = self
+        let mut guard = MaintenanceTicket {
+            owner: self.clone(),
+            work: ticket.clone(),
+            token: Uuid::nil(),
+            active: AtomicBool::new(true),
+            release_requested: Arc::new(AtomicBool::new(false)),
+        };
+        guard.token = self
             .enqueue(
                 ticket,
-                Command::BeginMaintenance(release_requested.clone()),
+                Command::BeginMaintenance(guard.release_requested.clone()),
                 |reply| match reply {
                     Reply::MaintenanceStarted(token) => Ok(token),
                     _ => Err(error(Code::Interrupted)),
@@ -466,13 +680,7 @@ impl IndexOwner {
             )?
             .observe()
             .await?;
-        Ok(MaintenanceTicket {
-            owner: self.clone(),
-            work: ticket.clone(),
-            token,
-            active: AtomicBool::new(true),
-            release_requested,
-        })
+        Ok(guard)
     }
 
     pub(crate) async fn copy_vectors(
@@ -545,6 +753,63 @@ impl IndexOwner {
             Command::Publish(receipt.clone()),
             |reply| match reply {
                 Reply::Published(ack) => Ok(ack),
+                _ => Err(error(Code::Interrupted)),
+            },
+        )?
+        .observe()
+        .await
+    }
+    pub(crate) async fn publish_plan(
+        &self,
+        ticket: &WorkTicket,
+        receipt: &PersistedReceipt,
+        plan: super::publication::PublicationPlan,
+    ) -> AppResult<PublicationAck> {
+        if ticket.intent.body() != receipt.intent().body() {
+            return Err(repair());
+        }
+        let body = receipt.intent().body();
+        self.ensure_transition(
+            &(body.identity.clone(), body.descriptor.generation),
+            body.operation_id,
+            body.owner_epoch,
+        )?;
+        self.enqueue(
+            ticket,
+            Command::PublishPlan(receipt.clone(), plan),
+            |reply| match reply {
+                Reply::Published(ack) => Ok(ack),
+                _ => Err(error(Code::Interrupted)),
+            },
+        )?
+        .observe()
+        .await
+    }
+    pub(crate) async fn retire(&self, ticket: &WorkTicket) -> AppResult<()> {
+        self.enqueue_admitted(ticket, Command::Retire, |reply| match reply {
+            Reply::Acknowledged => Ok(()),
+            _ => Err(error(Code::Interrupted)),
+        })?
+        .observe()
+        .await
+    }
+    #[cfg(test)]
+    pub(crate) async fn corrupt_metadata(
+        &self,
+        ticket: &WorkTicket,
+        id: u64,
+        vector: Vec<f32>,
+        metadata: String,
+    ) -> AppResult<u64> {
+        self.enqueue(
+            ticket,
+            Command::CorruptMetadata {
+                id,
+                vector,
+                metadata,
+            },
+            |reply| match reply {
+                Reply::Replaced(id) => Ok(id),
                 _ => Err(error(Code::Interrupted)),
             },
         )?
@@ -743,22 +1008,32 @@ impl IndexOwner {
         let Some(mut observation) = self.signal_stop(None) else {
             return Ok(());
         };
-        let result = tokio::time::timeout(STOP_TIMEOUT,async {
+        let result = tokio::time::timeout(STOP_TIMEOUT, async {
             loop {
-                let attempt=observation.attempts.borrow_and_update().clone();
-                if attempt.number==observation.attempt {
-                    if let Some(Err(failure))=attempt.result {
+                let attempt = observation.attempts.borrow_and_update().clone();
+                if attempt.number == observation.attempt {
+                    if let Some(Err(failure)) = attempt.result {
                         observation.stop.observed_failure(observation.attempt);
                         return Err(error(failure));
                     }
                 }
-                if let Some(done)=*observation.done.borrow_and_update(){return done.map_err(error);}
-                tokio::select! {
-                    changed=observation.done.changed()=>if changed.is_err(){return Err(error(Code::Interrupted));},
-                    changed=observation.attempts.changed()=>if changed.is_err(){return Err(error(Code::Interrupted));},
+                if let Some(done) = *observation.done.borrow_and_update() {
+                    return done.map_err(error);
                 }
+                tokio::select! {
+                                    changed=observation.done.changed()=>if changed.is_err(){
+                return Err(error(Code::Interrupted));
+                }
+                ,
+                                    changed=observation.attempts.changed()=>if changed.is_err(){
+                return Err(error(Code::Interrupted));
+                }
+                ,
+                                }
             }
-        }).await.map_err(|_|error(Code::Timeout))??;
+        })
+        .await
+        .map_err(|_| error(Code::Timeout))??;
         #[cfg(test)]
         {
             let gate = self
@@ -935,7 +1210,10 @@ fn run_owner(
     ready.send_replace(Some(Ok(())));
     for envelope in receiver {
         if envelope.cancelled.load(Ordering::Acquire)
-            && !matches!(&envelope.command, Command::EndMaintenance(_))
+            && !matches!(
+                &envelope.command,
+                Command::EndMaintenance(_) | Command::EndRecovery(_)
+            )
         {
             let _ = envelope.reply.send(Err(error(Code::Cancelled)));
             continue;
@@ -955,8 +1233,33 @@ fn run_owner(
         // Cancellation is checked only before entry. Observer loss cannot
         // discard entered synchronous work or move engine Drop to its caller.
         let result = match envelope.command {
+            Command::BeginRecovery(evidence, release) => runtime
+                .begin_recovery(&envelope.intent, evidence, release, envelope._lease.clone())
+                .map(Reply::MaintenanceStarted),
+            Command::CopyRecovery {
+                token,
+                start,
+                limit,
+            } => runtime
+                .copy_recovery(&envelope.intent, token, start, limit)
+                .map(Reply::VectorsCopied),
+            Command::VerifyRecovery(token) => runtime
+                .verify_recovery(&envelope.intent, token)
+                .map(|()| Reply::MaintenanceEnded),
+            Command::EndRecovery(token) => runtime
+                .end_recovery(token)
+                .map(|()| Reply::MaintenanceEnded),
+            Command::RemoveGeneration(source) => runtime
+                .remove_generation(&envelope.intent, &source)
+                .map(|()| Reply::MaintenanceEnded),
+            Command::RetireRecovery(fence) => runtime
+                .retire_recovery(&envelope.intent, &fence)
+                .map(|()| Reply::MaintenanceEnded),
             Command::Open => runtime.open(&envelope.intent).map(Reply::Opened),
             Command::Add(rows) => runtime.add(&envelope.intent, rows).map(Reply::Added),
+            Command::ScanRecords { start, limit } => runtime
+                .scan_records(&envelope.intent, start, limit)
+                .map(Reply::Records),
             Command::Scan { start, limit } => runtime
                 .scan(&envelope.intent, start, limit)
                 .map(Reply::Scanned),
@@ -972,7 +1275,7 @@ fn run_owner(
                 .search(&envelope.intent, vector, limit)
                 .map(Reply::Searched),
             Command::BeginMaintenance(release_requested) => runtime
-                .begin_maintenance(&envelope.intent, release_requested)
+                .begin_maintenance(&envelope.intent, release_requested, envelope._lease.clone())
                 .map(Reply::MaintenanceStarted),
             Command::CopyVectors {
                 token,
@@ -986,6 +1289,23 @@ fn run_owner(
                 .map(|()| Reply::MaintenanceEnded),
             Command::Persist => runtime.persist(&envelope.intent).map(Reply::Persisted),
             Command::Publish(receipt) => runtime.publish(&receipt).map(Reply::Published),
+            Command::PublishPlan(receipt, plan) => {
+                runtime.publish_plan(&receipt, &plan).map(Reply::Published)
+            }
+            Command::Retire => runtime
+                .retire(&envelope.intent)
+                .map(|()| Reply::Acknowledged),
+            Command::Candidates { vector, limit } => runtime
+                .candidates(&envelope.intent, vector, limit)
+                .map(Reply::Candidates),
+            #[cfg(test)]
+            Command::CorruptMetadata {
+                id,
+                vector,
+                metadata,
+            } => runtime
+                .corrupt_metadata(&envelope.intent, id, vector, metadata)
+                .map(Reply::Replaced),
             Command::Acknowledge(ack) => runtime.acknowledge(&ack).map(|()| Reply::Acknowledged),
         };
         let _ = envelope.reply.send(result);
@@ -999,7 +1319,8 @@ fn run_owner(
             break result;
         }
     };
-    drop(runtime); // Engines, pool termination and both Rayon joins precede exit.
+    drop(runtime);
+    // Engines, pool termination and both Rayon joins precede exit.
     outcome
 }
 /// Exactly one payload can join this owner, including on runtime teardown.

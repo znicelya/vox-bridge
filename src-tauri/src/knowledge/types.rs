@@ -68,3 +68,35 @@ pub struct DocumentDetail {
     pub legacy_uri: Option<String>,
     pub index_identity: Option<String>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct KnowledgeSearch {
+    pub query: String,
+    #[serde(default)]
+    pub selected_segment_ids: Vec<uuid::Uuid>,
+    pub session_id: Option<uuid::Uuid>,
+    #[serde(default = "search_limit")]
+    pub limit: u32,
+}
+fn search_limit() -> u32 {
+    5
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct KnowledgeHit {
+    pub document_id: uuid::Uuid,
+    pub document_version: u32,
+    pub chunk_id: uuid::Uuid,
+    pub title: String,
+    pub location: TextLocation,
+    pub text: String,
+    pub score: f32,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct KnowledgeResults {
+    pub hits: Vec<KnowledgeHit>,
+    pub identity: Option<String>,
+    pub unavailable_documents: u32,
+}

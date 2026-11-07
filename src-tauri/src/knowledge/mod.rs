@@ -1,4 +1,5 @@
 mod chunking;
+pub(crate) mod embedding;
 pub mod identity;
 pub(crate) mod index;
 pub mod parser;
@@ -23,4 +24,13 @@ pub(crate) mod copying;
 #[cfg(test)]
 mod document_tests;
 pub mod documents;
+#[cfg(test)]
+mod index_tests;
+pub(crate) mod service;
 mod store;
+
+mod reconcile;
+mod search;
+
+#[cfg(test)]
+mod embedding_tests;

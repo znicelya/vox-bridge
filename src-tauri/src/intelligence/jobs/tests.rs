@@ -1,5 +1,6 @@
 use super::*;
 mod child_operations;
+mod continuations;
 mod documents;
 use crate::intelligence::test_support::*;
 use std::{
@@ -19,7 +20,13 @@ impl JobHandler for Handler {
         _: serde_json::Value,
     ) -> Result<(), IntelligenceErrorCode> {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        tokio::select! {_=super::super::http::cancelled(&mut context.cancel)=>Err(IntelligenceErrorCode::Cancelled),_=self.release.notified()=>if self.fail{Err(IntelligenceErrorCode::InvalidResponse)}else{Ok(())}}
+        tokio::select! {
+        _=super::super::http::cancelled(&mut context.cancel)=>Err(IntelligenceErrorCode::Cancelled),
+        _=self.release.notified()=>if self.fail{
+        Err(IntelligenceErrorCode::InvalidResponse)}
+        else{
+        Ok(())}
+        }
     }
 }
 fn handler() -> Arc<Handler> {
@@ -266,7 +273,9 @@ async fn intelligence_jobs_snapshot_admission_retains_public_identity() {
                 exclusion_key: format!("document:{id}"),
             },
             vec![p.id],
-            serde_json::json!({"document_id":id}),
+            serde_json::json!({
+            "document_id":id}
+            ),
         )
         .await
         .unwrap();
@@ -341,5 +350,27 @@ async fn intelligence_jobs_actual_config_snapshot_and_shutdown_share_one_order()
     assert_eq!(
         h.store.get_job(admitted.view().id).unwrap().unwrap().status,
         JobStatus::Cancelled
+    );
+}
+
+#[tokio::test]
+async fn handler_fixture_replacement_is_only_available_before_first_start() {
+    let h = IntelligenceHarness::new();
+    assert!(
+        super::test_support::replace_pre_start_handler(&h.jobs, JobKind::Import, handler())
+            .is_err()
+    );
+    h.jobs.register(JobKind::Import, handler()).unwrap();
+    super::test_support::replace_pre_start_handler(&h.jobs, JobKind::Import, handler()).unwrap();
+    assert!(h.jobs.register(JobKind::Import, handler()).is_err());
+    h.jobs.start().unwrap();
+    assert!(
+        super::test_support::replace_pre_start_handler(&h.jobs, JobKind::Import, handler())
+            .is_err()
+    );
+    h.jobs.shutdown().await.unwrap();
+    assert!(
+        super::test_support::replace_pre_start_handler(&h.jobs, JobKind::Import, handler())
+            .is_err()
     );
 }

@@ -13,11 +13,11 @@ use uuid::Uuid;
 pub(crate) struct ChunkMetadata {
     schema_version: u32,
     #[serde(deserialize_with = "canonical_uuid")]
-    document_id: Uuid,
-    document_version: u32,
+    pub(crate) document_id: Uuid,
+    pub(crate) document_version: u32,
     #[serde(deserialize_with = "canonical_uuid")]
-    chunk_id: Uuid,
-    content_hash: String,
+    pub(crate) chunk_id: Uuid,
+    pub(crate) content_hash: String,
     location: LocationReference,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -82,6 +82,9 @@ impl ChunkMetadata {
             && self.location.end_char == location.end_char
             && self.location.sha256 == location_digest(location)?)
     }
+    pub(crate) fn location_sha256(&self) -> &str {
+        &self.location.sha256
+    }
     fn validate(&self) -> AppResult<()> {
         if self.schema_version != 2
             || self.document_version == 0
@@ -110,7 +113,9 @@ fn required_nullable<'de, D: serde::Deserializer<'de>>(
 ) -> Result<Option<u32>, D::Error> {
     Option::deserialize(deserializer)
 }
-fn canonical_uuid<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Uuid, D::Error> {
+pub(super) fn canonical_uuid<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Uuid, D::Error> {
     let raw = String::deserialize(deserializer)?;
     let id = Uuid::parse_str(&raw).map_err(|_| serde::de::Error::custom("invalid UUID"))?;
     if id.to_string() != raw {
@@ -118,7 +123,7 @@ fn canonical_uuid<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<U
     }
     Ok(id)
 }
-fn location_digest(location: &TextLocation) -> AppResult<String> {
+pub(crate) fn location_digest(location: &TextLocation) -> AppResult<String> {
     struct HashWriter(Sha256);
     impl Write for HashWriter {
         fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {

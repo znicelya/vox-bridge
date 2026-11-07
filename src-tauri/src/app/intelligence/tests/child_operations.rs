@@ -53,9 +53,8 @@ impl JobHandler for EnteredConfig {
             assert!(observer.await.unwrap_err().is_cancelled());
         } else {
             let result = observer.await.unwrap();
-            assert!(
-                matches!(result, Err(AppError::Configuration(message)) if message.contains("timed out"))
-            );
+            assert!(matches!(result,
+ Err(AppError::Configuration(message)) if message.contains("timed out")));
         }
         self.observed.notify_one();
         Err(IntelligenceErrorCode::Configuration)
@@ -87,9 +86,12 @@ async fn entered(
         observed: Notify::new(),
         completed: Arc::new(AtomicBool::new(false)),
     });
-    app.jobs
-        .register(JobKind::Reindex, handler.clone())
-        .unwrap();
+    crate::intelligence::jobs::test_support::replace_pre_start_handler(
+        &app.jobs,
+        JobKind::Reindex,
+        handler.clone(),
+    )
+    .unwrap();
     app.start_intelligence().await.unwrap();
     let id = Uuid::new_v4();
     let job = app

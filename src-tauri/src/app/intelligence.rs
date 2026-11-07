@@ -27,6 +27,19 @@ impl AppState {
             let _ = self.shutdown_index_after_startup_failure().await;
             return Err(failure);
         }
+        let local = match self
+            .knowledge
+            .reopen_searches()
+            .and_then(|()| self.intelligence_lease())
+        {
+            Ok(lease) => self.knowledge.reconcile_owned(lease).await,
+            Err(failure) => Err(failure),
+        };
+        if let Err(failure) = local {
+            let _ = self.knowledge.shutdown_searches().await;
+            let _ = self.shutdown_index_after_startup_failure().await;
+            return Err(failure);
+        }
         let jobs = self.with_open_epoch(|| self.jobs.start_owned(self._process_lock.clone()));
         if jobs.is_err() {
             let _ = self.shutdown_index_after_startup_failure().await;
@@ -64,6 +77,24 @@ impl AppState {
         ManagedDataLocation {
             data_dir: self.data_dir().to_path_buf(),
         }
+    }
+    pub async fn search_knowledge(
+        &self,
+        request: crate::knowledge::types::KnowledgeSearch,
+    ) -> AppResult<crate::knowledge::types::KnowledgeResults> {
+        self.knowledge
+            .search_owned(request, self.intelligence_lease()?)
+            .await
+    }
+    pub async fn reindex_document(&self, id: Uuid) -> AppResult<JobView> {
+        self.knowledge
+            .reindex_owned(id, self.intelligence_lease()?)
+            .await
+    }
+    pub async fn delete_document(&self, id: Uuid) -> AppResult<JobView> {
+        self.knowledge
+            .delete_owned(id, self.intelligence_lease()?)
+            .await
     }
     pub async fn list_model_profiles(&self) -> AppResult<Vec<ModelProfileView>> {
         self.service_config

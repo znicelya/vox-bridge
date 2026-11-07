@@ -19,6 +19,18 @@ use tokio::sync::{Semaphore, oneshot, watch};
 use uuid::Uuid;
 mod admission;
 mod handler;
+pub(crate) async fn cleanup_managed(
+    store: Arc<LocalStore>,
+    data_dir: PathBuf,
+    owner: OperationLease,
+) -> AppResult<()> {
+    tokio::task::spawn_blocking(move || {
+        let _owner = owner;
+        handler::cleanup_rows(&store, &data_dir, None, false)
+    })
+    .await
+    .map_err(|_| error(Code::Interrupted))?
+}
 #[derive(Clone)]
 pub struct DocumentService {
     store: Arc<LocalStore>,
@@ -134,11 +146,16 @@ impl DocumentService {
                 copier.copy(request)
             });
             let mut observer_cancel = cancelled.clone();
-            let copied=tokio::select! {biased;
-                _=crate::intelligence::http::cancelled(&mut stop)=>{cancel.send_replace(true);work.await},
+            let copied=tokio::select! {
+biased;
+                _=crate::intelligence::http::cancelled(&mut stop)=>{
+cancel.send_replace(true);
+work.await}
+,
                 _=crate::intelligence::http::cancelled(&mut observer_cancel)=>work.await,
                 value=&mut work=>value,
-            }.map_err(|_|error(Code::Interrupted)).and_then(|value|value);
+            }
+.map_err(|_|error(Code::Interrupted)).and_then(|value|value);
             let candidate_owned = copied.is_ok();
             let admitted = match copied {
                 Ok(copy) if !*cancelled.borrow() && !*stop.borrow() => admission::admit(
@@ -160,7 +177,21 @@ impl DocumentService {
                 }
                 other => {
                     let cleaned = if candidate_owned {
-                        owner.store.transaction(|tx|{tx.execute("UPDATE knowledge_managed_files SET state='delete_pending' WHERE file_id=?1 AND state='copying'",[file_id.to_string()])?;Ok(())}).map_err(safe).and_then(|_|copying::cleanup_candidate(&owner.store,&owner.data_dir,file_id))
+                        owner
+                            .store
+                            .transaction(|tx| {
+                                tx.execute(
+                                    "UPDATE knowledge_managed_files SET \
+                    state='delete_pending' WHERE file_id=?1 AND \
+                    state='copying'",
+                                    [file_id.to_string()],
+                                )?;
+                                Ok(())
+                            })
+                            .map_err(safe)
+                            .and_then(|_| {
+                                copying::cleanup_candidate(&owner.store, &owner.data_dir, file_id)
+                            })
                     } else {
                         Ok(())
                     };

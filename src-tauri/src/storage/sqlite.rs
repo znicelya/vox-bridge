@@ -33,7 +33,10 @@ impl LocalStore {
             ));
         }
         self.connection.lock().unwrap().execute_batch(&format!(
-            "CREATE TRIGGER fail_{status} BEFORE UPDATE ON session_lifecycle WHEN NEW.status = '{status}' BEGIN SELECT RAISE(ABORT, 'injected lifecycle failure'); END;"
+            "CREATE TRIGGER fail_{status} BEFORE UPDATE \
+                    ON session_lifecycle WHEN NEW.status = \
+                    '{status}' BEGIN SELECT RAISE(ABORT, \
+                    'injected lifecycle failure'); END;"
         ))?;
         Ok(())
     }
@@ -52,6 +55,7 @@ impl LocalStore {
             include_str!("../../migrations/0002_runtime.sql"),
             include_str!("../../migrations/0003_intelligence.sql"),
             include_str!("../../migrations/0004_knowledge.sql"),
+            include_str!("../../migrations/0005_knowledge_index.sql"),
         ];
         if version > MIGRATIONS.len() as i64 {
             return Err(AppError::InvalidRequest(
@@ -90,7 +94,9 @@ impl LocalStore {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction()?;
         tx.execute(
-            "INSERT INTO sessions (id,started_at,mode,direction,source_language,target_language) VALUES (?1,?2,?3,?4,?5,?6)",
+            "INSERT INTO sessions (id,started_at,mode,\
+                    direction,source_language,target_language) \
+                    VALUES (?1,?2,?3,?4,?5,?6)",
             params![
                 s.id.to_string(),
                 s.started_at,
@@ -101,7 +107,8 @@ impl LocalStore {
             ],
         )?;
         tx.execute(
-            "INSERT INTO session_lifecycle (session_id,status,ended_at) VALUES (?1,'created',NULL)",
+            "INSERT INTO session_lifecycle (session_id,\
+                    status,ended_at) VALUES (?1,'created',NULL)",
             params![s.id.to_string()],
         )?;
         tx.commit()?;
@@ -118,12 +125,26 @@ impl LocalStore {
         let mut connection = self.connection.lock().unwrap();
         let tx = connection.transaction()?;
         tx.execute(
-            "INSERT INTO sessions (id,started_at,mode,direction,source_language,target_language) VALUES (?1,?2,?3,?4,?5,?6)",
-            params![session.id.to_string(), session.started_at, session.mode, session.direction, session.source_language, session.target_language],
+            "INSERT INTO sessions (id,started_at,mode,\
+                    direction,source_language,target_language) \
+                    VALUES (?1,?2,?3,?4,?5,?6)",
+            params![
+                session.id.to_string(),
+                session.started_at,
+                session.mode,
+                session.direction,
+                session.source_language,
+                session.target_language
+            ],
         )?;
-        tx.execute("INSERT INTO session_lifecycle (session_id,status,ended_at) VALUES (?1,'starting',NULL)", params![session.id.to_string()])?;
         tx.execute(
-            "INSERT INTO session_runtime_context (session_id,context_json) VALUES (?1,?2)",
+            "INSERT INTO session_lifecycle (session_id,\
+                    status,ended_at) VALUES (?1,'starting',NULL)",
+            params![session.id.to_string()],
+        )?;
+        tx.execute(
+            "INSERT INTO session_runtime_context \
+                    (session_id,context_json) VALUES (?1,?2)",
             params![session.id.to_string(), context_json],
         )?;
         tx.commit()?;
@@ -158,7 +179,12 @@ impl LocalStore {
         let mut connection = self.connection.lock().unwrap();
         let tx = connection.transaction()?;
         let ids = {
-            let mut query = tx.prepare("SELECT session_id FROM session_lifecycle WHERE status IN ('created','starting','running','stopping','paused') ORDER BY session_id")?;
+            let mut query = tx.prepare(
+                "SELECT session_id FROM session_lifecycle \
+                    WHERE status IN ('created','starting',\
+                    'running','stopping','paused') ORDER BY \
+                    session_id",
+            )?;
             let rows = query.query_map([], |row| row.get::<_, String>(0))?;
             rows.map(|row| {
                 Uuid::parse_str(&row?)
@@ -168,7 +194,8 @@ impl LocalStore {
         };
         for id in &ids {
             tx.execute(
-                "UPDATE session_lifecycle SET status='failed',ended_at=?2 WHERE session_id=?1",
+                "UPDATE session_lifecycle SET status='failed',\
+                    ended_at=?2 WHERE session_id=?1",
                 params![id.to_string(), ended_at],
             )?;
             let diagnostic = RuntimeDiagnostic {
@@ -183,7 +210,17 @@ impl LocalStore {
                     log_id: None,
                 },
             };
-            tx.execute("INSERT INTO session_diagnostics (id,session_id,occurred_at_ms,payload_json) VALUES (?1,?2,?3,?4)", params![diagnostic.id.to_string(), id.to_string(), occurred_at_ms, json(&diagnostic)?])?;
+            tx.execute(
+                "INSERT INTO session_diagnostics (id,\
+                    session_id,occurred_at_ms,payload_json) \
+                    VALUES (?1,?2,?3,?4)",
+                params![
+                    diagnostic.id.to_string(),
+                    id.to_string(),
+                    occurred_at_ms,
+                    json(&diagnostic)?
+                ],
+            )?;
         }
         tx.commit()?;
         Ok(ids)
@@ -210,7 +247,8 @@ impl LocalStore {
     pub fn get_session_lifecycle(&self, id: Uuid) -> AppResult<Option<StoredSessionLifecycle>> {
         let c = self.connection.lock().unwrap();
         Ok(c.query_row(
-            "SELECT session_id,status,ended_at FROM session_lifecycle WHERE session_id=?1",
+            "SELECT session_id,status,ended_at FROM \
+                    session_lifecycle WHERE session_id=?1",
             params![id.to_string()],
             |r| {
                 Ok(StoredSessionLifecycle {
@@ -231,7 +269,10 @@ impl LocalStore {
         }
         let c = self.connection.lock().unwrap();
         c.execute(
-            "INSERT INTO translation_segments (id,session_id,direction,sequence,occurred_at,language,text,is_final) VALUES (?1,?2,?3,?4,?5,?6,?7,1)",
+            "INSERT INTO translation_segments (id,\
+                    session_id,direction,sequence,occurred_at,\
+                    language,text,is_final) VALUES (?1,?2,?3,?4,\
+                    ?5,?6,?7,1)",
             params![
                 s.id.to_string(),
                 s.session_id.to_string(),
@@ -255,8 +296,22 @@ impl LocalStore {
         let sequence = i64::try_from(update.sequence)
             .map_err(|_| crate::domain::transcript::invalid_transcript())?;
         self.connection.lock().unwrap().execute(
-            "INSERT INTO translation_segments (id,session_id,direction,sequence,occurred_at,language,text,is_final,details_json,occurred_at_ms) VALUES (?1,?2,?3,?4,?5,?6,?7,1,?8,?9)",
-            params![update.id.to_string(), update.session_id.to_string(), direction_name(update.direction), sequence, update.occurred_at_ms.div_euclid(1000), update.language, update.text, details, update.occurred_at_ms],
+            "INSERT INTO translation_segments (id,\
+                    session_id,direction,sequence,occurred_at,\
+                    language,text,is_final,details_json,\
+                    occurred_at_ms) VALUES (?1,?2,?3,?4,?5,?6,?7,\
+                    1,?8,?9)",
+            params![
+                update.id.to_string(),
+                update.session_id.to_string(),
+                direction_name(update.direction),
+                sequence,
+                update.occurred_at_ms.div_euclid(1000),
+                update.language,
+                update.text,
+                details,
+                update.occurred_at_ms
+            ],
         )?;
         Ok(())
     }
@@ -268,7 +323,13 @@ impl LocalStore {
     ) -> AppResult<TranscriptPage> {
         validate_page(after, limit)?;
         let c = self.connection.lock().unwrap();
-        let mut query = c.prepare("SELECT rowid,id,session_id,direction,sequence,occurred_at,language,text,is_final,details_json,occurred_at_ms FROM translation_segments WHERE session_id=?1 AND rowid>?2 ORDER BY rowid LIMIT ?3")?;
+        let mut query = c.prepare(
+            "SELECT rowid,id,session_id,direction,\
+                    sequence,occurred_at,language,text,is_final,\
+                    details_json,occurred_at_ms FROM \
+                    translation_segments WHERE session_id=?1 AND \
+                    rowid>?2 ORDER BY rowid LIMIT ?3",
+        )?;
         let mut rows = query.query(params![
             session_id.to_string(),
             after.unwrap_or(0),
@@ -313,7 +374,9 @@ impl LocalStore {
             return Err(crate::domain::transcript::invalid_transcript());
         }
         let max: Option<i64> = self.connection.lock().unwrap().query_row(
-            "SELECT MAX(sequence) FROM translation_segments WHERE session_id=?1 AND direction=?2",
+            "SELECT MAX(sequence) FROM \
+                    translation_segments WHERE session_id=?1 AND \
+                    direction=?2",
             params![session_id.to_string(), direction_name(direction)],
             |r| r.get(0),
         )?;
@@ -327,7 +390,17 @@ impl LocalStore {
     }
     pub fn append_diagnostic(&self, diagnostic: &RuntimeDiagnostic) -> AppResult<()> {
         diagnostic.validate()?;
-        self.connection.lock().unwrap().execute("INSERT INTO session_diagnostics (id,session_id,occurred_at_ms,payload_json) VALUES (?1,?2,?3,?4)", params![diagnostic.id.to_string(), diagnostic.session_id.to_string(), diagnostic.occurred_at_ms, json(diagnostic)?])?;
+        self.connection.lock().unwrap().execute(
+            "INSERT INTO session_diagnostics (id,\
+                    session_id,occurred_at_ms,payload_json) \
+                    VALUES (?1,?2,?3,?4)",
+            params![
+                diagnostic.id.to_string(),
+                diagnostic.session_id.to_string(),
+                diagnostic.occurred_at_ms,
+                json(diagnostic)?
+            ],
+        )?;
         Ok(())
     }
     pub fn diagnostic_page(
@@ -338,7 +411,11 @@ impl LocalStore {
     ) -> AppResult<DiagnosticPage> {
         validate_page(after, limit)?;
         let c = self.connection.lock().unwrap();
-        let mut query = c.prepare("SELECT rowid,payload_json FROM session_diagnostics WHERE session_id=?1 AND rowid>?2 ORDER BY rowid LIMIT ?3")?;
+        let mut query = c.prepare(
+            "SELECT rowid,payload_json FROM \
+                    session_diagnostics WHERE session_id=?1 AND \
+                    rowid>?2 ORDER BY rowid LIMIT ?3",
+        )?;
         let mut found = query
             .query_map(
                 params![session_id.to_string(), after.unwrap_or(0), limit + 1],
@@ -359,7 +436,13 @@ impl LocalStore {
         let p = cursor.map(|v| parse_cursor(&v)).transpose()?;
         let (st, id) = p.map_or((None, None), |(s, i)| (Some(s), Some(i)));
         let c = self.connection.lock().unwrap();
-        let mut q=c.prepare("SELECT id,started_at,mode,direction,source_language,target_language FROM sessions WHERE (?1 IS NULL OR started_at < ?1 OR (started_at = ?1 AND id < ?2)) ORDER BY started_at DESC,id DESC LIMIT ?3")?;
+        let mut q = c.prepare(
+            "SELECT id,started_at,mode,direction,\
+                    source_language,target_language FROM \
+                    sessions WHERE (?1 IS NULL OR started_at < \
+                    ?1 OR (started_at = ?1 AND id < ?2)) ORDER \
+                    BY started_at DESC,id DESC LIMIT ?3",
+        )?;
         let rows = q.query_map(params![st, id, limit], |r| {
             Ok(SessionSummary {
                 id: Uuid::parse_str(&r.get::<_, String>(0)?).unwrap(),
@@ -382,7 +465,9 @@ impl LocalStore {
     pub fn get_session(&self, id: Uuid) -> AppResult<Option<StoredSession>> {
         let c = self.connection.lock().unwrap();
         Ok(c.query_row(
-            "SELECT id,started_at,mode,direction,source_language,target_language FROM sessions WHERE id=?1",
+            "SELECT id,started_at,mode,direction,\
+                    source_language,target_language FROM \
+                    sessions WHERE id=?1",
             params![id.to_string()],
             |r| {
                 Ok(StoredSession {
@@ -417,7 +502,9 @@ impl LocalStore {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction()?;
         tx.execute(
-            "INSERT INTO session_summaries (id,session_id,version,created_at,status,structured_json) VALUES (?1,?2,?3,?4,?5,?6)",
+            "INSERT INTO session_summaries (id,session_id,\
+                    version,created_at,status,structured_json) \
+                    VALUES (?1,?2,?3,?4,?5,?6)",
             params![
                 s.id.to_string(),
                 s.session_id.to_string(),
@@ -432,8 +519,12 @@ impl LocalStore {
     }
     pub fn list_summary_versions(&self, id: Uuid) -> AppResult<Vec<SummaryVersion>> {
         let c = self.connection.lock().unwrap();
-        let mut q =
-            c.prepare("SELECT id,session_id,version,created_at,status,structured_json FROM session_summaries WHERE session_id=?1 ORDER BY version")?;
+        let mut q = c.prepare(
+            "SELECT id,session_id,version,created_at,\
+                    status,structured_json FROM \
+                    session_summaries WHERE session_id=?1 ORDER \
+                    BY version",
+        )?;
         let rows = q.query_map(params![id.to_string()], |r| {
             Ok(SummaryVersion {
                 id: Uuid::parse_str(&r.get::<_, String>(0)?).unwrap(),
@@ -456,15 +547,22 @@ impl LocalStore {
         })?;
         let c = self.connection.lock().unwrap();
         let mut q = c.prepare(
-            "SELECT id,session_id,direction,sequence,occurred_at,language,text,is_final,details_json,occurred_at_ms
-             FROM translation_segments WHERE session_id=?1 AND is_final=1
-             ORDER BY COALESCE(occurred_at_ms, occurred_at * 1000), sequence, id",
+            "SELECT id,session_id,direction,sequence,\
+                    occurred_at,language,text,is_final,\
+                    details_json,occurred_at_ms
+             \
+                    FROM translation_segments WHERE \
+                    session_id=?1 AND is_final=1
+             \
+                    ORDER BY COALESCE(occurred_at_ms, \
+                    occurred_at * 1000), sequence, id",
         )?;
         let rows = q.query_map(params![id.to_string()], read_segment)?;
         let segments = rows.collect::<Result<Vec<_>, _>>()?;
         drop(q);
         let mut q = c.prepare(
-            "SELECT payload_json FROM session_diagnostics WHERE session_id=?1 ORDER BY rowid",
+            "SELECT payload_json FROM session_diagnostics \
+                    WHERE session_id=?1 ORDER BY rowid",
         )?;
         let diagnostics = q
             .query_map([id.to_string()], |r| read_json(r, 0))?

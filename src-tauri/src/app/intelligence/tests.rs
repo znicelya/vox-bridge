@@ -1,5 +1,6 @@
 use super::*;
 mod child_operations;
+mod knowledge;
 use crate::intelligence::{
     jobs::{JobContext, JobHandler},
     test_support::payload,
@@ -50,15 +51,15 @@ async fn intelligence_app_close_keeps_index_owned_until_job_cleanup_finishes() {
     let app = AppState::new(dir.path().to_path_buf()).unwrap();
     let entered = Arc::new(tokio::sync::Notify::new());
     let release = Arc::new(tokio::sync::Notify::new());
-    app.jobs
-        .register(
-            JobKind::Reindex,
-            Arc::new(BlockCleanup {
-                entered: entered.clone(),
-                release: release.clone(),
-            }),
-        )
-        .unwrap();
+    crate::intelligence::jobs::test_support::replace_pre_start_handler(
+        &app.jobs,
+        JobKind::Reindex,
+        Arc::new(BlockCleanup {
+            entered: entered.clone(),
+            release: release.clone(),
+        }),
+    )
+    .unwrap();
     app.start_intelligence().await.unwrap();
     assert!(app.is_index_running_for_test());
     let close = {
@@ -83,15 +84,15 @@ async fn intelligence_app_close_timeout_keeps_index_for_retry_until_jobs_drain()
     let app = AppState::new(dir.path().to_path_buf()).unwrap();
     let entered = Arc::new(tokio::sync::Notify::new());
     let release = Arc::new(tokio::sync::Notify::new());
-    app.jobs
-        .register(
-            JobKind::Reindex,
-            Arc::new(BlockCleanup {
-                entered: entered.clone(),
-                release: release.clone(),
-            }),
-        )
-        .unwrap();
+    crate::intelligence::jobs::test_support::replace_pre_start_handler(
+        &app.jobs,
+        JobKind::Reindex,
+        Arc::new(BlockCleanup {
+            entered: entered.clone(),
+            release: release.clone(),
+        }),
+    )
+    .unwrap();
     app.close_state.lock().unwrap().observation_timeout = Some(Duration::from_millis(30));
     app.start_intelligence().await.unwrap();
     let first_close = tokio::time::timeout(Duration::from_secs(1), app.close_all())
@@ -237,7 +238,12 @@ fn intelligence_app_inert_construction_projects_empty_library_directory_and_reco
 async fn intelligence_app_close_cancels_jobs_and_restarts_only_on_explicit_host_start() {
     let dir = tempfile::tempdir().unwrap();
     let app = AppState::new(dir.path().to_path_buf()).unwrap();
-    app.jobs.register(JobKind::Reindex, Arc::new(Wait)).unwrap();
+    crate::intelligence::jobs::test_support::replace_pre_start_handler(
+        &app.jobs,
+        JobKind::Reindex,
+        Arc::new(Wait),
+    )
+    .unwrap();
     app.start_intelligence().await.unwrap();
     let id = Uuid::new_v4();
     let job = app
@@ -359,7 +365,12 @@ async fn intelligence_app_entered_clear_retains_process_and_close_barrier_after_
 async fn intelligence_app_dropping_external_handles_releases_process_after_worker_cleanup() {
     let dir = tempfile::tempdir().unwrap();
     let app = AppState::new(dir.path().to_path_buf()).unwrap();
-    app.jobs.register(JobKind::Reindex, Arc::new(Wait)).unwrap();
+    crate::intelligence::jobs::test_support::replace_pre_start_handler(
+        &app.jobs,
+        JobKind::Reindex,
+        Arc::new(Wait),
+    )
+    .unwrap();
     app.start_intelligence().await.unwrap();
     let id = Uuid::new_v4();
     app.jobs

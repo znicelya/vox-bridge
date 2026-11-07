@@ -68,34 +68,51 @@ impl ServiceConfigStore {
         dimensions: Option<u32>,
     ) -> AppResult<()> {
         let store = self.store.clone();
-        self.io.run(move |tx| {
-            let mut doc = read(tx)?;
-            let Some(saved) = doc.profiles.iter_mut().find(|p| p.profile.id == profile.id) else {
-                return Ok(());
-            };
-            if saved.revision != revision || saved.profile != profile { return Ok(()); }
-            if let Some(dim) = dimensions {
-                if profile.kind != ServiceKind::Embedding
-                    || !(128..=4096).contains(&dim)
-                    || profile.dimensions.is_some_and(|old| old != dim)
-                { return Err(configuration()); }
-                if profile.dimensions.is_none()
-                    && !store.transaction(|db| profile_in_use(db, profile.id))?
-                {
-                    saved.profile.dimensions = Some(dim);
-                    saved.revision = Uuid::new_v4();
-                    write(tx, &doc)?;
+        self.io
+            .run(move |tx| {
+                let mut doc = read(tx)?;
+                let Some(saved) = doc.profiles.iter_mut().find(|p| p.profile.id == profile.id)
+                else {
+                    return Ok(());
+                };
+                if saved.revision != revision || saved.profile != profile {
+                    return Ok(());
                 }
-            }
-            store.transaction(|db| {
-                let encoded = serde_json::to_string(&result).map_err(|_| configuration())?;
-                db.execute(
-                    "INSERT OR REPLACE INTO service_probes(profile_id,checked_at_ms,result_json) VALUES(?1,?2,?3)",
-                    rusqlite::params![profile.id.to_string(), result.checked_at_ms, encoded],
-                )?;
-                Ok(())
-            }).map_err(super::store::safe_store_error)
-        }).await.map_err(safe_config_error)
+                if let Some(dim) = dimensions {
+                    if profile.kind != ServiceKind::Embedding
+                        || !(128..=4096).contains(&dim)
+                        || profile.dimensions.is_some_and(|old| old != dim)
+                    {
+                        return Err(configuration());
+                    }
+                    if profile.dimensions.is_none()
+                        && !store.transaction(|db| profile_in_use(db, profile.id))?
+                    {
+                        saved.profile.dimensions = Some(dim);
+                        saved.revision = Uuid::new_v4();
+                        write(tx, &doc)?;
+                    }
+                }
+                store
+                    .transaction(|db| {
+                        let encoded =
+                            serde_json::to_string(&result).map_err(|_| configuration())?;
+                        db.execute(
+                            "INSERT OR REPLACE INTO \
+                    service_probes(profile_id,checked_at_ms,\
+                    result_json) VALUES(?1,?2,?3)",
+                            rusqlite::params![
+                                profile.id.to_string(),
+                                result.checked_at_ms,
+                                encoded
+                            ],
+                        )?;
+                        Ok(())
+                    })
+                    .map_err(super::store::safe_store_error)
+            })
+            .await
+            .map_err(safe_config_error)
     }
     pub(crate) fn new(io: ConfigIo, store: Arc<LocalStore>) -> Self {
         let path = io.data_dir().join("service-configs.json");
@@ -248,6 +265,59 @@ impl ServiceConfigStore {
             .await
             .map_err(safe_config_error)
     }
+    pub(crate) async fn selected_embedding_snapshot(&self) -> AppResult<Option<ModelProfile>> {
+        self.io
+            .run(move |tx| {
+                let doc = read(tx)?;
+                doc.settings
+                    .embedding_profile_id
+                    .map(|id| {
+                        doc.profiles
+                            .iter()
+                            .find(|p| {
+                                p.profile.id == id && p.profile.kind == ServiceKind::Embedding
+                            })
+                            .map(|p| p.profile.clone())
+                            .ok_or_else(configuration)
+                    })
+                    .transpose()
+            })
+            .await
+            .map_err(safe_config_error)
+    }
+    pub(crate) async fn with_selected_embedding_completion<T: Send + 'static>(
+        &self,
+        operation: impl FnOnce(&rusqlite::Transaction<'_>, Option<ModelProfile>) -> AppResult<T>
+        + Send
+        + 'static,
+        completed: impl FnOnce(&T) + Send + 'static,
+    ) -> AppResult<T> {
+        let store = self.store.clone();
+        self.io
+            .run(move |tx| {
+                let doc = read(tx)?;
+                let profile = doc
+                    .settings
+                    .embedding_profile_id
+                    .map(|id| {
+                        doc.profiles
+                            .iter()
+                            .find(|p| {
+                                p.profile.id == id && p.profile.kind == ServiceKind::Embedding
+                            })
+                            .map(|p| p.profile.clone())
+                            .ok_or_else(configuration)
+                    })
+                    .transpose()?;
+                let result = store
+                    .transaction(|db| operation(db, profile))
+                    .map_err(super::store::safe_store_error)?;
+                completed(&result);
+                Ok(result)
+            })
+            .await
+            .map_err(safe_config_error)
+    }
     pub async fn save_settings(
         &self,
         value: IntelligenceSettings,
@@ -290,13 +360,6 @@ impl ServiceConfigStore {
             .await
             .map_err(safe_config_error)
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Reserved for Task 5 immutable model credential execution"
-        )
-    )]
     pub(crate) async fn resolve_snapshot_credentials(
         &self,
         expected: ModelProfile,

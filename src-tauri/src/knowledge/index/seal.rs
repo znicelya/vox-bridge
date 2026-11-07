@@ -21,7 +21,7 @@ pub(crate) struct Generation {
     pub generation: Uuid,
 }
 impl Generation {
-    pub(super) fn key(&self) -> AppResult<String> {
+    pub(crate) fn key(&self) -> AppResult<String> {
         if self
             .requested_dimension
             .is_some_and(|d| d != self.identity.dimensions)
@@ -94,16 +94,16 @@ pub(super) struct FileSeal {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Seal {
+pub(crate) struct Seal {
     version: u32,
     kind: String,
     policy: Policy,
-    pub identity: String,
-    pub descriptor: Generation,
-    pub operation_id: Uuid,
-    pub stored_count: u64,
-    pub metadata_header: HeaderSnapshot,
-    pub files: Vec<FileSeal>,
+    pub(super) identity: String,
+    pub(crate) descriptor: Generation,
+    pub(super) operation_id: Uuid,
+    pub(crate) stored_count: u64,
+    pub(super) metadata_header: HeaderSnapshot,
+    pub(super) files: Vec<FileSeal>,
 }
 impl Seal {
     pub(super) fn new(
@@ -130,7 +130,13 @@ impl Seal {
         self.validate()?;
         encode(self, 65536)
     }
-    pub(super) fn decode(json: &str) -> AppResult<Self> {
+    pub(crate) fn needs_rebuild(&self, live: u64, pending: u64) -> AppResult<bool> {
+        rebuild_decision(self.stored_count, live, pending, self.files[1].bytes)
+    }
+    pub(crate) fn ensure_capacity(&self, pending: u64) -> AppResult<()> {
+        capacity(self.stored_count, pending, self.files[1].bytes)
+    }
+    pub(crate) fn decode(json: &str) -> AppResult<Self> {
         let seal: Self = decode(json, 65536)?;
         seal.validate()?;
         Ok(seal)
@@ -218,7 +224,7 @@ impl Intent {
         self.validate()?;
         encode(self, 16384)
     }
-    pub(super) fn decode(json: &str) -> AppResult<Self> {
+    pub(crate) fn decode(json: &str) -> AppResult<Self> {
         let intent: Self = decode(json, 16384)?;
         intent.validate()?;
         Ok(intent)
@@ -257,4 +263,42 @@ fn decode<T: serde::de::DeserializeOwned + Serialize>(json: &str, cap: usize) ->
         return Err(repair());
     }
     Ok(value)
+}
+
+fn rebuild_decision(stored: u64, live: u64, pending: u64, metadata: u64) -> AppResult<bool> {
+    if live > stored || stored > RECORD_CAP {
+        return Err(repair());
+    }
+    let unused = stored - live;
+    Ok(metadata >= METADATA_WATERMARK
+        || (unused > 0
+            && (unused >= stored.div_ceil(2)
+                || stored.checked_add(pending).is_none_or(|n| n > RECORD_CAP))))
+}
+fn capacity(stored: u64, pending: u64, metadata: u64) -> AppResult<()> {
+    if stored.checked_add(pending).is_none_or(|n| n > RECORD_CAP) || metadata >= METADATA_WATERMARK
+    {
+        return Err(crate::error::AppError::Intelligence(
+            crate::intelligence::types::IntelligenceErrorCode::ResourceLimit,
+        ));
+    }
+    Ok(())
+}
+#[cfg(test)]
+mod trigger_tests {
+    use super::*;
+    #[test]
+    fn knowledge_rebuild_certified_count_and_metadata_threshold_arithmetic() {
+        assert!(!rebuild_decision(0, 0, 0, 1).unwrap());
+        assert!(!rebuild_decision(3, 2, 0, 1).unwrap());
+        assert!(rebuild_decision(4, 2, 0, 1).unwrap());
+        assert!(!rebuild_decision(200000, 200000, 1, 1).unwrap());
+        assert!(rebuild_decision(200000, 199999, 1, 1).unwrap());
+        assert!(capacity(200000, 1, 1).is_err());
+        assert!(capacity(199999, 1, 1).is_ok());
+        assert!(capacity(1, u64::MAX, 1).is_err());
+        assert!(!rebuild_decision(0, 0, 0, METADATA_WATERMARK - 1).unwrap());
+        assert!(rebuild_decision(0, 0, 0, METADATA_WATERMARK).unwrap());
+        assert!(capacity(0, 0, METADATA_WATERMARK).is_err());
+    }
 }

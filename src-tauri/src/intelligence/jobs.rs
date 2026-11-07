@@ -27,14 +27,37 @@ pub struct JobContext {
     fence: JobAdmissionFence,
     children: ChildOperations,
 }
+#[derive(Clone)]
+pub(crate) struct JobPublicationFence {
+    id: Uuid,
+    cancel: watch::Receiver<bool>,
+    fence: JobAdmissionFence,
+}
+impl JobPublicationFence {
+    pub(crate) fn commit<T>(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        operation: impl FnOnce() -> AppResult<T>,
+    ) -> AppResult<T> {
+        self.fence.run(|| {
+            if *self.cancel.borrow()
+                || store::job_in_transaction(tx, self.id)?
+                    .is_none_or(|job| job.status != JobStatus::Running)
+            {
+                return Err(error(IntelligenceErrorCode::Cancelled));
+            }
+            operation()
+        })
+    }
+}
 impl JobContext {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Reserved for Task 5 native and index operation ownership"
-        )
-    )]
+    pub(crate) fn publication_fence(&self) -> JobPublicationFence {
+        JobPublicationFence {
+            id: self.id,
+            cancel: self.cancel.clone(),
+            fence: self.fence.clone(),
+        }
+    }
     pub(crate) fn operation_owner(&self) -> AppResult<OperationLease> {
         // Only control is held here. The returned token crosses config/index
         // boundaries after this guard is released; never consult SQLite here.
@@ -93,6 +116,32 @@ pub trait JobHandler: Send + Sync {
         Ok(())
     }
 }
+pub(crate) struct AfterTerminalNotice {
+    pub(crate) parent_id: Uuid,
+    pub(crate) document_id: Uuid,
+    pub(crate) version: u32,
+    pub(crate) sha256: String,
+    pub(crate) parser: String,
+}
+#[async_trait::async_trait]
+pub(crate) trait AfterTerminal: Send + Sync {
+    fn notice(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        job: &JobView,
+    ) -> AppResult<Option<AfterTerminalNotice>>;
+    fn deferred(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        notice: &AfterTerminalNotice,
+    ) -> AppResult<()>;
+    async fn succeeded(
+        &self,
+        notice: AfterTerminalNotice,
+        owner: OperationLease,
+        fence: JobAdmissionFence,
+    );
+}
 #[derive(Clone)]
 pub(crate) struct JobEvents(broadcast::Sender<IntelligenceEvent>);
 impl JobEvents {
@@ -138,6 +187,7 @@ struct State {
     frozen: bool,
     handlers: Handlers,
     generation: Option<Generation>,
+    after_terminal: Option<Arc<dyn AfterTerminal>>,
 }
 pub struct JobScheduler {
     store: Arc<LocalStore>,
@@ -170,6 +220,21 @@ impl JobScheduler {
         s.handlers.insert(kind, handler);
         Ok(())
     }
+    pub(crate) fn register_after_terminal(&self, hook: Arc<dyn AfterTerminal>) -> AppResult<()> {
+        let mut state = self.state.lock().unwrap();
+        if state.frozen
+            || state.after_terminal.is_some()
+            || !state.handlers.contains_key(&JobKind::Import)
+            || !state.handlers.contains_key(&JobKind::Reindex)
+        {
+            return Err(error(IntelligenceErrorCode::Configuration));
+        }
+        state.after_terminal = Some(hook);
+        Ok(())
+    }
+    pub(crate) fn wake_port(&self) -> Arc<Notify> {
+        self.wake.clone()
+    }
     pub fn start(&self) -> AppResult<()> {
         self.start_owned(Arc::new(()))
     }
@@ -186,6 +251,7 @@ impl JobScheduler {
         }
         s.frozen = true;
         let handlers = Arc::new(s.handlers.clone());
+        let after_terminal = s.after_terminal.clone();
         let control = Arc::new(Mutex::new(Control::default()));
         self.closed.store(false, Ordering::Release);
         self.signal.send_replace(false);
@@ -214,17 +280,20 @@ impl JobScheduler {
                     stop.clone(),
                     closed.clone(),
                     children.clone(),
+                    after_terminal.clone(),
                 ));
             }
             let mut stop = stop;
             loop {
                 tokio::select! {
-                    biased;
-                    _ = cancelled(&mut stop) => break,
-                    _ = wake.notified() => {
-                        for _ in 0..2 { let _ = tx.try_send(()); }
-                    }
-                }
+                                                  biased;
+                                                  _ = cancelled(&mut stop) => break,
+                                                  _ = wake.notified() => {
+                                                      for _ in 0..2 {
+                let _ = tx.try_send(());
+                               }
+                                                  }
+                                              }
             }
             {
                 let mut control = worker_control.lock().unwrap();
@@ -338,11 +407,24 @@ impl JobScheduler {
         // guard fences commit against shutdown without capturing Arc<JobScheduler>.
         let result = config
             .with_profile_snapshot(ids, move |tx, profiles| {
-                fence.run(|| store::admit_job(tx, JobDraft {
-                id: Uuid::new_v4(), kind, session_id, object_id, admission,
-                payload: serde_json::json!({ "version": 1, "profiles": profiles, "input": input }),
-                initial_failure: None,
-            }))
+                fence.run(|| {
+                    store::admit_job(
+                        tx,
+                        JobDraft {
+                            id: Uuid::new_v4(),
+                            kind,
+                            session_id,
+                            object_id,
+                            admission,
+                            payload: serde_json::json!({
+                             "version": 1,
+                             "profiles": profiles,
+                             "input": input }
+                            ),
+                            initial_failure: None,
+                        },
+                    )
+                })
             })
             .await?;
         let view = result.view().clone();
@@ -530,12 +612,19 @@ async fn worker(
     mut stop: watch::Receiver<bool>,
     closed: Arc<AtomicBool>,
     children: ChildOperations,
+    after_terminal: Option<Arc<dyn AfterTerminal>>,
 ) {
     use futures_util::FutureExt;
     loop {
-        tokio::select! {biased;
-        _=cancelled(&mut stop)=>return,token=async{rx.lock().await.recv().await}=>if token.is_none(){return;
-        }}
+        tokio::select! {
+        biased;
+                _=cancelled(&mut stop)=>return,
+        token=async{
+        rx.lock().await.recv().await}
+        =>if token.is_none(){
+        return;
+                }
+        }
         let claimed = match claim(&store, &control, &closed) {
             Ok(v) => v,
             Err(_) => {
@@ -566,8 +655,33 @@ async fn worker(
             .unwrap_or(Err(IntelligenceErrorCode::Interrupted)),
             None => Err(IntelligenceErrorCode::Configuration),
         };
+        let notice = if result.is_ok() {
+            after_terminal
+                .as_ref()
+                .and_then(|hook| store.transaction(|tx| hook.notice(tx, &job)).ok().flatten())
+        } else {
+            None
+        };
+        // Reservation happens while this context is still active and Running.
+        // ConfigIo never acquires an owner from a terminal context.
+        let continuation = notice.as_ref().and_then(|_| {
+            JobContext {
+                id: job.id,
+                cancel: cancel.clone(),
+                fence: JobAdmissionFence {
+                    control: control.clone(),
+                    closed: closed.clone(),
+                    cancel: stop.clone(),
+                },
+                children: children.clone(),
+            }
+            .operation_owner()
+            .ok()
+        });
         let finished = store.transaction(|tx| {
             let mut c = control.lock().unwrap();
+            let was_running = store::job_in_transaction(tx, job.id)?
+                .is_some_and(|job| job.status == JobStatus::Running);
             let is_cancelled = *cancel.borrow();
             let (status, code) = if is_cancelled {
                 (JobStatus::Cancelled, Some(IntelligenceErrorCode::Cancelled))
@@ -586,11 +700,32 @@ async fn worker(
             };
             transition_tx(tx, job.id, "running", status, code, &handlers, false)?;
             c.active.remove(&job.id);
-            Ok(())
+            let succeeded = was_running && status == JobStatus::Succeeded;
+            if succeeded && continuation.is_none() {
+                if let (Some(hook), Some(notice)) = (&after_terminal, &notice) {
+                    hook.deferred(tx, notice)?;
+                }
+            }
+            Ok(succeeded)
         });
         if finished.is_ok() {
             if let Ok(Some(job)) = store.get_job(job.id) {
                 let _ = events.send(IntelligenceEvent::JobChanged { job });
+            }
+        }
+        if matches!(finished, Ok(true)) {
+            if let (Some(hook), Some(notice), Some(owner)) = (&after_terminal, notice, continuation)
+            {
+                hook.succeeded(
+                    notice,
+                    owner,
+                    JobAdmissionFence {
+                        control: control.clone(),
+                        closed: closed.clone(),
+                        cancel: stop.clone(),
+                    },
+                )
+                .await;
             }
         }
         if let Some(handler) = handlers.get(&job.kind) {
@@ -605,25 +740,39 @@ fn claim(
     closed: &AtomicBool,
 ) -> AppResult<Option<(JobView, serde_json::Value, watch::Receiver<bool>)>> {
     use rusqlite::OptionalExtension;
-    let claimed = store.transaction(|tx| {
-        let mut control = control.lock().unwrap();
-        if control.stopping || closed.load(Ordering::Acquire) { return Ok(None); }
-        let row: Option<(String, String)> = tx.query_row(
-            "SELECT id,payload_json FROM intelligence_jobs WHERE status='queued' ORDER BY rowid LIMIT 1",
-            [], |row| Ok((row.get(0)?, row.get(1)?)),
-        ).optional()?;
-        let Some((id, payload)) = row else { return Ok(None); };
-        let id = Uuid::parse_str(&id).map_err(|_| error(IntelligenceErrorCode::Storage))?;
-        let decoded = store::decode_payload(&payload)?;
-        tx.execute(
-            "UPDATE intelligence_jobs SET status='running',updated_at_ms=?1 WHERE id=?2 AND status='queued'",
-            rusqlite::params![now_ms(), id.to_string()],
-        )?;
-        let (cancel, receiver) = watch::channel(false);
-        control.active.insert(id, cancel);
-        let payload = serde_json::to_value(decoded).map_err(|_| error(IntelligenceErrorCode::Storage))?;
-        Ok(Some((id, payload, receiver)))
-    }).map_err(store::safe_store_error)?;
+    let claimed = store
+        .transaction(|tx| {
+            let mut control = control.lock().unwrap();
+            if control.stopping || closed.load(Ordering::Acquire) {
+                return Ok(None);
+            }
+            let row: Option<(String, String)> = tx
+                .query_row(
+                    "SELECT id,payload_json FROM \
+                    intelligence_jobs WHERE status='queued' \
+                    ORDER BY rowid LIMIT 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            let Some((id, payload)) = row else {
+                return Ok(None);
+            };
+            let id = Uuid::parse_str(&id).map_err(|_| error(IntelligenceErrorCode::Storage))?;
+            let decoded = store::decode_payload(&payload)?;
+            tx.execute(
+                "UPDATE intelligence_jobs SET \
+                    status='running',updated_at_ms=?1 WHERE \
+                    id=?2 AND status='queued'",
+                rusqlite::params![now_ms(), id.to_string()],
+            )?;
+            let (cancel, receiver) = watch::channel(false);
+            control.active.insert(id, cancel);
+            let payload =
+                serde_json::to_value(decoded).map_err(|_| error(IntelligenceErrorCode::Storage))?;
+            Ok(Some((id, payload, receiver)))
+        })
+        .map_err(store::safe_store_error)?;
     claimed
         .map(|(id, payload, cancel)| {
             Ok((
@@ -645,9 +794,17 @@ fn transition_tx(
     handlers: &Handlers,
     awaiting_reap: bool,
 ) -> AppResult<()> {
-    let changed=tx.execute(
-        "UPDATE intelligence_jobs SET status=?1,error_code=?2,updated_at_ms=?3 WHERE id=?4 AND status=?5",
-        rusqlite::params![serde_json::to_value(status).unwrap().as_str(), code.map(IntelligenceErrorCode::as_str), now_ms(), id.to_string(), from],
+    let changed = tx.execute(
+        "UPDATE intelligence_jobs SET status=?1,\
+                    error_code=?2,updated_at_ms=?3 WHERE id=?4 \
+                    AND status=?5",
+        rusqlite::params![
+            serde_json::to_value(status).unwrap().as_str(),
+            code.map(IntelligenceErrorCode::as_str),
+            now_ms(),
+            id.to_string(),
+            from
+        ],
     )?;
     if changed != 0 {
         let job = store::job_in_transaction(tx, id)?
@@ -659,13 +816,38 @@ fn transition_tx(
     Ok(())
 }
 fn interrupt(store: &LocalStore, handlers: &Handlers) -> AppResult<Vec<JobView>> {
-    store.transaction(|tx| {
-        let pending=tx.prepare("SELECT id,status FROM intelligence_jobs WHERE status IN ('queued','running') LIMIT 33")?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<Result<Vec<_>,_>>()?;
-        if pending.len()>store::MAX_UNFINISHED{return Err(error(IntelligenceErrorCode::ResourceLimit));}
-        let mut changed=Vec::with_capacity(pending.len());
-        for (id,status) in pending {let id=Uuid::parse_str(&id).map_err(|_|error(IntelligenceErrorCode::Storage))?;transition_tx(tx,id,&status,JobStatus::Interrupted,Some(IntelligenceErrorCode::Interrupted),handlers,status=="running")?;changed.push(store::job_in_transaction(tx,id)?.ok_or_else(||error(IntelligenceErrorCode::Storage))?);}
-        Ok(changed)
-    }).map_err(store::safe_store_error)
+    store
+        .transaction(|tx| {
+            let pending = tx
+                .prepare(
+                    "SELECT id,status FROM intelligence_jobs \
+                    WHERE status IN ('queued','running') LIMIT 33",
+                )?
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            if pending.len() > store::MAX_UNFINISHED {
+                return Err(error(IntelligenceErrorCode::ResourceLimit));
+            }
+            let mut changed = Vec::with_capacity(pending.len());
+            for (id, status) in pending {
+                let id = Uuid::parse_str(&id).map_err(|_| error(IntelligenceErrorCode::Storage))?;
+                transition_tx(
+                    tx,
+                    id,
+                    &status,
+                    JobStatus::Interrupted,
+                    Some(IntelligenceErrorCode::Interrupted),
+                    handlers,
+                    status == "running",
+                )?;
+                changed.push(
+                    store::job_in_transaction(tx, id)?
+                        .ok_or_else(|| error(IntelligenceErrorCode::Storage))?,
+                );
+            }
+            Ok(changed)
+        })
+        .map_err(store::safe_store_error)
 }
 pub(crate) fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -679,3 +861,6 @@ fn error(code: IntelligenceErrorCode) -> AppError {
 }
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(crate) mod test_support;

@@ -528,7 +528,19 @@ async fn index_lifecycle_failed_close_retains_owner_then_later_observer_retries_
         .await
         .unwrap();
     drop(ticket);
-    store.transaction(|tx|{tx.execute_batch("CREATE TRIGGER fail_owner_close BEFORE UPDATE ON knowledge_index_generation_seals WHEN NEW.dirty=1 AND json_extract(NEW.intent_json,'$.operation')='close' BEGIN SELECT RAISE(ABORT,'close failure'); END;")?;Ok(())}).unwrap();
+    store
+        .transaction(|tx| {
+            tx.execute_batch(
+                "CREATE TRIGGER fail_owner_close BEFORE \
+                    UPDATE ON knowledge_index_generation_seals \
+                    WHEN NEW.dirty=1 AND \
+                    json_extract(NEW.intent_json,\
+                    '$.operation')='close' BEGIN SELECT \
+                    RAISE(ABORT,'close failure'); END;",
+            )?;
+            Ok(())
+        })
+        .unwrap();
     assert!(matches!(
         owner.shutdown().await,
         Err(crate::error::AppError::Intelligence(
@@ -586,10 +598,12 @@ async fn index_lifecycle_join_spawn_failure_forces_failed_close_without_deadlock
     store
         .transaction(|tx| {
             tx.execute_batch(
-                "CREATE TRIGGER fail_join_spawn_close \
-                 BEFORE UPDATE ON knowledge_index_generation_seals \
-                 WHEN NEW.dirty=1 AND json_extract(NEW.intent_json,'$.operation')='close' \
-                 BEGIN SELECT RAISE(ABORT,'close failure'); END;",
+                "CREATE TRIGGER fail_join_spawn_close BEFORE \
+                    UPDATE ON knowledge_index_generation_seals \
+                    WHEN NEW.dirty=1 AND \
+                    json_extract(NEW.intent_json,\
+                    '$.operation')='close' BEGIN SELECT \
+                    RAISE(ABORT,'close failure'); END;",
             )?;
             Ok(())
         })
@@ -683,4 +697,54 @@ async fn index_lifecycle_stale_receipt_cannot_publish_after_owner_shutdown() {
     assert_eq!(row.0, 1);
     assert!(row.1.is_none());
     assert!(row.2.is_some());
+}
+#[tokio::test]
+async fn index_lifecycle_dropped_begin_maintenance_observer_releases_entered_fence() {
+    let dir = tempfile::tempdir().unwrap();
+    let owner = IndexOwner::new(
+        dir.path().join("indexes"),
+        Arc::new(LocalStore::in_memory().unwrap()),
+    );
+    owner.start_owned(Arc::new(())).await.unwrap();
+    let source = owner
+        .create(super::persistence::generation(), Arc::new(()))
+        .unwrap();
+    owner
+        .enqueue_open(&source)
+        .unwrap()
+        .observe()
+        .await
+        .unwrap();
+    owner
+        .add(
+            &source,
+            vec![(vec![1.; 128], super::persistence::metadata())],
+        )
+        .await
+        .unwrap();
+    owner.persist(&source).await.unwrap();
+    let (entered, release) = block_command(&owner);
+    let begin = {
+        let owner = owner.clone();
+        let source = source.clone();
+        tokio::spawn(async move { owner.begin_maintenance(&source).await })
+    };
+    tokio::task::spawn_blocking(move || entered.recv_timeout(std::time::Duration::from_secs(2)))
+        .await
+        .unwrap()
+        .unwrap();
+    begin.abort();
+    assert!(matches!(begin.await,
+Err(error) if error.is_cancelled()));
+    drop(release);
+    let next = owner.begin_maintenance(&source).await;
+    let released = next.is_ok();
+    if let Ok(ticket) = next {
+        owner.end_maintenance(ticket).await.unwrap();
+    }
+    owner.shutdown().await.unwrap();
+    assert!(
+        released,
+        "lost begin observer stranded the source maintenance fence"
+    );
 }

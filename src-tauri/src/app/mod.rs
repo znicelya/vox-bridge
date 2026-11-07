@@ -81,6 +81,7 @@ pub struct AppState {
     intelligence_startup: Arc<Mutex<()>>,
     index_owner: crate::knowledge::index::IndexOwner,
     documents: Arc<crate::knowledge::documents::DocumentService>,
+    knowledge: Arc<crate::knowledge::service::KnowledgeService>,
 }
 
 impl AppState {
@@ -194,6 +195,21 @@ impl AppState {
         driver: Arc<dyn DriverOperations>,
         parser: Arc<dyn crate::knowledge::parser::DocumentParser>,
     ) -> AppResult<Self> {
+        Self::compose_with_embeddings(
+            data_dir, lock, secrets, audio, factory, driver, parser, None,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn compose_with_embeddings(
+        data_dir: PathBuf,
+        lock: File,
+        secrets: Arc<SecretStore>,
+        audio: Arc<dyn AudioBackend>,
+        factory: Arc<ProviderFactory>,
+        driver: Arc<dyn DriverOperations>,
+        parser: Arc<dyn crate::knowledge::parser::DocumentParser>,
+        embeddings: Option<Arc<dyn crate::knowledge::embedding::Embeddings>>,
+    ) -> AppResult<Self> {
         let store = Arc::new(LocalStore::open(&data_dir)?);
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -216,9 +232,25 @@ impl AppState {
             parser,
             data_dir.clone(),
         ));
-        register_intelligence_handlers(&documents)?;
-        jobs.reconcile()?;
         let json_http = Arc::new(crate::intelligence::http::ReqwestJsonHttp::new()?);
+        let embeddings = embeddings.unwrap_or_else(|| {
+            Arc::new(
+                crate::knowledge::embedding::OpenAiCompatibleEmbeddings::new(
+                    service_config.clone(),
+                    json_http.clone(),
+                ),
+            )
+        });
+        let knowledge = Arc::new(crate::knowledge::service::KnowledgeService::new(
+            store.clone(),
+            service_config.clone(),
+            jobs.clone(),
+            embeddings,
+            index_owner.clone(),
+            data_dir.clone(),
+        ));
+        register_intelligence_handlers(&documents, &knowledge)?;
+        jobs.reconcile()?;
         let runtime = Arc::new(TranslationRuntime::new(
             factory.clone(),
             audio.clone(),
@@ -256,6 +288,7 @@ impl AppState {
             intelligence_startup: Arc::new(Mutex::new(())),
             index_owner,
             documents,
+            knowledge,
         })
     }
     pub fn data_dir(&self) -> &Path {
@@ -313,18 +346,20 @@ impl AppState {
         }
         let epoch = self.admitted_epoch()?;
         tokio::select! {
-            biased;
-            _ = closed.changed() => Err(lifecycle::closing_error()),
-            _ = driver.changed() => Err(crate::audio::platform::driver::busy_error()),
-            result = async {
-                let _guard = self.admission.lock().await;
-                self.check_epoch(epoch)?;
-                let id = launch.provider_config_id;
-                let saved = self.load_launch_provider_config(id).await?;
-                self.check_epoch(epoch)?;
-                self.orchestrator.start(launch, saved).await
-            } => result,
-        }
+                   biased;
+                   _ = closed.changed() => Err(lifecycle::closing_error()),
+                   _ = driver.changed() => Err(crate::audio::platform::driver::busy_error()),
+                   result = async {
+                       let _guard = self.admission.lock().await;
+                       self.check_epoch(epoch)?;
+                       let id = launch.provider_config_id;
+                       let saved = self.load_launch_provider_config(id).await?;
+                       self.check_epoch(epoch)?;
+                       self.orchestrator.start(launch,
+        saved).await
+                   }
+        => result,
+               }
     }
     pub async fn stop_session(&self, session_id: Uuid) -> AppResult<SessionRecord> {
         self.orchestrator.stop_session(session_id).await
@@ -413,6 +448,9 @@ pub(crate) mod driver_test_support {
 /// start. Handlers never retain AppState or Arc<JobScheduler>.
 fn register_intelligence_handlers(
     documents: &crate::knowledge::documents::DocumentService,
+    knowledge: &crate::knowledge::service::KnowledgeService,
 ) -> AppResult<()> {
-    documents.register_import_handler()
+    documents.register_import_handler()?;
+    knowledge.register_handlers()?;
+    knowledge.register_continuation()
 }

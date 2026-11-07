@@ -24,6 +24,18 @@ use std::{
     thread::JoinHandle,
 };
 use uuid::Uuid;
+#[derive(Clone)]
+pub(crate) struct RecordCandidate {
+    pub(crate) id: u64,
+    pub(crate) deleted: bool,
+    pub(crate) metadata: Option<ChunkMetadata>,
+}
+#[derive(Clone)]
+pub(crate) struct Candidate {
+    pub(crate) id: u64,
+    pub(crate) score: f32,
+    pub(crate) metadata: Option<ChunkMetadata>,
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct PersistedReceipt {
@@ -57,10 +69,20 @@ struct Entry {
     used: u64,
 }
 struct Maintenance {
+    _lease: crate::intelligence::jobs::OperationLease,
     token: Uuid,
     key: Key,
     snapshot_end: u64,
     release_requested: Arc<AtomicBool>,
+}
+struct Recovery {
+    token: Uuid,
+    target: Key,
+    fence: super::recovery::RecoveryFence,
+    reader: super::recovery::VectorReader,
+    verified: bool,
+    release_requested: Arc<AtomicBool>,
+    _lease: crate::intelligence::jobs::OperationLease,
 }
 type Key = (String, Uuid);
 pub(super) struct Runtime {
@@ -72,6 +94,7 @@ pub(super) struct Runtime {
     pool: PoolOwner,
     sequence: u64,
     maintenance: Option<Maintenance>,
+    recovery: Option<Recovery>,
     #[cfg(test)]
     pub(super) close_fault: Option<CloseFault>,
     #[cfg(test)]
@@ -98,6 +121,7 @@ impl Runtime {
             pool: PoolOwner::new()?,
             sequence: 0,
             maintenance: None,
+            recovery: None,
             #[cfg(test)]
             close_fault: None,
             #[cfg(test)]
@@ -252,6 +276,72 @@ impl Runtime {
             Err(failure) => self.repository.recover_ack(receipt).map_err(|_| failure),
         }
     }
+    pub(super) fn publish_plan(
+        &mut self,
+        receipt: &PersistedReceipt,
+        plan: &super::publication::PublicationPlan,
+    ) -> AppResult<PublicationAck> {
+        self.validate(receipt.intent())?;
+        if let super::publication::PublicationPlan::Recovery { token, fence, .. } = plan {
+            let reader = self
+                .recovery
+                .as_mut()
+                .filter(|r| {
+                    r.token == *token
+                        && r.target == key(receipt.intent())
+                        && r.fence == *fence
+                        && r.verified
+                })
+                .ok_or_else(busy)?;
+            self.pool.install(|| reader.reader.verify())?;
+        }
+        let entry = entry_mut(&mut self.entries, receipt.intent())?;
+        match &entry.phase {
+            Phase::Awaiting(encoded) if encoded == receipt.seal_json() => {}
+            _ => return Err(repair()),
+        }
+        match self.repository.publish_plan(receipt, plan) {
+            Ok(ack) => Ok(ack),
+            Err(failure) => self.repository.recover_ack(receipt).map_err(|_| failure),
+        }
+    }
+    pub(super) fn retire(&mut self, intent: &DurableIntent) -> AppResult<()> {
+        if intent.body().owner_epoch != self.epoch {
+            return Err(repair());
+        }
+        let key = key(intent);
+        let entry = self.entries.get(&key).ok_or_else(repair)?;
+        if entry.intent.body() != intent.body() || !matches!(entry.phase, Phase::Clean(_)) {
+            return Err(busy());
+        }
+        self.close_and_publish(&key)
+    }
+    #[cfg(test)]
+    pub(super) fn corrupt_metadata(
+        &mut self,
+        intent: &DurableIntent,
+        id: u64,
+        vector: Vec<f32>,
+        metadata: String,
+    ) -> AppResult<u64> {
+        self.validate(intent)?;
+        self.ensure_mutable(&key(intent))?;
+        if metadata.len() > 16384 {
+            return Err(repair());
+        }
+        validate_vector(&vector, intent.body().descriptor.identity.dimensions)?;
+        let entry = entry_mut(&mut self.entries, intent)?;
+        if !matches!(entry.phase, Phase::Dirty) {
+            return Err(busy());
+        }
+        self.pool.install(|| {
+            reserve(entry.db.count(), 1)?;
+            entry
+                .db
+                .replace(id, &Vector::new(vector), &metadata)
+                .map_err(|_| repair())
+        })
+    }
     pub(super) fn acknowledge(&mut self, ack: &PublicationAck) -> AppResult<()> {
         if ack.intent().body().owner_epoch != self.epoch {
             return Err(repair());
@@ -288,6 +378,22 @@ impl Runtime {
         start: u64,
         limit: u32,
     ) -> AppResult<Vec<(u64, Option<ChunkMetadata>)>> {
+        self.scan_records(intent, start, limit)?
+            .into_iter()
+            .map(|r| {
+                if !r.deleted && r.metadata.is_none() {
+                    return Err(repair());
+                }
+                Ok((r.id, r.metadata))
+            })
+            .collect()
+    }
+    pub(super) fn scan_records(
+        &mut self,
+        intent: &DurableIntent,
+        start: u64,
+        limit: u32,
+    ) -> AppResult<Vec<RecordCandidate>> {
         self.validate(intent)?;
         validate_batch(limit as usize)?;
         let entry = entry_mut(&mut self.entries, intent)?;
@@ -302,15 +408,22 @@ impl Runtime {
                 .min(count);
             (start..end)
                 .map(|id| {
-                    if entry.db.is_deleted(id) {
-                        return Ok((id, None));
-                    }
-                    let encoded = entry
-                        .db
-                        .get_metadata(id)
-                        .map_err(|_| repair())?
-                        .ok_or_else(repair)?;
-                    Ok((id, Some(ChunkMetadata::decode(&encoded)?)))
+                    let deleted = entry.db.is_deleted(id);
+                    let metadata = if deleted {
+                        None
+                    } else {
+                        entry
+                            .db
+                            .get_metadata(id)
+                            .map_err(|_| repair())?
+                            .as_deref()
+                            .and_then(|s| ChunkMetadata::decode(s).ok())
+                    };
+                    Ok(RecordCandidate {
+                        id,
+                        deleted,
+                        metadata,
+                    })
                 })
                 .collect()
         })
@@ -369,6 +482,17 @@ impl Runtime {
         vector: Vec<f32>,
         limit: u32,
     ) -> AppResult<Vec<(u64, f32, ChunkMetadata)>> {
+        self.candidates(intent, vector, limit)?
+            .into_iter()
+            .map(|hit| Ok((hit.id, hit.score, hit.metadata.ok_or_else(repair)?)))
+            .collect()
+    }
+    pub(super) fn candidates(
+        &mut self,
+        intent: &DurableIntent,
+        vector: Vec<f32>,
+        limit: u32,
+    ) -> AppResult<Vec<Candidate>> {
         self.validate(intent)?;
         validate_batch(limit as usize)?;
         validate_vector(&vector, intent.body().descriptor.identity.dimensions)?;
@@ -389,20 +513,171 @@ impl Runtime {
                     {
                         return Err(repair());
                     }
-                    let metadata =
-                        ChunkMetadata::decode(hit.metadata.as_deref().ok_or_else(repair)?)?;
-                    Ok((hit.id, hit.score, metadata))
+                    let metadata = hit
+                        .metadata
+                        .as_deref()
+                        .and_then(|json| ChunkMetadata::decode(json).ok());
+                    Ok(Candidate {
+                        id: hit.id,
+                        score: hit.score,
+                        metadata,
+                    })
                 })
                 .collect()
+        })
+    }
+    pub(super) fn begin_recovery(
+        &mut self,
+        intent: &DurableIntent,
+        evidence: super::recovery::RecoveryEvidence,
+        release_requested: Arc<AtomicBool>,
+        lease: crate::intelligence::jobs::OperationLease,
+    ) -> AppResult<Uuid> {
+        self.validate(intent)?;
+        if self.maintenance.is_some()
+            || self.recovery.is_some()
+            || intent.body().identity != evidence.source().key()?
+            || intent.body().descriptor.generation == evidence.source().generation
+        {
+            return Err(busy());
+        }
+        self.repository.validate_recovery(&evidence.fence, true)?;
+        let fence = evidence.fence.clone();
+        let token = Uuid::new_v4();
+        let reader = self
+            .pool
+            .install(|| super::recovery::VectorReader::open(&self.root, evidence))?;
+        self.recovery = Some(Recovery {
+            token,
+            target: key(intent),
+            fence,
+            reader,
+            verified: false,
+            release_requested,
+            _lease: lease,
+        });
+        Ok(token)
+    }
+    pub(super) fn copy_recovery(
+        &mut self,
+        intent: &DurableIntent,
+        token: Uuid,
+        start: u64,
+        limit: u32,
+    ) -> AppResult<Vec<(u64, Vec<f32>)>> {
+        self.validate(intent)?;
+        let recovery = self
+            .recovery
+            .as_mut()
+            .filter(|r| r.token == token && r.target == key(intent))
+            .ok_or_else(busy)?;
+        recovery.verified = false;
+        self.pool.install(|| recovery.reader.copy(start, limit))
+    }
+    pub(super) fn verify_recovery(&mut self, intent: &DurableIntent, token: Uuid) -> AppResult<()> {
+        self.validate(intent)?;
+        let recovery = self
+            .recovery
+            .as_mut()
+            .filter(|r| r.token == token && r.target == key(intent))
+            .ok_or_else(busy)?;
+        self.repository.validate_recovery(&recovery.fence, true)?;
+        self.pool.install(|| recovery.reader.verify())?;
+        recovery.verified = true;
+        Ok(())
+    }
+    pub(super) fn end_recovery(&mut self, token: Uuid) -> AppResult<()> {
+        if self.recovery.as_ref().is_some_and(|r| r.token != token) {
+            return Err(busy());
+        }
+        let reader = self.recovery.take();
+        self.pool.install(|| drop(reader));
+        Ok(())
+    }
+    pub(super) fn remove_generation(
+        &mut self,
+        intent: &DurableIntent,
+        source: &seal::Generation,
+    ) -> AppResult<()> {
+        if intent.body().owner_epoch != self.epoch
+            || self.recovery.is_some()
+            || self.maintenance.is_some()
+        {
+            return Err(busy());
+        }
+        self.repository
+            .can_retire(&intent.body().descriptor, source)?;
+        let target = entry_mut(&mut self.entries, intent)?;
+        if !matches!(target.phase, Phase::Clean(_)) {
+            return Err(busy());
+        }
+        let source_key = (source.key()?, source.generation);
+        if let Some(entry) = self.entries.get(&source_key) {
+            if !matches!(entry.phase, Phase::Clean(_)) {
+                return Err(busy());
+            }
+            self.close_and_publish(&source_key)?;
+        }
+        let path = preflight::generation_path(&self.root, source)?;
+        self.pool.install(|| {
+            if !path.exists() {
+                return Ok(());
+            }
+            preflight::directories(&path, false)?;
+            let _lock = super::recovery::exclusive_lock(&path)?;
+            for (n, entry) in std::fs::read_dir(&path).map_err(|_| repair())?.enumerate() {
+                if n >= 16 {
+                    return Err(repair());
+                }
+                let entry = entry.map_err(|_| repair())?;
+                let meta = std::fs::symlink_metadata(entry.path()).map_err(|_| repair())?;
+                if !meta.is_file()
+                    || meta.file_type().is_symlink()
+                    || !matches!(
+                        entry.file_name().to_str(),
+                        Some("srvdb.lock" | "vectors.bin" | "metadata.db" | "hnsw.graph")
+                    )
+                {
+                    return Err(repair());
+                }
+            }
+            std::fs::remove_dir_all(path).map_err(|_| repair())
+        })
+    }
+    pub(super) fn retire_recovery(
+        &mut self,
+        intent: &DurableIntent,
+        fence: &super::recovery::RecoveryFence,
+    ) -> AppResult<()> {
+        if intent.body().owner_epoch != self.epoch
+            || self.recovery.is_some()
+            || self
+                .entries
+                .contains_key(&(fence.source.key()?, fence.source.generation))
+        {
+            return Err(busy());
+        }
+        self.repository.validate_recovery(fence, false)?;
+        let path = preflight::generation_path(&self.root, &fence.source)?;
+        self.pool.install(|| {
+            if !path.exists() {
+                return Ok(());
+            }
+            preflight::directories(&path, false)?;
+            let _lock = super::recovery::exclusive_lock(&path)?;
+            // Only an application-managed, now-unreferenced generation can be
+            // retired. No dirty database decoder is entered during removal.
+            std::fs::remove_dir_all(&path).map_err(|_| repair())
         })
     }
     pub(super) fn begin_maintenance(
         &mut self,
         intent: &DurableIntent,
         release_requested: Arc<AtomicBool>,
+        lease: crate::intelligence::jobs::OperationLease,
     ) -> AppResult<Uuid> {
         self.validate(intent)?;
-        if self.maintenance.is_some() {
+        if self.maintenance.is_some() || self.recovery.is_some() {
             return Err(busy());
         }
         let source_key = key(intent);
@@ -424,6 +699,7 @@ impl Runtime {
         })?;
         let token = Uuid::new_v4();
         self.maintenance = Some(Maintenance {
+            _lease: lease,
             token,
             key: source_key,
             snapshot_end: count,
@@ -494,6 +770,14 @@ impl Runtime {
     }
     pub(super) fn release_requested_maintenance(&mut self) {
         if self
+            .recovery
+            .as_ref()
+            .is_some_and(|r| r.release_requested.load(Ordering::Acquire))
+        {
+            let reader = self.recovery.take();
+            self.pool.install(|| drop(reader));
+        }
+        if self
             .maintenance
             .as_ref()
             .is_some_and(|maintenance| maintenance.release_requested.load(Ordering::Acquire))
@@ -501,6 +785,7 @@ impl Runtime {
             self.maintenance = None;
         }
     }
+    #[cfg(test)]
     pub(super) fn close_generation(
         &mut self,
         generation: &seal::Generation,
@@ -601,6 +886,8 @@ impl Runtime {
     }
     pub(super) fn shutdown(&mut self) -> AppResult<()> {
         self.maintenance = None;
+        let recovery = self.recovery.take();
+        self.pool.install(|| drop(recovery));
         for key in self.entries.keys().cloned().collect::<Vec<_>>() {
             let awaiting = self.entries.get(&key).and_then(|e| match &e.phase {
                 Phase::Awaiting(encoded) => Some(PersistedReceipt {
@@ -655,6 +942,8 @@ impl Drop for Runtime {
         }
         // Exceptional final-owner fallback cannot leave live mappings behind.
         // A failed close publishes no new seal; old exact hashes still fence reopen.
+        let recovery = self.recovery.take();
+        self.pool.install(|| drop(recovery));
         let entries = std::mem::take(&mut self.entries);
         self.pool.install(|| drop(entries));
     }

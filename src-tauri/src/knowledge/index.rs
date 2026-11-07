@@ -1,16 +1,18 @@
-// The frozen 5B owner ports are exercised by tests now and consumed by 5C.
-#![cfg_attr(not(test), allow(dead_code))]
-
 mod codec;
 mod lifecycle;
 mod owner;
 mod preflight;
+mod publication;
+mod recovery;
 mod redb_header;
 mod repository;
 mod seal;
-#[allow(unused_imports)]
-pub(crate) use codec::ChunkMetadata;
+pub(crate) use codec::{ChunkMetadata, location_digest};
 pub(crate) use lifecycle::IndexOwner;
+pub(crate) use lifecycle::WorkTicket;
+pub(crate) use publication::{DocumentFence, PublicationPlan, ReadyPublication};
+pub(crate) use recovery::RecoveryEvidence;
+pub(crate) use seal::{Generation, Seal};
 
 use crate::{error::AppError, intelligence::types::IntelligenceErrorCode};
 fn repair() -> AppError {
@@ -18,3 +20,7 @@ fn repair() -> AppError {
 }
 #[cfg(test)]
 mod tests;
+
+pub(crate) fn recovery_descriptor(json: &str) -> crate::error::AppResult<Generation> {
+    Ok(seal::Intent::decode(json)?.descriptor)
+}

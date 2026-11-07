@@ -19,6 +19,26 @@ pub struct EmbeddingIdentity {
     pub normalization_version: u32,
 }
 impl EmbeddingIdentity {
+    pub(crate) fn semantic_key(&self) -> AppResult<String> {
+        self.key()?;
+        #[derive(Serialize)]
+        struct Semantic<'a> {
+            profile_id: Uuid,
+            base_url: &'a str,
+            model: &'a str,
+            normalization_version: u32,
+        }
+        let value = Semantic {
+            profile_id: self.profile_id,
+            base_url: &self.base_url,
+            model: &self.model,
+            normalization_version: self.normalization_version,
+        };
+        Ok(format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(&value).map_err(|_| invalid())?)
+        ))
+    }
     pub fn from_profile(profile: &ModelProfile, actual_dimension: u32) -> AppResult<Self> {
         validate_profile(profile)?;
         if profile.kind != ServiceKind::Embedding
