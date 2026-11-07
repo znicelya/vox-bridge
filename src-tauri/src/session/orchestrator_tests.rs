@@ -559,6 +559,7 @@ async fn admitted_starting_stop_suppresses_inflight_running_publication() {
     let attached = first_poll.is_pending();
     let released = release.send(());
     drop(release);
+    wait_status(&o, id, SessionStatus::Stopping).await;
     let finish_entered =
         tokio::time::timeout(Duration::from_secs(5), finish_gate.wait_entered()).await;
     let during_stop = o.get(id).await;
