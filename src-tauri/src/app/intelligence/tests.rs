@@ -17,6 +17,188 @@ impl JobHandler for Wait {
         Err(IntelligenceErrorCode::Cancelled)
     }
 }
+
+struct BlockCleanup {
+    entered: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Notify>,
+}
+#[async_trait::async_trait]
+impl JobHandler for BlockCleanup {
+    async fn run(
+        &self,
+        mut context: JobContext,
+        _: serde_json::Value,
+    ) -> Result<(), IntelligenceErrorCode> {
+        crate::intelligence::http::cancelled(&mut context.cancel).await;
+        Err(IntelligenceErrorCode::Cancelled)
+    }
+
+    async fn cleanup_after_stop(&self) -> crate::error::AppResult<()> {
+        self.entered.notify_one();
+        tokio::time::timeout(Duration::from_secs(5), self.release.notified())
+            .await
+            .map_err(|_| {
+                crate::error::AppError::Internal("fixture job cleanup release timed out".into())
+            })?;
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn intelligence_app_close_keeps_index_owned_until_job_cleanup_finishes() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = AppState::new(dir.path().to_path_buf()).unwrap();
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    app.jobs
+        .register(
+            JobKind::Reindex,
+            Arc::new(BlockCleanup {
+                entered: entered.clone(),
+                release: release.clone(),
+            }),
+        )
+        .unwrap();
+    app.start_intelligence().await.unwrap();
+    assert!(app.is_index_running_for_test());
+    let close = {
+        let app = app.clone();
+        tokio::spawn(async move { app.close_all().await })
+    };
+    tokio::time::timeout(Duration::from_secs(1), entered.notified())
+        .await
+        .unwrap();
+    assert!(
+        app.is_index_running_for_test(),
+        "index cleanup admission must survive while jobs are still shutting down"
+    );
+    release.notify_one();
+    close.await.unwrap().unwrap();
+    assert!(!app.is_index_running_for_test());
+}
+
+#[tokio::test]
+async fn intelligence_app_close_timeout_keeps_index_for_retry_until_jobs_drain() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = AppState::new(dir.path().to_path_buf()).unwrap();
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    app.jobs
+        .register(
+            JobKind::Reindex,
+            Arc::new(BlockCleanup {
+                entered: entered.clone(),
+                release: release.clone(),
+            }),
+        )
+        .unwrap();
+    app.close_state.lock().unwrap().observation_timeout = Some(Duration::from_millis(30));
+    app.start_intelligence().await.unwrap();
+    let first_close = tokio::time::timeout(Duration::from_secs(1), app.close_all())
+        .await
+        .unwrap();
+    assert!(first_close.is_err());
+    tokio::time::timeout(Duration::from_secs(1), entered.notified())
+        .await
+        .unwrap();
+    assert!(
+        app.is_index_running_for_test(),
+        "observer timeout cannot detach job cleanup or close the index early"
+    );
+    app.close_state.lock().unwrap().observation_timeout = Some(Duration::from_secs(1));
+    release.notify_one();
+    tokio::time::timeout(Duration::from_secs(1), app.close_all())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!app.is_index_running_for_test());
+}
+
+#[tokio::test]
+async fn intelligence_app_reopen_starts_a_fresh_owned_index_generation() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = AppState::new(dir.path().to_path_buf()).unwrap();
+    app.start_intelligence().await.unwrap();
+    let first = app.index_epoch_for_test().unwrap();
+    app.close_all().await.unwrap();
+    assert!(app.index_epoch_for_test().is_err());
+    app.reopen_window().await.unwrap();
+    let second = app.index_epoch_for_test().unwrap();
+    assert_ne!(second, first);
+    app.close_all().await.unwrap();
+}
+
+#[tokio::test]
+async fn intelligence_app_close_fences_a_startup_that_was_waiting_for_admission() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = AppState::new(dir.path().to_path_buf()).unwrap();
+    let startup = app.intelligence_startup.clone().lock_owned().await;
+    let start_owner = app.clone();
+    let start = tokio::spawn(async move { start_owner.start_intelligence().await });
+    let close_owner = app.clone();
+    let close = tokio::spawn(async move { close_owner.close_all().await });
+    tokio::task::yield_now().await;
+    drop(startup);
+    assert!(start.await.unwrap().is_err());
+    close.await.unwrap().unwrap();
+    assert!(!app.is_index_running_for_test());
+    assert!(app.reopen_window().await.is_ok());
+    app.close_all().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn intelligence_app_close_waits_for_entered_index_startup_to_join() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = AppState::new(dir.path().to_path_buf()).unwrap();
+    let (entered, release) = app.index_owner.block_startup_for_test();
+    let start_owner = app.clone();
+    let start = tokio::spawn(async move { start_owner.start_intelligence().await });
+    entered
+        .recv_timeout(Duration::from_secs(1))
+        .expect("startup must enter the index owner before readiness");
+    let close_owner = app.clone();
+    let mut close = tokio::spawn(async move { close_owner.close_all().await });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), &mut close)
+            .await
+            .is_err(),
+        "close cannot complete while the entered startup holds its admission"
+    );
+    assert!(app.open_window().is_err());
+    release.send(()).unwrap();
+    assert!(start.await.unwrap().is_err());
+    tokio::time::timeout(Duration::from_secs(2), close)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(!app.is_index_running_for_test());
+    app.reopen_window().await.unwrap();
+    assert!(app.is_index_running_for_test());
+    app.close_all().await.unwrap();
+}
+
+#[tokio::test]
+async fn intelligence_app_startup_failure_waits_for_direct_operation_drain() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = AppState::new(dir.path().to_path_buf()).unwrap();
+    app.index_owner.fail_startup_for_test();
+    let direct = app.intelligence_lease().unwrap();
+    let start_owner = app.clone();
+    let mut start = tokio::spawn(async move { start_owner.start_intelligence().await });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), &mut start)
+            .await
+            .is_err(),
+        "failed startup cannot shut the index down past an owned direct operation"
+    );
+    drop(direct);
+    assert!(start.await.unwrap().is_err());
+    assert!(!app.is_index_running_for_test());
+    drop(app);
+    AppState::new(dir.path().to_path_buf()).unwrap();
+}
+
 #[test]
 fn intelligence_app_inert_construction_projects_empty_library_directory_and_recovers_jobs() {
     let dir = tempfile::tempdir().unwrap();

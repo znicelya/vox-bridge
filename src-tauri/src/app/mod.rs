@@ -78,6 +78,8 @@ pub struct AppState {
     probes: Arc<crate::intelligence::probes::ProbeOwner>,
     intelligence_subscriptions: crate::intelligence::subscriptions::IntelligenceSubscriptions,
     intelligence_operations: Arc<Semaphore>,
+    intelligence_startup: Arc<Mutex<()>>,
+    index_owner: crate::knowledge::index::IndexOwner,
     documents: Arc<crate::knowledge::documents::DocumentService>,
 }
 
@@ -205,6 +207,8 @@ impl AppState {
             store.clone(),
         ));
         let jobs = Arc::new(crate::intelligence::jobs::JobScheduler::new(store.clone()));
+        let index_owner =
+            crate::knowledge::index::IndexOwner::new(data_dir.join("indexes"), store.clone());
         let documents = Arc::new(crate::knowledge::documents::DocumentService::new(
             store.clone(),
             service_config.clone(),
@@ -249,6 +253,8 @@ impl AppState {
             intelligence_subscriptions:
                 crate::intelligence::subscriptions::IntelligenceSubscriptions::new(),
             intelligence_operations: Arc::new(Semaphore::new(16)),
+            intelligence_startup: Arc::new(Mutex::new(())),
+            index_owner,
             documents,
         })
     }

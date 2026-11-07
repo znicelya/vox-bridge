@@ -6,10 +6,41 @@ struct Operation {
 }
 impl AppState {
     pub async fn start_intelligence(&self) -> AppResult<()> {
-        self.with_open_epoch(|| {
-            self.probes.reopen()?;
-            self.jobs.start_owned(self._process_lock.clone())
-        })
+        // Hold this through actual index readiness/job publication. Close takes
+        // the same gate before treating the previous generation as joined.
+        let _startup = self.intelligence_startup.lock().await;
+        let epoch = self.admitted_epoch()?;
+        self.with_open_epoch(|| self.probes.reopen())?;
+        let _index = match self
+            .index_owner
+            .start_owned(self._process_lock.clone())
+            .await
+        {
+            Ok(index) => index,
+            Err(failure) => {
+                let _ = self.probes.shutdown().await;
+                let _ = self.shutdown_index_after_startup_failure().await;
+                return Err(failure);
+            }
+        };
+        if let Err(failure) = self.check_epoch(epoch) {
+            let _ = self.shutdown_index_after_startup_failure().await;
+            return Err(failure);
+        }
+        let jobs = self.with_open_epoch(|| self.jobs.start_owned(self._process_lock.clone()));
+        if jobs.is_err() {
+            let _ = self.shutdown_index_after_startup_failure().await;
+        }
+        jobs
+    }
+    async fn shutdown_index_after_startup_failure(&self) -> AppResult<()> {
+        let _direct_operations = self
+            .intelligence_operations
+            .clone()
+            .acquire_many_owned(16)
+            .await
+            .map_err(|_| super::lifecycle::closing_error())?;
+        self.index_owner.shutdown().await
     }
     /// Host-only successful reuse: rearm workers only after acknowledged cleanup.
     pub async fn reopen_window(&self) -> AppResult<()> {
@@ -135,6 +166,16 @@ impl AppState {
     }
     pub async fn unsubscribe_intelligence(&self, id: Uuid) -> AppResult<()> {
         self.intelligence_subscriptions.unsubscribe(id).await
+    }
+
+    #[cfg(test)]
+    pub(super) fn is_index_running_for_test(&self) -> bool {
+        self.index_owner.running_epoch_for_test().is_ok()
+    }
+
+    #[cfg(test)]
+    pub(super) fn index_epoch_for_test(&self) -> AppResult<Uuid> {
+        self.index_owner.running_epoch_for_test()
     }
 }
 #[cfg(test)]

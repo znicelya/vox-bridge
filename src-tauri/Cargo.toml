@@ -27,6 +27,10 @@ lopdf = { version = "0.38", default-features = false }
 zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
 quick-xml = { version = "0.38", default-features = false }
 sha2 = "0.10"
+crc32fast = "1.4"
+xxhash-rust = { version = "=0.8.19", features = ["xxh3"] }
+rayon = "1.10"
+srvdb = { git = "https://github.com/Srinivas26k/srvdb", rev = "1eec46feb2b7e6a6e286fa3361a20cd771dd4e04" }
 reqwest = { version = "=0.12.28", default-features = false, features = ["json", "stream", "rustls-tls-manual-roots-no-provider"] }
 # WebSocket dependency debug/trace logs include serialized keys, frames, and
 # remote close bodies. Compile them out even when a runtime enables trace.

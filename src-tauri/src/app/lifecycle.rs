@@ -139,6 +139,27 @@ impl AppState {
             }
         }
     }
+    async fn close_intelligence_owner(&self) -> AppResult<()> {
+        let _startup = self.intelligence_startup.lock().await;
+        let (jobs, probes, subscriptions) = tokio::join!(
+            self.jobs.shutdown(),
+            self.probes.shutdown(),
+            self.intelligence_subscriptions.close_all()
+        );
+        // Job cleanup may still need already-issued index ownership. The
+        // independent index sender remains alive until the scheduler confirms
+        // that workers and child operations have actually drained.
+        jobs?;
+        let _direct_operations = self
+            .intelligence_operations
+            .clone()
+            .acquire_many_owned(16)
+            .await
+            .map_err(|_| closing_error())?;
+        self.index_owner.shutdown().await?;
+        probes?;
+        subscriptions
+    }
     /// Host-only admission for a new window after successful previous cleanup.
     pub fn open_window(&self) -> AppResult<()> {
         let mut state = self.close_state.lock().unwrap();
@@ -200,20 +221,7 @@ impl AppState {
                             let _mutation = owner.subscription_mutation.lock().await;
                             owner.close_registry(None).await
                         },
-                        async {
-                            let (jobs, probes, subscriptions) = tokio::join!(
-                                owner.jobs.shutdown(),
-                                owner.probes.shutdown(),
-                                owner.intelligence_subscriptions.close_all()
-                            );
-                            let _operations = owner
-                                .intelligence_operations
-                                .clone()
-                                .acquire_many_owned(16)
-                                .await
-                                .map_err(|_| closing_error())?;
-                            jobs.and(probes).and(subscriptions)
-                        }
+                        async { owner.close_intelligence_owner().await }
                     );
                     let result = audio
                         .and(frontend)

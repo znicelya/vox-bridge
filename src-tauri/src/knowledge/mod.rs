@@ -1,4 +1,6 @@
 mod chunking;
+pub mod identity;
+pub(crate) mod index;
 pub mod parser;
 mod protocol;
 pub mod types;
