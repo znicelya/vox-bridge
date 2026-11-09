@@ -10,7 +10,7 @@ fn knowledge_migration5_binding_fences_and_reopen_preserve_untrusted_legacy_rows
         store
             .transaction(|tx| {
                 let version: u32 = tx.pragma_query_value(None, "user_version", |r| r.get(0))?;
-                assert_eq!(version, 5);
+                assert_eq!(version, 6);
                 if pass == 0 {
                     let key = "a".repeat(64);
                     tx.execute(
@@ -172,7 +172,7 @@ fn documents_migration_preserves_legacy_nullable_metadata_and_chunks_across_reop
                     )
                 );
                 let version: u32 = tx.pragma_query_value(None, "user_version", |row| row.get(0))?;
-                assert_eq!(version, 5);
+                assert_eq!(version, 6);
                 Ok(())
             })
             .unwrap();

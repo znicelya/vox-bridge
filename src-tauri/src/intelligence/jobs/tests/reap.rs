@@ -492,3 +492,110 @@ async fn intelligence_reap_shutdown_rejects_unfinished_factory_without_waiting_f
     drop(completion);
     frame.close_handler();
 }
+
+// Summary deletion and local recovery consume this producer's actual issued
+// claim. The Summary handler is real and has not entered; no synthetic status
+// or absence-of-generation capability supplies reap authority.
+#[tokio::test]
+async fn summary_reap_claim_before_handler_entry_keeps_delete_and_recovery_fenced_until_actual_factory_close()
+ {
+    use crate::{
+        llm::OpenAiCompatibleLlm,
+        summary::{SummaryJobRequest, SummaryService},
+    };
+    for recovery in [false, true] {
+        let h = IntelligenceHarness::new();
+        let file = std::fs::File::options()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(h.temp_dir.path().join("summary-reap-process.lock"))
+            .unwrap();
+        fs2::FileExt::try_lock_exclusive(&file).unwrap();
+        let owner: OperationLease = Arc::new(file);
+        let summary = SummaryService::new(
+            h.store.clone(),
+            h.config.clone(),
+            h.jobs.clone(),
+            Arc::new(OpenAiCompatibleLlm::new(h.config.clone(), h.http.clone())),
+        );
+        summary.register_handler().unwrap();
+        h.jobs.reconcile().unwrap();
+        summary
+            .reconcile_local_owned(owner.clone(), 0, h.jobs.reap_port())
+            .await
+            .unwrap();
+        h.jobs.start_owned(owner.clone()).unwrap();
+        let session = h.session();
+        let stored = h
+            .store
+            .create_summary_job(SummaryJobRequest {
+                session_id: session,
+                profile: None,
+                automatic: false,
+                initial_failure: None,
+            })
+            .unwrap();
+        let control = h
+            .jobs
+            .state
+            .lock()
+            .unwrap()
+            .generation
+            .as_ref()
+            .unwrap()
+            .control
+            .clone();
+        let (job, _, _, frame) = claim(&h.store, &control, &h.jobs.closed, &h.jobs.reap)
+            .unwrap()
+            .unwrap();
+        assert_eq!(job.id, stored.id);
+        h.store.transaction(|tx| {tx.execute("UPDATE intelligence_jobs SET status='interrupted',error_code='interrupted' WHERE id=?1",[job.id.to_string()])?;if recovery {tx.execute("UPDATE session_summaries SET deleting=1 WHERE id=?1",[stored.object_id.unwrap().to_string()])?;}Ok(())}).unwrap();
+        assert!(!proved(&h, job.id).unwrap());
+        let id = stored.object_id.unwrap();
+        let mut operation = Box::pin(async {
+            if recovery {
+                summary
+                    .reconcile_local_owned(owner.clone(), 1, h.jobs.reap_port())
+                    .await
+                    .map(|_| ())
+            } else {
+                summary.delete_owned(id, owner.clone()).await
+            }
+        });
+        let pending = tokio::time::timeout(Duration::from_millis(50), operation.as_mut())
+            .await
+            .is_err();
+        let retained = h
+            .store
+            .transaction(|tx| {
+                Ok(tx.query_row(
+                    "SELECT deleting FROM session_summaries WHERE id=?1",
+                    [id.to_string()],
+                    |row| row.get::<_, i64>(0),
+                )?)
+            })
+            .unwrap();
+        // This fixture alone owns the genuine unentered claim. Close its owner
+        // factory and remove its corresponding active entry before shutdown.
+        frame.close_handler();
+        control.lock().unwrap().active.remove(&job.id);
+        let result = if pending {
+            tokio::time::timeout(Duration::from_secs(2), operation)
+                .await
+                .unwrap()
+        } else {
+            Err(error(IntelligenceErrorCode::Interrupted))
+        };
+        h.jobs.shutdown().await.unwrap();
+        assert!(
+            pending,
+            "{recovery}: a terminal SQL row cannot substitute for unentered actual claim completion"
+        );
+        assert_eq!(retained, 1);
+        assert!(result.is_ok());
+        assert_eq!(h.store.count_summaries(session).unwrap(), 0);
+        assert!(h.store.get_job(job.id).unwrap().is_some());
+        assert!(h.http.requests.lock().unwrap().is_empty());
+    }
+}

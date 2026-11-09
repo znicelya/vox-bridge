@@ -2,6 +2,7 @@ pub(crate) mod driver;
 pub(crate) mod intelligence;
 pub(crate) mod knowledge;
 pub(crate) mod subscriptions;
+pub(crate) mod summary;
 use crate::{
     app::{
         AppState, LaunchValidation, ProviderConfigView, SaveProviderRequest, SubscriptionTicket,

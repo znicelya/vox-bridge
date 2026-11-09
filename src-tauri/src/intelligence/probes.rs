@@ -1,7 +1,7 @@
 //! One explicit probe owner; its lease follows native work beyond observer timeouts.
 use super::{
     config::{ServiceConfigStore, endpoint},
-    http::{HttpRetryPolicy, JsonHttp, JsonRequest, cancelled},
+    http::{HttpRetryPolicy, JsonErrorPolicy, JsonHttp, JsonRequest, cancelled},
     jobs::{OperationLease, now_ms},
     types::*,
 };
@@ -114,6 +114,7 @@ impl ProbeOwner {
                 timeout: Duration::from_millis(snapshot.timeout_ms as u64),
                 max_response_bytes: limit,
                 retry_policy: retry,
+                error_policy: JsonErrorPolicy::Generic,
             };
             let result = tokio::time::timeout_at(deadline, http.post(request, cancel.clone()))
                 .await

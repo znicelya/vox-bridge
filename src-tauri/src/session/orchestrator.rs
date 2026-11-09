@@ -582,6 +582,16 @@ impl SessionOrchestrator {
         self.event_bus.close(id);
         Ok(())
     }
+    pub(crate) async fn delete_session_guarded(
+        &self,
+        id: Uuid,
+        guard: crate::summary::SummarySessionDeleteGuard,
+    ) -> AppResult<()> {
+        self.ensure_session_deletable(id)?;
+        guard.delete_owned(id).await?;
+        self.event_bus.close(id);
+        Ok(())
+    }
 
     pub async fn subscribe(
         &self,

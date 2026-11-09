@@ -63,7 +63,7 @@ pub struct ExportData {
     pub session: StoredSession,
     pub lifecycle: StoredSessionLifecycle,
     pub segments: Vec<StoredTranscriptSegment>,
-    pub summaries: Vec<SummaryVersion>,
+    pub summaries: Vec<crate::summary::types::SummaryExportRecord>,
     pub diagnostics: Vec<RuntimeDiagnostic>,
     pub context: Option<serde_json::Value>,
 }

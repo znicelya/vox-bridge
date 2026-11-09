@@ -8,9 +8,11 @@ pub mod events;
 pub mod export;
 pub mod intelligence;
 pub mod knowledge;
+pub mod llm;
 pub mod providers;
 pub mod session;
 pub mod storage;
+pub mod summary;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -38,6 +40,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(|invoke| {
+            if commands::summary::COMMANDS.contains(&invoke.message.command()) {
+                return commands::summary::handle(invoke);
+            }
             if commands::knowledge::COMMANDS.contains(&invoke.message.command()) {
                 return commands::knowledge::handle(invoke);
             }

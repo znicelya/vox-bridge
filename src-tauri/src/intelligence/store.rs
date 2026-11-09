@@ -89,14 +89,7 @@ fn admit(tx: &Transaction<'_>, draft: JobDraft) -> AppResult<JobAdmissionResult>
     // Permanent identity precedes exclusion/capacity and payload work, including
     // terminal markers and a queue that has filled since the first callback.
     if let Some(key) = &permanent {
-        let existing = tx
-            .query_row(
-                &format!("SELECT {JOB_COLUMNS} FROM intelligence_jobs WHERE permanent_key=?1"),
-                [key],
-                read_job,
-            )
-            .optional()?;
-        if let Some(existing) = existing {
+        if let Some(existing) = permanent_job(tx, key)? {
             return Ok(JobAdmissionResult::Existing(existing));
         }
     }
@@ -137,6 +130,16 @@ fn admit(tx: &Transaction<'_>, draft: JobDraft) -> AppResult<JobAdmissionResult>
     };
     tx.execute("INSERT INTO intelligence_jobs (id,kind,status,session_id,object_id,exclusion_key,permanent_key,payload_json,error_code,created_at_ms,updated_at_ms) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10)",params![view.id.to_string(),enum_name(view.kind)?,enum_name(status)?,view.session_id.map(|id|id.to_string()),view.object_id.map(|id|id.to_string()),exclusion,permanent,payload_json,view.error.map(IntelligenceErrorCode::as_str),now])?;
     Ok(JobAdmissionResult::Created(view))
+}
+/// The original permanent lookup, without admission, writes, config or counters.
+pub(crate) fn permanent_job(tx: &Transaction<'_>, key: &str) -> AppResult<Option<JobView>> {
+    Ok(tx
+        .query_row(
+            &format!("SELECT {JOB_COLUMNS} FROM intelligence_jobs WHERE permanent_key=?1"),
+            [key],
+            read_job,
+        )
+        .optional()?)
 }
 impl LocalStore {
     pub fn get_job(&self, id: Uuid) -> AppResult<Option<JobView>> {

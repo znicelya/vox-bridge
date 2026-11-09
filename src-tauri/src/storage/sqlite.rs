@@ -20,8 +20,75 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub struct LocalStore {
     connection: Mutex<Connection>,
+    summary_snapshot_scopes: std::sync::Arc<tokio::sync::Semaphore>,
+}
+pub(crate) struct SummarySnapshotReadScope {
+    deadline: std::time::Instant,
+    cancel: tokio::sync::watch::Receiver<bool>,
+}
+impl SummarySnapshotReadScope {
+    pub(crate) fn check(&self) -> AppResult<()> {
+        use crate::intelligence::types::IntelligenceErrorCode as Code;
+        if *self.cancel.borrow() || self.cancel.has_changed().is_err() {
+            return Err(AppError::Intelligence(Code::Cancelled));
+        }
+        if std::time::Instant::now() >= self.deadline {
+            return Err(AppError::Intelligence(Code::Timeout));
+        }
+        Ok(())
+    }
 }
 impl LocalStore {
+    /// A private borrowed Deferred read. The blocking closure owns both its
+    /// process/job lease and its slot until SQLite actually releases them.
+    pub(crate) async fn with_summary_snapshot_owned<T: Send + 'static>(
+        self: &std::sync::Arc<Self>,
+        owner: crate::intelligence::jobs::OperationLease,
+        mut cancel: tokio::sync::watch::Receiver<bool>,
+        read: impl FnOnce(&rusqlite::Transaction<'_>, &SummarySnapshotReadScope) -> AppResult<T>
+        + Send
+        + 'static,
+    ) -> AppResult<T> {
+        use crate::intelligence::{http::cancelled, types::IntelligenceErrorCode as Code};
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let observed = tokio::time::Instant::from_std(deadline);
+        let permit = tokio::select! {biased;
+            _=cancelled(&mut cancel)=>return Err(AppError::Intelligence(Code::Cancelled)),
+            p=tokio::time::timeout_at(observed,self.summary_snapshot_scopes.clone().acquire_owned())=>p.map_err(|_|AppError::Intelligence(Code::Timeout))?.map_err(|_|AppError::Intelligence(Code::Interrupted))?,
+        };
+        let store = self.clone();
+        let scan_cancel = cancel.clone();
+        let work = tokio::task::spawn_blocking(move || {
+            let (_owner, _permit) = (owner, permit);
+            let scope = SummarySnapshotReadScope {
+                deadline,
+                cancel: scan_cancel,
+            };
+            let mut connection = loop {
+                scope.check()?;
+                match store.connection.try_lock() {
+                    Ok(connection) => break connection,
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        std::thread::sleep(std::time::Duration::from_millis(1))
+                    }
+                    Err(std::sync::TryLockError::Poisoned(_)) => {
+                        return Err(AppError::Intelligence(Code::Storage));
+                    }
+                }
+            };
+            scope.check()?;
+            let tx =
+                connection.transaction_with_behavior(rusqlite::TransactionBehavior::Deferred)?;
+            let value = read(&tx, &scope)?;
+            scope.check()?;
+            tx.commit()?;
+            Ok(value)
+        });
+        tokio::select! {biased;
+            _=cancelled(&mut cancel)=>Err(AppError::Intelligence(Code::Cancelled)),
+            result=tokio::time::timeout_at(observed,work)=>result.map_err(|_|AppError::Intelligence(Code::Timeout))?.map_err(|_|AppError::Intelligence(Code::Interrupted))?.map_err(crate::intelligence::store::safe_store_error),
+        }
+    }
     #[cfg(test)]
     pub(crate) fn fail_lifecycle_status_for_tests(&self, status: &str) -> AppResult<()> {
         if !matches!(
@@ -56,6 +123,7 @@ impl LocalStore {
             include_str!("../../migrations/0003_intelligence.sql"),
             include_str!("../../migrations/0004_knowledge.sql"),
             include_str!("../../migrations/0005_knowledge_index.sql"),
+            include_str!("../../migrations/0006_summaries.sql"),
         ];
         if version > MIGRATIONS.len() as i64 {
             return Err(AppError::InvalidRequest(
@@ -73,6 +141,7 @@ impl LocalStore {
         }
         Ok(Self {
             connection: Mutex::new(conn),
+            summary_snapshot_scopes: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
         })
     }
     /// The existing SQLite owner is the only authority. The closure must never
@@ -514,6 +583,14 @@ impl LocalStore {
                 s.structured_json
             ],
         )?;
+        // Foundation writes remain Legacy. Advancing the counter in this same
+        // transaction prevents deletion of a high signed version enabling reuse.
+        tx.execute(
+            "INSERT INTO summary_version_counters(session_id,last_version) VALUES(?1,?2) \
+             ON CONFLICT(session_id) DO UPDATE SET last_version=\
+             max(summary_version_counters.last_version,excluded.last_version)",
+            params![s.session_id.to_string(), s.version.max(0)],
+        )?;
         tx.commit()?;
         Ok(())
     }
@@ -580,7 +657,7 @@ impl LocalStore {
             session,
             lifecycle,
             segments,
-            summaries: self.list_summary_versions(id)?,
+            summaries: self.summary_export_records(id)?,
             diagnostics,
             context,
         }))

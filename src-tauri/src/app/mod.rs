@@ -44,6 +44,7 @@ mod documents;
 mod intelligence;
 mod lifecycle;
 mod profiles;
+mod summary;
 
 #[derive(serde::Serialize)]
 pub struct LaunchValidation {
@@ -82,6 +83,7 @@ pub struct AppState {
     index_owner: crate::knowledge::index::IndexOwner,
     documents: Arc<crate::knowledge::documents::DocumentService>,
     knowledge: Arc<crate::knowledge::service::KnowledgeService>,
+    summaries: Arc<crate::summary::SummaryService>,
 }
 
 impl AppState {
@@ -250,6 +252,16 @@ impl AppState {
             data_dir.clone(),
         ));
         register_intelligence_handlers(&documents, &knowledge)?;
+        let summaries = Arc::new(crate::summary::SummaryService::new(
+            store.clone(),
+            service_config.clone(),
+            jobs.clone(),
+            Arc::new(crate::llm::OpenAiCompatibleLlm::new(
+                service_config.clone(),
+                json_http.clone(),
+            )),
+        ));
+        summaries.register_handler()?;
         jobs.reconcile()?;
         let runtime = Arc::new(TranslationRuntime::new(
             factory.clone(),
@@ -289,6 +301,7 @@ impl AppState {
             index_owner,
             documents,
             knowledge,
+            summaries,
         })
     }
     pub fn data_dir(&self) -> &Path {

@@ -30,6 +30,11 @@ pub enum HttpRetryPolicy {
     Never,
     OnceTransient,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum JsonErrorPolicy {
+    Generic,
+    CompatibleLlmContextErrors,
+}
 pub struct JsonRequest {
     pub endpoint: url::Url,
     pub bearer: SecretString,
@@ -37,6 +42,7 @@ pub struct JsonRequest {
     pub timeout: Duration,
     pub max_response_bytes: usize,
     pub retry_policy: HttpRetryPolicy,
+    pub error_policy: JsonErrorPolicy,
 }
 pub struct JsonResponse {
     pub status: u16,
@@ -189,11 +195,17 @@ impl JsonHttp for ReqwestJsonHttp {
                     }
                 }
                 if !(200..300).contains(&status) {
-                    return Err(match status {
+                    let generic = match status {
                         401 | 403 => E::Authentication,
                         429 => E::RateLimited,
                         _ => E::Network,
-                    });
+                    };
+                    if request.error_policy == JsonErrorPolicy::CompatibleLlmContextErrors
+                        && !matches!(status, 401 | 403 | 429)
+                    {
+                        return Err(compatible_context_error(response, generic).await);
+                    }
+                    return Err(generic);
                 }
                 if response
                     .content_length()
@@ -220,6 +232,59 @@ impl JsonHttp for ReqwestJsonHttp {
             _=cancelled(&mut cancel)=>Err(E::Cancelled),
             result=tokio::time::timeout_at(deadline,operation)=>result.unwrap_or(Err(E::Timeout)),
         }
+    }
+}
+async fn compatible_context_error(
+    response: reqwest::Response,
+    generic: IntelligenceErrorCode,
+) -> IntelligenceErrorCode {
+    use futures_util::StreamExt;
+    const LIMIT: usize = 64 * 1024;
+    if response.content_length().is_some_and(|n| n > LIMIT as u64) {
+        return generic;
+    }
+    let mut stream = response.bytes_stream();
+    let mut body = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let Ok(chunk) = chunk else {
+            return generic;
+        };
+        if chunk.len() > LIMIT - body.len() {
+            return generic;
+        }
+        body.extend_from_slice(&chunk);
+    }
+    #[derive(serde::Deserialize)]
+    struct Envelope {
+        error: ErrorCode,
+    }
+    #[derive(serde::Deserialize)]
+    struct ErrorCode {
+        code: ContextCode,
+    }
+    struct ContextCode(bool);
+    impl<'de> serde::Deserialize<'de> for ContextCode {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            struct Code;
+            impl serde::de::Visitor<'_> for Code {
+                type Value = ContextCode;
+                fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.write_str("compatible error code")
+                }
+                fn visit_str<E: serde::de::Error>(self, raw: &str) -> Result<ContextCode, E> {
+                    Ok(ContextCode(matches!(
+                        raw,
+                        "context_length_exceeded" | "context_window_exceeded"
+                    )))
+                }
+            }
+            d.deserialize_str(Code)
+        }
+    }
+    if serde_json::from_slice::<Envelope>(&body).is_ok_and(|e| e.error.code.0) {
+        IntelligenceErrorCode::ContextTooLarge
+    } else {
+        generic
     }
 }
 fn retry_delay(value: &str) -> Option<Duration> {

@@ -49,6 +49,52 @@ fn request(url: url::Url) -> JsonRequest {
         timeout: Duration::from_secs(2),
         max_response_bytes: 128,
         retry_policy: HttpRetryPolicy::Never,
+        error_policy: JsonErrorPolicy::Generic,
+    }
+}
+#[tokio::test]
+async fn intelligence_http_compatible_context_errors_require_explicit_exact_bounded_code() {
+    for (policy, body, want) in [
+        (
+            JsonErrorPolicy::CompatibleLlmContextErrors,
+            r#"{"error":{"code":"context_length_exceeded","message":"raw-error-sentinel"}}"#
+                .to_owned(),
+            IntelligenceErrorCode::ContextTooLarge,
+        ),
+        (
+            JsonErrorPolicy::Generic,
+            r#"{"error":{"code":"context_length_exceeded"}}"#.to_owned(),
+            IntelligenceErrorCode::Network,
+        ),
+        (
+            JsonErrorPolicy::CompatibleLlmContextErrors,
+            r#"{"error":{"message":"context_length_exceeded"}}"#.to_owned(),
+            IntelligenceErrorCode::Network,
+        ),
+        (
+            JsonErrorPolicy::CompatibleLlmContextErrors,
+            r#"{"error":{"code":"CONTEXT_LENGTH_EXCEEDED"}}"#.to_owned(),
+            IntelligenceErrorCode::Network,
+        ),
+        (
+            JsonErrorPolicy::CompatibleLlmContextErrors,
+            r#"{"code":"context_length_exceeded"}"#.to_owned(),
+            IntelligenceErrorCode::Network,
+        ),
+        (
+            JsonErrorPolicy::CompatibleLlmContextErrors,
+            format!(
+                "{{\"error\":{{\"code\":\"context_length_exceeded\",\"message\":\"{}\"}}}}",
+                "x".repeat(64 * 1024)
+            ),
+            IntelligenceErrorCode::Network,
+        ),
+    ] {
+        let s = server(vec![response(400, "", &body)]).await;
+        let mut r = request(s.url.clone());
+        r.error_policy = policy;
+        assert_eq!(post(r).await.err(), Some(want));
+        assert_eq!(s.calls.load(Ordering::SeqCst), 1);
     }
 }
 async fn post(r: JsonRequest) -> Result<JsonResponse, IntelligenceErrorCode> {

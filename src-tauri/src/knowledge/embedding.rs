@@ -3,7 +3,7 @@ use crate::{
     error::{AppError, AppResult},
     intelligence::{
         config::{ServiceConfigStore, endpoint, validate_profile},
-        http::{HttpRetryPolicy, JsonHttp, JsonRequest},
+        http::{HttpRetryPolicy, JsonErrorPolicy, JsonHttp, JsonRequest},
         jobs::OperationLease,
         types::{IntelligenceErrorCode as Code, ModelProfile, ServiceKind},
     },
@@ -122,6 +122,7 @@ impl Embeddings for OpenAiCompatibleEmbeddings {
                     timeout: Duration::from_millis(u64::from(profile.timeout_ms)),
                     max_response_bytes: 8 * 1024 * 1024,
                     retry_policy: HttpRetryPolicy::OnceTransient,
+                    error_policy: JsonErrorPolicy::Generic,
                 },
                 execution.cancel.clone(),
             )

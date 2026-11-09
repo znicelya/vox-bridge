@@ -5,5 +5,6 @@ pub use models::{
     SummaryVersion,
 };
 pub use sqlite::LocalStore;
+pub(crate) use sqlite::SummarySnapshotReadScope;
 #[cfg(test)]
 mod sqlite_tests;

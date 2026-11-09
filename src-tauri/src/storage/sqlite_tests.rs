@@ -150,7 +150,7 @@ fn legacy_database_migrates_once_preserving_original_rows() {
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        5
+        6
     );
 }
 #[test]
@@ -218,7 +218,7 @@ fn intelligence_migration_from_v2_reopens_twice_and_preserves_rows() {
             connection
                 .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
                 .unwrap(),
-            5
+            6
         );
         assert_eq!(
             connection

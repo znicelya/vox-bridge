@@ -71,6 +71,7 @@ async fn active_and_restarted_terminal_subscriptions_use_runtime_and_durable_his
             .unwrap()
             .is_none()
     );
+    app.start_intelligence().await.unwrap();
     app.delete_session(record.id).await.unwrap();
     assert!(app.get_session(record.id).await.unwrap().is_none());
     let (out, _) = emitter();
@@ -80,6 +81,7 @@ async fn active_and_restarted_terminal_subscriptions_use_runtime_and_durable_his
             .is_err()
     );
     app.unsubscribe_session(ticket.id).await.unwrap();
+    app.close_all().await.unwrap();
 }
 
 #[tokio::test]
@@ -336,6 +338,7 @@ async fn deletion_joins_blocked_terminal_delivery_and_evicted_history_gets_fresh
     )
     .await
     .unwrap();
+    app.start_intelligence().await.unwrap();
     app.delete_session(session.id).await.unwrap();
     assert!(app.get_session(session.id).await.unwrap().is_none());
     assert!(
@@ -347,6 +350,7 @@ async fn deletion_joins_blocked_terminal_delivery_and_evicted_history_gets_fresh
             .unwrap()
             .is_none()
     );
+    app.close_all().await.unwrap();
 }
 
 #[tokio::test]
@@ -455,6 +459,7 @@ async fn retry_delete_after_registry_admission_failure_preserves_durable_row_unt
         ));
         waiting.push(unsubscribe);
     }
+    app.start_intelligence().await.unwrap();
     let first = app.delete_session(session.id).await.unwrap_err();
     assert!(first.to_string().contains("close admission timed out"));
     assert!(app.get_session(session.id).await.unwrap().is_some());
@@ -554,6 +559,7 @@ async fn cancelled_delete_caller_still_owns_cleanup_before_durable_removal() {
     .unwrap();
     emit_rx.await.unwrap();
     let owner = app.clone();
+    app.start_intelligence().await.unwrap();
     let caller = tokio::spawn(async move { owner.delete_session(session.id).await });
     drop_rx.await.unwrap();
     caller.abort();

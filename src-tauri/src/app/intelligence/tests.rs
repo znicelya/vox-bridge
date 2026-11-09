@@ -1,6 +1,7 @@
 use super::*;
 mod child_operations;
 mod knowledge;
+mod summary;
 use crate::intelligence::{
     jobs::{JobContext, JobHandler},
     test_support::payload,

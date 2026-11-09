@@ -5,6 +5,7 @@ use crate::{
     },
     storage::{LocalStore, StoredSession, StoredTranscriptSegment, SummaryVersion},
 };
+use sha2::{Digest, Sha256};
 use std::path::Path;
 use uuid::Uuid;
 
@@ -66,7 +67,7 @@ fn fixture() -> (LocalStore, Uuid) {
 #[test]
 fn markdown_export_contains_direction_timestamp_and_final_content() {
     let (store, id) = fixture();
-    let output = render_markdown(&store.get_export_data(id).unwrap().unwrap());
+    let output = render_markdown(&store.get_export_data(id).unwrap().unwrap()).unwrap();
     assert!(output.contains("Customer discovery"));
     assert!(output.contains("14:33:28"));
     assert!(output.contains("source_to_target"));
@@ -127,7 +128,7 @@ fn json_export_has_stable_fields_and_only_final_segments() {
 #[test]
 fn plain_text_export_uses_timestamped_direction_source_and_translation_lines() {
     let (store, id) = fixture();
-    let output = render_plain_text(&store.get_export_data(id).unwrap().unwrap());
+    let output = render_plain_text(&store.get_export_data(id).unwrap().unwrap()).unwrap();
     assert!(output.contains("[14:33:28] [source_to_target] source (en): Hello there"));
     assert!(output.contains("[14:33:28] [source_to_target] translation (fr): Bonjour"));
     assert!(!output.contains("audio_path"));
@@ -254,4 +255,174 @@ fn json_export_identifies_legacy_rows_and_includes_diagnostics_and_context() {
         80
     );
     assert_eq!(value["context"]["provider_name"], "Saved profile");
+}
+
+#[test]
+fn export_native_summary_contains_every_field_safe_metadata_and_no_raw_response() {
+    let (store, session) = fixture();
+    let profile = crate::intelligence::test_support::test_llm_profile();
+    let job = store
+        .create_summary_job(crate::summary::SummaryJobRequest {
+            session_id: session,
+            profile: Some(profile.clone()),
+            automatic: false,
+            initial_failure: None,
+        })
+        .unwrap();
+    let content = serde_json::json!({"summary":"完整摘要","participants":["采购方"],"companies":["客户公司"],"requirements":["24V泵"],"action_items":[{"text":"提供报价","owner":"销售方","due":"2026-11-10"}],"risks":["交期风险"],"terms":[{"term":"泵","meaning":"液体输送设备"}]});
+    let raw = "raw-response-only-export-sentinel";
+    let hash = format!("{:x}", Sha256::digest(raw.as_bytes()));
+    store.transaction(|tx| {
+        tx.execute("UPDATE intelligence_jobs SET status='succeeded',error_code=NULL WHERE id=?1",[job.id.to_string()])?;
+        tx.execute("UPDATE session_summaries SET status='succeeded',structured_json=?2,input_hash=?3,input_final_count=2,raw_response_hash=?4,raw_response_bytes=?5 WHERE id=?1",rusqlite::params![job.object_id.unwrap().to_string(),content.to_string(),"a".repeat(64),hash,raw.len()])?;
+        tx.execute("INSERT INTO summary_responses(summary_id,ordinal,phase,raw_text,response_hash) VALUES(?1,0,'map',?2,?3)",rusqlite::params![job.object_id.unwrap().to_string(),raw,hash])?;
+        Ok(())
+    }).unwrap();
+    let data = store.get_export_data(session).unwrap().unwrap();
+    let json = render_json(&data).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(value["summaries"][1]["origin"], "native");
+    assert_eq!(value["summaries"][1]["structured_json"], content);
+    assert_eq!(value["summaries"][1]["profile_id"], profile.id.to_string());
+    assert_eq!(value["summaries"][1]["model"], profile.model.unwrap());
+    assert_eq!(value["summaries"][1]["input_final_count"], 2);
+    for output in [
+        json,
+        render_markdown(&data).unwrap(),
+        render_plain_text(&data).unwrap(),
+    ] {
+        for text in [
+            "完整摘要",
+            "采购方",
+            "客户公司",
+            "24V泵",
+            "提供报价",
+            "销售方",
+            "2026-11-10",
+            "交期风险",
+            "泵",
+            "液体输送设备",
+            "succeeded",
+        ] {
+            assert!(output.contains(text), "complete export lost {text}");
+        }
+        for id in [job.object_id.unwrap(), session, profile.id] {
+            assert!(
+                output.contains(&id.to_string()),
+                "complete export lost summary/session/profile identity {id}"
+            );
+        }
+        assert!(!output.contains(raw));
+        assert!(!output.contains("job_payload_hash"));
+    }
+}
+#[test]
+fn export_legacy_signed_values_remain_numeric_without_fabricated_milliseconds() {
+    let (store, session) = fixture();
+    store
+        .create_summary_version(&SummaryVersion {
+            id: Uuid::new_v4(),
+            session_id: session,
+            version: -7,
+            created_at: i64::MIN,
+            status: "legacy-original".into(),
+            structured_json: r#"{"text":"旧内容"}"#.into(),
+        })
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_str(
+        &render_json(&store.get_export_data(session).unwrap().unwrap()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(value["summaries"][0]["version"], -7);
+    assert_eq!(value["summaries"][0]["created_at"], i64::MIN);
+    assert_eq!(value["summaries"][0]["status"], "legacy-original");
+    assert_eq!(value["summaries"][0]["origin"], "legacy");
+    assert!(value["summaries"][0]["created_at_ms"].is_null());
+}
+#[test]
+fn export_invalid_reserved_raw_and_overlarge_status_fail_whole_preserving_destination() {
+    for (raw, status) in [
+        (
+            r#"{"text":"safe","raw_response":"reserved-raw-sentinel"}"#.to_owned(),
+            "complete".to_owned(),
+        ),
+        ("{invalid".to_owned(), "complete".to_owned()),
+        (r#"{"text":"safe"}"#.to_owned(), "s".repeat(64 * 1024 + 1)),
+    ] {
+        let (store, session) = fixture();
+        store
+            .create_summary_version(&SummaryVersion {
+                id: Uuid::new_v4(),
+                session_id: session,
+                version: 2,
+                created_at: 19,
+                status,
+                structured_json: raw,
+            })
+            .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let destination = dir.path().join("complete.json");
+        std::fs::write(&destination, "existing-destination").unwrap();
+        let result = export_session(&store, session, ExportFormat::Json, &destination);
+        assert!(
+            result.is_err(),
+            "export must reject an incomplete/invalid summary projection"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&destination).unwrap(),
+            "existing-destination"
+        );
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+}
+#[test]
+fn export_32mib_summary_projection_cap_preserves_destination() {
+    let (store, session) = fixture();
+    let content = serde_json::json!({"text":"x".repeat(2*1024*1024-64)}).to_string();
+    for version in 2..20 {
+        store
+            .create_summary_version(&SummaryVersion {
+                id: Uuid::new_v4(),
+                session_id: session,
+                version,
+                created_at: 19,
+                status: "complete".into(),
+                structured_json: content.clone(),
+            })
+            .unwrap();
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let destination = dir.path().join("complete.json");
+    std::fs::write(&destination, "old").unwrap();
+    assert!(
+        export_session(&store, session, ExportFormat::Json, &destination).is_err(),
+        "32MiB complete summary projection must be bounded"
+    );
+    assert_eq!(std::fs::read_to_string(&destination).unwrap(), "old");
+}
+#[test]
+fn export_128mib_escaped_artifact_cap_preserves_destination() {
+    let dir = tempfile::tempdir().unwrap();
+    let destination = dir.path().join("complete.json");
+    std::fs::write(&destination, "old").unwrap();
+    let (store, session) = fixture();
+    store
+        .append_final_segment(&StoredTranscriptSegment {
+            id: Uuid::new_v4(),
+            session_id: session,
+            direction: "source_to_target".into(),
+            sequence: 100,
+            occurred_at: 19,
+            language: "en".into(),
+            text: "\0".repeat(23 * 1024 * 1024),
+            is_final: true,
+            details: None,
+            occurred_at_ms: None,
+        })
+        .unwrap();
+    assert!(
+        export_session(&store, session, ExportFormat::Json, &destination).is_err(),
+        "escaped rendered artifact must fail whole at128MiB"
+    );
+    assert_eq!(std::fs::read_to_string(&destination).unwrap(), "old");
 }

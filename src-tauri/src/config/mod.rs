@@ -1,5 +1,7 @@
 mod models;
 mod secret_store;
+#[cfg(test)]
+pub(crate) use secret_store::KeyBackend;
 mod worker;
 
 pub use models::{EmbeddingConfig, LlmConfig, ProviderConfig, PublicProviderConfig, TavilyConfig};

@@ -94,6 +94,9 @@ impl AppState {
     }
     pub async fn delete_session(&self, session_id: Uuid) -> AppResult<()> {
         let epoch = self.admitted_epoch()?;
+        self.orchestrator.ensure_session_deletable(session_id)?;
+        self.summaries.require_epoch(epoch)?;
+        let summary_owner = self.intelligence_lease()?;
         let permit = self
             .subscription_admission
             .clone()
@@ -106,10 +109,17 @@ impl AppState {
             let _mutation = owner.subscription_mutation.lock().await;
             owner.check_epoch(epoch)?;
             owner.orchestrator.ensure_session_deletable(session_id)?;
+            let summaries = owner
+                .summaries
+                .prepare_session_delete_owned(session_id, summary_owner)
+                .await?;
             // Preserve the row when bounded cleanup admission fails, so this
             // command can retry while the mutation guard fences new subscribers.
             owner.close_registry(Some(session_id)).await?;
-            owner.orchestrator.delete_session(session_id).await
+            owner
+                .orchestrator
+                .delete_session_guarded(session_id, summaries)
+                .await
         })
         .await
         .map_err(|_| AppError::Internal("session deletion owner stopped".into()))?
@@ -141,15 +151,17 @@ impl AppState {
     }
     async fn close_intelligence_owner(&self) -> AppResult<()> {
         let _startup = self.intelligence_startup.lock().await;
-        let (jobs, probes, subscriptions) = tokio::join!(
+        let (jobs, probes, subscriptions, summaries) = tokio::join!(
             self.jobs.shutdown(),
             self.probes.shutdown(),
-            self.intelligence_subscriptions.close_all()
+            self.intelligence_subscriptions.close_all(),
+            self.summaries.drain_actual()
         );
         // Job cleanup may still need already-issued index ownership. The
         // independent index sender remains alive until the scheduler confirms
         // that workers and child operations have actually drained.
         jobs?;
+        summaries?;
         self.knowledge.shutdown_searches().await?;
         let _direct_operations = self
             .intelligence_operations
@@ -201,6 +213,7 @@ impl AppState {
                 state.close_succeeded = false;
                 state.epoch = state.epoch.wrapping_add(1);
                 self.close_epoch.send_replace(state.epoch);
+                self.summaries.signal_closing()?;
                 let (finished, completion) = watch::channel(None);
                 state.completion = Some(completion.clone());
                 // Signal intelligence/probes before waiting for any config or

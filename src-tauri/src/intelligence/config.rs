@@ -26,6 +26,23 @@ pub struct ServiceConfigStore {
     store: Arc<LocalStore>,
     path: PathBuf,
 }
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "Automatic selection is consumed by Task2")
+)]
+pub(crate) enum SummarySelection {
+    Manual { profile_id: Option<Uuid> },
+    Automatic,
+}
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "Automatic admission fields are consumed by Task2")
+)]
+pub(crate) struct SummaryConfigSnapshot {
+    pub(crate) automatic_summary: bool,
+    pub(crate) profile: Option<ModelProfile>,
+    pub(crate) selection_error: Option<IntelligenceErrorCode>,
+}
 impl ServiceConfigStore {
     pub(crate) fn scoped(&self, owner: super::jobs::OperationLease) -> Self {
         Self {
@@ -311,6 +328,54 @@ impl ServiceConfigStore {
                     .transpose()?;
                 let result = store
                     .transaction(|db| operation(db, profile))
+                    .map_err(super::store::safe_store_error)?;
+                completed(&result);
+                Ok(result)
+            })
+            .await
+            .map_err(safe_config_error)
+    }
+    /// Exactly one owned config gate -> one SQLite transaction -> completion.
+    /// Selection never reads credentials; the resolver checks them per request.
+    pub(crate) async fn with_summary_selection_completion<T: Send + 'static>(
+        &self,
+        selection: SummarySelection,
+        operation: impl FnOnce(&rusqlite::Transaction<'_>, SummaryConfigSnapshot) -> AppResult<T>
+        + Send
+        + 'static,
+        completed: impl FnOnce(&T) + Send + 'static,
+    ) -> AppResult<T> {
+        let store = self.store.clone();
+        self.io
+            .run(move |tx| {
+                let doc = read(tx)?;
+                let id = match selection {
+                    SummarySelection::Manual { profile_id } => {
+                        profile_id.or(doc.settings.summary_profile_id)
+                    }
+                    SummarySelection::Automatic => doc.settings.summary_profile_id,
+                };
+                let profile = id
+                    .and_then(|id| {
+                        doc.profiles
+                            .iter()
+                            .find(|p| p.profile.id == id && p.profile.kind == ServiceKind::Llm)
+                    })
+                    .map(|p| p.profile.clone());
+                let selection_error = profile
+                    .is_none()
+                    .then_some(IntelligenceErrorCode::Configuration);
+                let result = store
+                    .transaction(|db| {
+                        operation(
+                            db,
+                            SummaryConfigSnapshot {
+                                automatic_summary: doc.settings.automatic_summary,
+                                profile,
+                                selection_error,
+                            },
+                        )
+                    })
                     .map_err(super::store::safe_store_error)?;
                 completed(&result);
                 Ok(result)

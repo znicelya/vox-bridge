@@ -65,9 +65,9 @@ pub fn export_session(
         .get_export_data(session_id)?
         .ok_or(AppError::SessionNotFound(session_id))?;
     let output = match format {
-        ExportFormat::Markdown => markdown::render_markdown(&data),
+        ExportFormat::Markdown => markdown::render_markdown(&data)?,
         ExportFormat::Json => json::render_json(&data)?,
-        ExportFormat::PlainText => plain_text::render_plain_text(&data),
+        ExportFormat::PlainText => plain_text::render_plain_text(&data)?,
     };
     let parent = destination.parent().unwrap_or_else(|| Path::new("."));
     if !parent.exists() || !parent.is_dir() {
@@ -175,53 +175,147 @@ pub(crate) fn segment_role(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn safe_summary_json(raw: &str) -> Option<serde_json::Value> {
-    fn sanitize(value: serde_json::Value) -> serde_json::Value {
-        match value {
-            serde_json::Value::Object(object) => {
-                let mut safe = serde_json::Map::new();
-                for (key, value) in object {
-                    let normalized: String = key
-                        .chars()
-                        .filter(|character| character.is_ascii_alphanumeric())
-                        .flat_map(char::to_lowercase)
-                        .collect();
-                    let sensitive = normalized.contains("secret")
-                        || normalized.contains("token")
-                        || normalized.contains("password")
-                        || normalized.contains("passphrase")
-                        || normalized.contains("passcode")
-                        || normalized == "passwd"
-                        || normalized == "pwd"
-                        || normalized == "key"
-                        || normalized.contains("apikey")
-                        || normalized.contains("accesskey")
-                        || normalized.contains("clientkey")
-                        || normalized.contains("privatekey")
-                        || normalized.contains("signingkey")
-                        || normalized.contains("encryptionkey")
-                        || normalized.contains("credential")
-                        || normalized.contains("cookie")
-                        || normalized.contains("sessionid")
-                        || normalized.contains("authorization")
-                        || normalized == "auth"
-                        || normalized.contains("bearer")
-                        || (normalized.starts_with("audio")
-                            && ["path", "uri", "file", "recording"]
-                                .iter()
-                                .any(|part| normalized.ends_with(part)));
-                    if !sensitive {
-                        safe.insert(key, sanitize(value));
-                    }
-                }
-                serde_json::Value::Object(safe)
-            }
-            serde_json::Value::Array(values) => {
-                serde_json::Value::Array(values.into_iter().map(sanitize).collect())
-            }
-            other => other,
-        }
-    }
+    crate::summary::content::legacy_json(raw).ok()
+}
 
-    serde_json::from_str(raw).ok().map(sanitize)
+pub(crate) fn size_error() -> AppError {
+    AppError::Intelligence(crate::intelligence::types::IntelligenceErrorCode::ResponseTooLarge)
+}
+pub(crate) struct ArtifactWriter {
+    bytes: Vec<u8>,
+}
+impl ArtifactWriter {
+    pub(crate) fn new() -> Self {
+        Self { bytes: Vec::new() }
+    }
+    pub(crate) fn finish(self) -> AppResult<String> {
+        String::from_utf8(self.bytes)
+            .map_err(|_| AppError::Internal("invalid export encoding".into()))
+    }
+}
+impl Write for ArtifactWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self
+            .bytes
+            .len()
+            .checked_add(bytes.len())
+            .is_none_or(|n| n > 128 * 1024 * 1024)
+        {
+            return Err(std::io::Error::other("export artifact size limit"));
+        }
+        self.bytes.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+pub(crate) fn validate_summary_projection(data: &ExportData) -> AppResult<()> {
+    use crate::summary::{
+        content::{CONTENT_BYTES, json_size},
+        types::SummaryOrigin,
+    };
+    let mut bytes = 2usize;
+    for record in &data.summaries {
+        let limit = match record.origin {
+            SummaryOrigin::Native => CONTENT_BYTES + 64 * 1024,
+            SummaryOrigin::Legacy => 8 * 1024 * 1024,
+        };
+        let size = json_size(record, limit).map_err(|_| size_error())?;
+        bytes = bytes
+            .checked_add(size + 1)
+            .filter(|n| *n <= 32 * 1024 * 1024)
+            .ok_or_else(size_error)?;
+    }
+    Ok(())
+}
+pub(crate) fn write_summary(
+    output: &mut impl Write,
+    summary: &crate::summary::types::SummaryExportRecord,
+    markdown: bool,
+) -> std::io::Result<()> {
+    use crate::summary::types::{SummaryExportContent, SummaryOrigin};
+    writeln!(
+        output,
+        "{}Version {}",
+        if markdown { "### " } else { "" },
+        summary.version
+    )?;
+    writeln!(
+        output,
+        "Summary ID: {}\nSession ID: {}",
+        summary.id, summary.session_id
+    )?;
+    writeln!(
+        output,
+        "Status: {}\nOrigin: {}\nCreated at seconds: {}",
+        summary.status,
+        match summary.origin {
+            SummaryOrigin::Native => "native",
+            SummaryOrigin::Legacy => "legacy",
+        },
+        summary.created_at
+    )?;
+    if let Some(ms) = summary.created_at_ms {
+        writeln!(output, "Created at milliseconds: {ms}")?;
+    }
+    if let Some(deleting) = summary.deleting {
+        writeln!(output, "Deleting: {deleting}")?;
+    }
+    if let Some(profile) = summary.profile_id {
+        writeln!(output, "Profile: {profile}")?;
+    }
+    if let Some(model) = &summary.model {
+        writeln!(output, "Model: {model}")?;
+    }
+    if let Some(error) = summary.error {
+        writeln!(output, "Error: {}", error.as_str())?;
+    }
+    if let Some(count) = summary.input_final_count {
+        writeln!(output, "Final input rows: {count}")?;
+    }
+    if let Some(hash) = &summary.input_hash {
+        writeln!(output, "Input hash: {hash}")?;
+    }
+    if let Some(hash) = &summary.raw_response_hash {
+        writeln!(output, "Response hash: {hash}")?;
+    }
+    match &summary.content {
+        Some(SummaryExportContent::Native(content)) => {
+            writeln!(output, "\nSummary\n{}", content.summary)?;
+            for (label, values) in [
+                ("Participants", &content.participants),
+                ("Companies", &content.companies),
+                ("Requirements", &content.requirements),
+                ("Risks", &content.risks),
+            ] {
+                writeln!(output, "\n{label}")?;
+                for value in values {
+                    writeln!(output, "- {value}")?;
+                }
+            }
+            writeln!(output, "\nAction items")?;
+            for action in &content.action_items {
+                writeln!(
+                    output,
+                    "- {}\n  Owner: {}\n  Due: {}",
+                    action.text,
+                    action.owner.as_deref().unwrap_or("—"),
+                    action.due.as_deref().unwrap_or("—")
+                )?;
+            }
+            writeln!(output, "\nTerms")?;
+            for term in &content.terms {
+                writeln!(output, "- {}: {}", term.term, term.meaning)?;
+            }
+        }
+        Some(SummaryExportContent::Legacy(content)) => {
+            serde_json::to_writer_pretty(&mut *output, content).map_err(std::io::Error::other)?;
+            writeln!(output)?;
+        }
+        None => writeln!(output, "Content: unavailable")?,
+    }
+    writeln!(output)
 }
