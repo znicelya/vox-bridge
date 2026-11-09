@@ -2,6 +2,7 @@ use super::*;
 mod child_operations;
 mod continuations;
 mod documents;
+mod reap;
 use crate::intelligence::test_support::*;
 use std::{
     sync::atomic::{AtomicUsize, Ordering},

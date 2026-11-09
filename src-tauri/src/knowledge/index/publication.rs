@@ -1,7 +1,7 @@
 //! Compact plans reference durable rows, never a whole-document vector array.
 use super::{
     repair,
-    seal::{Generation, Intent},
+    seal::{Generation, IntentKind, Seal},
 };
 use crate::{
     error::AppResult,
@@ -10,7 +10,7 @@ use crate::{
 use rusqlite::{Transaction, params};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct DocumentFence {
     #[serde(deserialize_with = "super::codec::canonical_uuid")]
@@ -59,9 +59,12 @@ pub(crate) struct ReadyPublication {
     pub(crate) expected_generation: Option<Uuid>,
     pub(crate) count: u32,
     pub(crate) job: JobPublicationFence,
+    pub(crate) job_proof: crate::knowledge::service::job_proof::DocumentJobProof,
+    pub(crate) cleanup_directory: super::delete_completion::ManagedDirectory,
 }
 impl ReadyPublication {
     fn ready(&self, tx: &Transaction<'_>, generation: &Generation) -> AppResult<()> {
+        self.job_proof.require(tx, &self.document)?;
         if !self.document.matches(tx, "indexing")? {
             return Err(repair());
         }
@@ -247,12 +250,18 @@ pub(crate) enum PublicationPlan {
         count: u32,
         delete_work: Uuid,
         document: DocumentFence,
+        job_proof: crate::knowledge::service::job_proof::DocumentJobProof,
+        work_proof: super::delete_work::DeleteWorkProof,
+        cleanup_directory: super::delete_completion::ManagedDirectory,
     },
     Delete {
         operation: Uuid,
         work: Uuid,
         document: DocumentFence,
         job: Option<JobPublicationFence>,
+        job_proof: crate::knowledge::service::job_proof::DocumentJobProof,
+        work_proof: super::delete_work::DeleteWorkProof,
+        cleanup_directory: super::delete_completion::ManagedDirectory,
     },
     Cleanup {
         operation: Uuid,
@@ -263,10 +272,16 @@ pub(crate) enum PublicationPlan {
         work: Uuid,
         source: Uuid,
         count: u32,
+        cleanup_directory: super::delete_completion::ManagedDirectory,
     },
 }
 impl PublicationPlan {
-    pub(super) fn apply(&self, tx: &Transaction<'_>, intent: &Intent) -> AppResult<()> {
+    pub(super) fn apply(
+        &self,
+        tx: &Transaction<'_>,
+        receipt: &super::owner::PersistedReceipt,
+    ) -> AppResult<()> {
+        let intent = receipt.intent().body();
         match self {
             Self::Recovery {
                 operation,
@@ -276,6 +291,9 @@ impl PublicationPlan {
                 count,
                 delete_work,
                 document,
+                job_proof,
+                work_proof,
+                cleanup_directory,
             } => {
                 if *operation != intent.operation_id
                     || *count > 200000
@@ -285,6 +303,11 @@ impl PublicationPlan {
                     return Err(repair());
                 }
                 super::recovery::validate(tx, fence, true)?;
+                fresh_coverage(tx, receipt, *work, *count)?;
+                job_proof.require(tx, document)?;
+                let deletion = crate::knowledge::service::job_proof::delete(tx, *delete_work)?
+                    .ok_or_else(repair)?;
+                work_proof.require_live(tx, &deletion.input)?;
                 if !document.matches(tx, "deleting")? {
                     return Err(repair());
                 }
@@ -394,18 +417,14 @@ impl PublicationPlan {
                     WHERE index_identity=?1 AND status='ready')",
                     [&intent.identity],
                 )?;
-                tx.execute(
-                    "UPDATE knowledge_managed_files SET \
-                    state='delete_pending' WHERE document_id=?1",
-                    [document.id.to_string()],
+                super::delete_completion::publish_fresh(
+                    tx,
+                    receipt,
+                    fence.source.generation,
+                    *count,
+                    super::delete_completion::CompletionKind::Recovery,
+                    cleanup_directory,
                 )?;
-                if tx.execute(
-                    "DELETE FROM documents WHERE id=?1 AND version=?2",
-                    params![document.id.to_string(), document.version],
-                )? != 1
-                {
-                    return Err(repair());
-                }
                 tx.execute(
                     "UPDATE knowledge_index_generations SET \
                     active_generation=?1,state='active',\
@@ -422,18 +441,50 @@ impl PublicationPlan {
                 if plan.operation != intent.operation_id || plan.count == 0 || plan.count > 10000 {
                     return Err(repair());
                 }
-                plan.job.commit(tx, || plan.ready(tx, &intent.descriptor))
+                if intent.operation == IntentKind::Create {
+                    fresh_coverage(tx, receipt, plan.work, plan.count)?;
+                }
+                plan.job.commit(tx, || {
+                    if intent.operation == IntentKind::Create {
+                        if let Some(source) = plan
+                            .expected_generation
+                            .filter(|source| *source != intent.descriptor.generation)
+                        {
+                            super::delete_completion::publish_fresh(
+                                tx,
+                                receipt,
+                                source,
+                                plan.count,
+                                super::delete_completion::CompletionKind::Ready,
+                                &plan.cleanup_directory,
+                            )?;
+                        }
+                    }
+                    plan.ready(tx, &intent.descriptor)
+                })
             }
             Self::Delete {
                 operation,
                 work,
                 document,
                 job,
+                job_proof,
+                work_proof,
+                cleanup_directory,
             } => {
                 if *operation != intent.operation_id {
                     return Err(repair());
                 }
                 let remove = || {
+                    job_proof.require(tx, document)?;
+                    let deletion = crate::knowledge::service::job_proof::delete(tx, *work)?
+                        .ok_or_else(repair)?;
+                    if deletion.input.identity.as_deref() != Some(&intent.identity)
+                        || deletion.input.generation != Some(intent.descriptor.generation)
+                    {
+                        return Err(repair());
+                    }
+                    work_proof.require_live(tx, &deletion.input)?;
                     if !document.matches(tx, "deleting")? {
                         return Err(repair());
                     }
@@ -453,19 +504,12 @@ impl PublicationPlan {
                     if foreign {
                         return Err(repair());
                     }
-                    tx.execute(
-                        "UPDATE knowledge_managed_files SET \
-                    state='delete_pending' WHERE document_id=?1",
-                        [document.id.to_string()],
-                    )?;
-                    if tx.execute(
-                        "DELETE FROM documents WHERE id=?1 AND version=?2",
-                        params![document.id.to_string(), document.version],
-                    )? != 1
-                    {
-                        return Err(repair());
-                    }
-                    Ok(())
+                    super::delete_completion::publish_delete(
+                        tx,
+                        &deletion.input,
+                        Some(receipt),
+                        cleanup_directory,
+                    )
                 };
                 match job {
                     Some(j) => j.commit(tx, remove),
@@ -505,6 +549,7 @@ impl PublicationPlan {
                 work,
                 source,
                 count,
+                cleanup_directory,
             } => {
                 if *operation != intent.operation_id
                     || *count > 200000
@@ -513,6 +558,7 @@ impl PublicationPlan {
                     return Err(repair());
                 }
                 let target = intent.descriptor.generation.to_string();
+                let source_id = *source;
                 let source = source.to_string();
                 let active: Option<String> = tx.query_row(
                     "SELECT active_generation FROM \
@@ -523,6 +569,7 @@ impl PublicationPlan {
                 if active.as_deref() != Some(&source) {
                     return Err(repair());
                 }
+                fresh_coverage(tx, receipt, *work, *count)?;
                 let seen = visit(tx, *work, |r| {
                     let chunk: String = r.get(6)?;
                     let hash: String = r.get(7)?;
@@ -575,6 +622,14 @@ impl PublicationPlan {
                     return Err(repair());
                 }
                 complete_survivors(tx, &intent.identity, &target, false)?;
+                super::delete_completion::publish_fresh(
+                    tx,
+                    receipt,
+                    source_id,
+                    *count,
+                    super::delete_completion::CompletionKind::Swap,
+                    cleanup_directory,
+                )?;
                 tx.execute(
                     "UPDATE knowledge_index_generations SET \
                     active_generation=?1,state='active',\
@@ -589,6 +644,70 @@ impl PublicationPlan {
             }
         }
     }
+}
+fn fresh_coverage(
+    tx: &Transaction<'_>,
+    receipt: &super::owner::PersistedReceipt,
+    work: Uuid,
+    count: u32,
+) -> AppResult<()> {
+    use crate::knowledge::service::state;
+    let intent = receipt.intent().body();
+    let seal = Seal::decode(receipt.seal_json())?;
+    if intent.operation != IntentKind::Create
+        || intent.prior_seal_sha256.is_some()
+        || seal.operation_id != intent.operation_id
+        || seal.descriptor != intent.descriptor
+        || seal.stored_count != u64::from(count)
+        || count > 200_000
+    {
+        return Err(repair());
+    }
+    let target = intent.descriptor.generation.to_string();
+    let mappings: u64 = tx.query_row(
+        "SELECT count(*) FROM knowledge_generation_mappings WHERE identity=?1 AND generation=?2",
+        params![intent.identity, target],
+        |r| r.get(0),
+    )?;
+    if mappings != seal.stored_count {
+        return Err(repair());
+    }
+    let mut next = 0u32;
+    let seen = visit(tx, work, |r| {
+        let ordinal: u32 = r.get(0).map_err(|_| repair())?;
+        let text = |column, max| state::text(r, column, max).map_err(|_| repair());
+        if ordinal != next
+            || text(1, 64)? != intent.identity
+            || text(2, 36)? != target
+            || text(3, 20)? != next.to_string()
+        {
+            return Err(repair());
+        }
+        let mapped: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM knowledge_generation_mappings WHERE identity=?1 \
+             AND generation=?2 AND vector_id=?3 AND document_id=?4 AND document_version=?5 \
+             AND chunk_id=?6 AND content_hash=?7)",
+            params![
+                intent.identity,
+                target,
+                text(3, 20)?,
+                text(4, 36)?,
+                r.get::<_, u32>(5).map_err(|_| repair())?,
+                text(6, 36)?,
+                text(7, 64)?
+            ],
+            |r| r.get(0),
+        )?;
+        if !mapped {
+            return Err(repair());
+        }
+        next = next.checked_add(1).ok_or_else(repair)?;
+        Ok(())
+    })?;
+    if seen != count || next != count {
+        return Err(repair());
+    }
+    Ok(())
 }
 fn visit(
     tx: &Transaction<'_>,

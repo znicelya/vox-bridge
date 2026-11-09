@@ -17,6 +17,7 @@ struct Hook {
     >,
     calls: AtomicUsize,
     completed: Arc<AtomicUsize>,
+    reap: JobReapPort,
 }
 #[async_trait::async_trait]
 impl AfterTerminal for Hook {
@@ -55,6 +56,13 @@ impl AfterTerminal for Hook {
             JobStatus::Succeeded
         );
         self.calls.fetch_add(1, Ordering::SeqCst);
+        assert!(
+            self.store
+                .transaction(|tx| self.reap.prove(tx, notice.parent_id))
+                .unwrap()
+                .is_none(),
+            "the preterminal reservation still owns the actual continuation"
+        );
         self.store
             .transaction(|tx| {
                 fence.run(|| {
@@ -108,11 +116,15 @@ async fn intelligence_after_terminal_reserves_before_success_releases_exclusion_
         channels: std::sync::Mutex::new(Some((entered, receive))),
         calls: AtomicUsize::new(0),
         completed: Arc::new(AtomicUsize::new(0)),
+        reap: h.jobs.reap_port(),
     });
     h.jobs.register_after_terminal(hook.clone()).unwrap();
     h.jobs.start().unwrap();
     let parent = enqueue(&h.jobs, Uuid::new_v4()).await.unwrap();
-    wait.await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), wait)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
         h.store.get_job(parent.id).unwrap().unwrap().status,
         JobStatus::Succeeded
@@ -132,6 +144,12 @@ async fn intelligence_after_terminal_reserves_before_success_releases_exclusion_
     );
     assert_eq!(hook.completed.load(Ordering::SeqCst), 1);
     assert_eq!(hook.calls.load(Ordering::SeqCst), 1);
+    assert!(
+        h.store
+            .transaction(|tx| h.jobs.reap_port().prove(tx, parent.id))
+            .unwrap()
+            .is_some()
+    );
     h.jobs.start().unwrap();
     h.jobs.shutdown().await.unwrap();
     assert_eq!(
@@ -158,6 +176,7 @@ async fn intelligence_after_terminal_does_not_run_success_hook_for_failed_or_can
             channels: std::sync::Mutex::new(Some((entered, receive))),
             calls: AtomicUsize::new(0),
             completed: Arc::new(AtomicUsize::new(0)),
+            reap: h.jobs.reap_port(),
         });
         h.jobs.register_after_terminal(hook.clone()).unwrap();
         h.jobs.start().unwrap();

@@ -1,4 +1,6 @@
 mod codec;
+pub(crate) mod delete_completion;
+pub(crate) mod delete_work;
 mod lifecycle;
 mod owner;
 mod preflight;

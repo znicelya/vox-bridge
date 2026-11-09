@@ -125,7 +125,6 @@ async fn knowledge_binding_concurrent_first_index_conflicting_actual_dimensions_
     first.register_handlers().unwrap();
     second.register_handlers().unwrap();
     h.jobs.start().unwrap();
-    second_jobs.start().unwrap();
     let fixture = KnowledgeHarness {
         h,
         service: first.clone(),
@@ -134,11 +133,20 @@ async fn knowledge_binding_concurrent_first_index_conflicting_actual_dimensions_
     };
     let one = fixture.import_text("one", "24V");
     let two = fixture.import_text("two", "48V");
+    let spare = fixture.import_text("occupied first worker", "12V");
     let job1 = first.reindex_owned(one, Arc::new(())).await.unwrap();
-    let job2 = second.reindex_owned(two, Arc::new(())).await.unwrap();
-    let entered = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+    let entered = tokio::time::timeout(std::time::Duration::from_secs(60), async {
         first_vectors.entered.notified().await;
+        // Both schedulers claim from the same store. Keep both genuine first
+        // workers occupied before starting the second scheduler, so its job
+        // must enter its independent Core instead of waiting on the first serial.
+        let occupied = first.reindex_owned(spare, Arc::new(())).await.unwrap();
+        fixture.wait_running(occupied.id).await;
+        second_jobs.start().unwrap();
+        let job2 = second.reindex_owned(two, Arc::new(())).await.unwrap();
         second_vectors.entered.notified().await;
+        fixture.h.jobs.cancel(occupied.id).await.unwrap();
+        (job2, occupied)
     })
     .await;
     first_vectors.block.store(false, Ordering::SeqCst);
@@ -149,10 +157,19 @@ async fn knowledge_binding_concurrent_first_index_conflicting_actual_dimensions_
         entered.is_ok(),
         "both independent cores must enter before either publishes"
     );
+    let (job2, occupied) = entered.unwrap();
+    assert_eq!(
+        (
+            first_vectors.calls.load(Ordering::SeqCst),
+            second_vectors.calls.load(Ordering::SeqCst)
+        ),
+        (1, 1)
+    );
     let statuses = [
         fixture.wait(job1.id).await.status,
-        fixture.wait(job2.id).await.status,
+        fixture.wait_on(&second_jobs, job2.id).await.status,
     ];
+    assert_eq!(fixture.wait(occupied.id).await.status, JobStatus::Cancelled);
     assert_eq!(
         statuses
             .iter()

@@ -60,8 +60,16 @@ impl IndexRepository {
             if target.key()? != source.key()? || !valid {
                 return Err(repair());
             }
+            super::delete_completion::guard_physical(tx, source)?;
             Ok(())
         })
+    }
+    pub(super) fn acknowledge_removal(
+        &self,
+        receipt: &super::owner::RemovalReceipt,
+    ) -> AppResult<()> {
+        self.store
+            .transaction(|tx| super::delete_completion::mark_source_removed(tx, receipt))
     }
     pub(super) fn recovery_evidence(
         &self,
@@ -210,7 +218,7 @@ impl IndexRepository {
     ) -> AppResult<PublicationAck> {
         self.store.transaction(|tx| {
             validate_intent(tx, receipt.intent())?;
-            plan.apply(tx, receipt.intent().body())?;
+            plan.apply(tx, receipt)?;
             publish_seal(tx, receipt)
         })?;
         Ok(PublicationAck {

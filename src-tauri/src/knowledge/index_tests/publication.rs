@@ -1,5 +1,5 @@
 use super::*;
-fn document_chunks(h: &KnowledgeHarness, count: u32) -> Uuid {
+pub(super) fn document_chunks(h: &KnowledgeHarness, count: u32) -> Uuid {
     let id = h.import_text("paged", "first");
     h.h.store
         .transaction(|tx| {
@@ -183,6 +183,111 @@ async fn knowledge_publication_rolls_back_every_page_on_document_location_pointe
         h.close().await;
     }
 }
+#[tokio::test]
+async fn knowledge_review_evidence_accepts_1024_bytes_and_sqlite_rejects_1025_utf8_bytes() {
+    let h = KnowledgeHarness::new().await;
+    let id = document_chunks(&h, 241);
+    let store = h.h.store.clone();
+    h.service.at_checkpoint(CommitPoint::BeforeReady, move || {
+        store.transaction(|tx| {
+            let raw: String = tx.query_row(
+                "SELECT document_fence_json FROM knowledge_index_work_items WHERE ordinal=240",
+                [], |r| r.get(0),
+            )?;
+            let padded = format!("{raw}{}", " ".repeat(1024 - raw.len()));
+            assert_eq!(padded.len(), 1024);
+            assert_eq!(tx.execute("UPDATE knowledge_index_work_items SET document_fence_json=?1 WHERE ordinal=240", [&padded])?, 1);
+            let ascii = format!("{padded} ");
+            let multibyte = format!("{raw}{}界", " ".repeat(1022 - raw.len()));
+            for oversized in [ascii, multibyte] {
+                assert_eq!(oversized.len(), 1025);
+                assert!(oversized.chars().count() <= 1025);
+                assert!(tx.execute("UPDATE knowledge_index_work_items SET document_fence_json=?1 WHERE ordinal=240", [&oversized]).is_err());
+            }
+            let retained: String = tx.query_row("SELECT document_fence_json FROM knowledge_index_work_items WHERE ordinal=240", [], |r| r.get(0))?;
+            assert_eq!(retained, padded);
+            Ok(())
+        }).unwrap();
+    });
+    assert_eq!(h.index(id).await.status, JobStatus::Succeeded);
+    let (published, ready, clean): (u32, u32, u32) =
+        h.h.store
+            .transaction(|tx| {
+                Ok((
+                    tx.query_row(
+                        "SELECT count(*) FROM knowledge_generation_mappings WHERE published=1",
+                        [],
+                        |r| r.get(0),
+                    )?,
+                    tx.query_row(
+                        "SELECT count(*) FROM document_chunks WHERE index_state='ready'",
+                        [],
+                        |r| r.get(0),
+                    )?,
+                    tx.query_row(
+                        "SELECT count(*) FROM knowledge_index_generation_seals WHERE dirty=0",
+                        [],
+                        |r| r.get(0),
+                    )?,
+                ))
+            })
+            .unwrap();
+    assert_eq!((published, ready, clean), (241, 241, 1));
+    h.close().await;
+}
+
+async fn oversized_retained_evidence(multibyte: bool) {
+    let h = KnowledgeHarness::new().await;
+    let id = document_chunks(&h, 241);
+    let store = h.h.store.clone();
+    h.service.at_checkpoint(CommitPoint::BeforeReady, move || {
+        store.transaction(|tx| {
+            let raw: String = tx.query_row(
+                "SELECT document_fence_json FROM knowledge_index_work_items WHERE ordinal=240", [], |r| r.get(0),
+            )?;
+            let oversized = if multibyte {
+                let mut value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+                value["parser"] = serde_json::json!("界".repeat(128));
+                let raw = serde_json::to_string(&value).unwrap();
+                assert!(raw.chars().count() < raw.len());
+                format!("{raw}{}", " ".repeat(1025 - raw.len()))
+            } else {
+                format!("{raw}{}", " ".repeat(1025 - raw.len()))
+            };
+            assert_eq!(oversized.len(), 1025);
+            if multibyte { assert!(oversized.chars().count() < 1024) }
+            // Deliberately corrupt this isolated fixture, then restore CHECKs
+            // before exercising the production publication path.
+            tx.pragma_update(None, "ignore_check_constraints", true)?;
+            let injected = tx.execute("UPDATE knowledge_index_work_items SET document_fence_json=?1 WHERE ordinal=240", [&oversized]);
+            tx.pragma_update(None, "ignore_check_constraints", false)?;
+            assert_eq!(injected?, 1);
+            assert!(tx.execute("UPDATE knowledge_index_work_items SET document_fence_json=?1 WHERE ordinal=239", [&oversized]).is_err());
+            Ok(())
+        }).unwrap();
+    });
+    assert_ne!(h.index(id).await.status, JobStatus::Succeeded);
+    let (published, ready, clean, active, work): (u32, u32, u32, u32, u32) = h.h.store.transaction(|tx| Ok((
+        tx.query_row("SELECT count(*) FROM knowledge_generation_mappings WHERE published=1", [], |r| r.get(0))?,
+        tx.query_row("SELECT count(*) FROM document_chunks WHERE index_state='ready'", [], |r| r.get(0))?,
+        tx.query_row("SELECT count(*) FROM knowledge_index_generation_seals WHERE dirty=0", [], |r| r.get(0))?,
+        tx.query_row("SELECT count(*) FROM knowledge_index_generations WHERE active_generation IS NOT NULL", [], |r| r.get(0))?,
+        tx.query_row("SELECT count(*) FROM knowledge_index_work_items", [], |r| r.get(0))?,
+    ))).unwrap();
+    assert_eq!((published, ready, clean, active, work), (0, 0, 0, 0, 241));
+    h.close().await;
+}
+
+#[tokio::test]
+async fn knowledge_review_evidence_rejects_oversized_retained_ascii_before_publication() {
+    oversized_retained_evidence(false).await;
+}
+
+#[tokio::test]
+async fn knowledge_review_evidence_rejects_oversized_retained_multibyte_before_publication() {
+    oversized_retained_evidence(true).await;
+}
+
 #[tokio::test]
 async fn knowledge_reindex_every_commit_boundary_excludes_unpublished_and_explicit_retry_succeeds()
 {

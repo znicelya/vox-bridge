@@ -154,18 +154,69 @@ impl KnowledgeHarness {
             .unwrap();
         id
     }
-    async fn wait(&self, id: Uuid) -> JobView {
-        tokio::time::timeout(std::time::Duration::from_secs(15), async {
+    async fn observe_job(
+        &self,
+        jobs: &crate::intelligence::jobs::JobScheduler,
+        id: Uuid,
+        expected: Option<JobStatus>,
+    ) -> JobView {
+        // Subscribe before the first authoritative read. Notifications wake a
+        // resync; they never replace durable status or spin on SQLite ownership.
+        let mut events = jobs.subscribe();
+        let started = std::time::Instant::now();
+        let mut reads = 0usize;
+        let matches = |job: &JobView| match expected {
+            Some(status) => job.status == status,
+            None => !matches!(job.status, JobStatus::Queued | JobStatus::Running),
+        };
+        // This bounds end-to-end test observation, including complete journals
+        // under the default parallel gate; production deadlines are unchanged.
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(60), async {
             loop {
+                reads += 1;
                 let j = self.h.store.get_job(id).unwrap().unwrap();
-                if !matches!(j.status, JobStatus::Queued | JobStatus::Running) {
+                if matches(&j) {
                     return j;
                 }
-                tokio::task::yield_now().await;
+                assert!(
+                    matches!(j.status, JobStatus::Queued | JobStatus::Running),
+                    "job {id} ended as {:?} before the expected state {expected:?}",
+                    j.status
+                );
+                match events.recv().await {
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
             }
+            self.h.store.get_job(id).unwrap().unwrap()
         })
-        .await
-        .unwrap()
+        .await;
+        if started.elapsed() >= std::time::Duration::from_secs(1) {
+            eprintln!(
+                "job observer {id}: elapsed={:?}, SQL reads={reads}, terminal={:?}",
+                started.elapsed(),
+                outcome.as_ref().map(|job| job.status)
+            );
+        }
+        // A missed/evicted notification cannot turn a committed terminal result
+        // into a timer failure. The same durable read resolves the final resync.
+        let job = outcome.unwrap_or_else(|_| self.h.store.get_job(id).unwrap().unwrap());
+        assert!(
+            matches(&job),
+            "job {id} did not reach {expected:?} within the finite observation bound: {:?}",
+            job.status
+        );
+        job
+    }
+    async fn wait(&self, id: Uuid) -> JobView {
+        self.wait_on(&self.h.jobs, id).await
+    }
+    async fn wait_on(&self, jobs: &crate::intelligence::jobs::JobScheduler, id: Uuid) -> JobView {
+        self.observe_job(jobs, id, None).await
+    }
+    async fn wait_running(&self, id: Uuid) -> JobView {
+        self.observe_job(&self.h.jobs, id, Some(JobStatus::Running))
+            .await
     }
     async fn index(&self, id: Uuid) -> JobView {
         let j = self.service.reindex_owned(id, Arc::new(())).await.unwrap();
@@ -487,3 +538,8 @@ mod continuation;
 mod recovery;
 
 mod publication;
+mod review_deletion;
+mod review_fixes;
+mod review_jobs;
+mod review_replacement;
+mod review_round2;

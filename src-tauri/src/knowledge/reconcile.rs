@@ -13,20 +13,8 @@ use uuid::Uuid;
 impl Core {
     pub(crate) async fn reconcile(&self, owner: OperationLease, rebuild: bool) -> AppResult<()> {
         self.resume_deletes(owner.clone()).await?;
+        super::service::job_proof::reconcile_indexing(&self.store)?;
         self.store.transaction(|tx| {
-            tx.execute(
-                "UPDATE documents SET \
-                    status='repair_required',\
-                    error_code='index_repair_required' WHERE \
-                    status='indexing' AND NOT EXISTS(SELECT 1 \
-                    FROM intelligence_jobs j WHERE \
-                    j.kind='reindex' AND \
-                    j.object_id=documents.id AND j.status IN \
-                    ('queued','running') AND \
-                    json_extract(j.payload_json,\
-                    '$.input.document_version')=documents.version)",
-                [],
-            )?;
             tx.execute(
                 "INSERT INTO knowledge_repairs(document_id,\
                     reason) SELECT id,'unsealed_generation' FROM \
@@ -96,6 +84,7 @@ impl Core {
                         continue;
                     }
                 };
+                self.check_coverage(&identity, generation)?;
                 self.check_inverse(&identity, generation, count)?;
                 let mut start = 0u64;
                 while start < count {
@@ -116,7 +105,7 @@ impl Core {
                             id,
                             metadata.as_ref(),
                         )? {
-                            state::Record::Healthy(_, _) => {}
+                            state::Record::Healthy(_, _) | state::Record::Retained => {}
                             state::Record::Tombstone if record.deleted => {}
                             state::Record::Tombstone | state::Record::Orphan => {
                                 self.store.transaction(|tx| {
@@ -164,7 +153,7 @@ impl Core {
                     )
                     .await?;
                 self.index.acknowledge(&ticket, ack).await?;
-                self.cleanup_generations(&ticket).await?;
+                self.cleanup_generations(&ticket, owner.clone()).await?;
                 if rebuild || self.rebuild_needed(&descriptor, 0)? {
                     self.rebuild_generation(descriptor, owner.clone()).await?;
                 }
@@ -176,6 +165,37 @@ impl Core {
             owner,
         )
         .await
+    }
+    fn check_coverage(&self, identity: &str, generation: Uuid) -> AppResult<()> {
+        let mut after = String::new();
+        loop {
+            let rows = self.store.transaction(|tx| {
+                let out = {
+                    let mut q = tx.prepare(
+                        "SELECT id,version FROM documents WHERE \
+                    index_identity=?1 AND status='ready' AND \
+                    id>?2 ORDER BY id LIMIT 200",
+                    )?;
+                    let mut rows = q.query(params![identity, after])?;
+                    let mut out = Vec::new();
+                    while let Some(r) = rows.next()? {
+                        out.push((state::text(r, 0, 36)?.to_owned(), r.get::<_, u32>(1)?));
+                    }
+                    out
+                };
+                for (raw, version) in &out {
+                    let id = Uuid::parse_str(raw).map_err(|_| error(Code::Storage))?;
+                    if !state::ready_coverage(tx, id, *version, identity, generation)? {
+                        state::mark_document_repair_tx(tx, id, *version, "vector_missing")?;
+                    }
+                }
+                Ok(out)
+            })?;
+            if rows.is_empty() {
+                return Ok(());
+            }
+            after = rows.last().unwrap().0.clone();
+        }
     }
     fn check_inverse(&self, identity: &str, generation: Uuid, count: u64) -> AppResult<()> {
         let mut after = String::new();
@@ -250,7 +270,18 @@ impl Core {
                 params![key, generation.generation.to_string()],
                 |r| r.get(0),
             )?;
-            seal.needs_rebuild(live, pending)
+            let retained: u64 = tx.query_row(
+                "SELECT count(*) FROM knowledge_generation_mappings m JOIN documents d \
+                 ON d.id=m.document_id WHERE m.identity=?1 AND m.generation=?2 \
+                 AND m.published=1 AND d.status='deleting'",
+                params![key, generation.generation.to_string()],
+                |r| r.get(0),
+            )?;
+            seal.needs_rebuild(
+                live.checked_add(retained)
+                    .ok_or_else(|| error(Code::ResourceLimit))?,
+                pending,
+            )
         })
     }
     pub(crate) fn ensure_capacity(&self, generation: &Generation, pending: u64) -> AppResult<()> {
@@ -353,6 +384,11 @@ impl Core {
                         work: target.operation_id(),
                         source: source.generation,
                         count: ordinal,
+                        cleanup_directory: super::index::delete_completion::resolve_directory(
+                            self.data_dir.clone(),
+                            owner.clone(),
+                        )
+                        .await?,
                     },
                 )
                 .await?;
@@ -366,6 +402,9 @@ impl Core {
         self.index.acknowledge(&source_ticket, ack).await?;
         let target = publication?;
         self.index.retire(&source_ticket).await?;
+        if self.finish_source_deletes(&source, owner).await? {
+            return Ok(());
+        }
         self.index
             .remove_generation(&target, source.clone())
             .await?;
@@ -429,7 +468,11 @@ impl Core {
             Ok(())
         })
     }
-    async fn cleanup_generations(&self, target: &WorkTicket) -> AppResult<()> {
+    async fn cleanup_generations(
+        &self,
+        target: &WorkTicket,
+        owner: OperationLease,
+    ) -> AppResult<()> {
         let key = target.generation().key()?;
         let active = target.generation().generation.to_string();
         let mut after = String::new();
@@ -464,39 +507,15 @@ impl Core {
             }
             for source in rows {
                 after = source.generation.to_string();
+                if self.finish_source_deletes(&source, owner.clone()).await? {
+                    continue;
+                }
                 if self
                     .index
                     .remove_generation(target, source.clone())
                     .await
                     .is_ok()
                 {
-                    // The index owner has actually dropped every reader/engine and
-                    // removed the unreferenced managed bytes before acknowledging work.
-                    loop {
-                        let removed = self.store.transaction(|tx| {
-                            let ids = tx
-                                .prepare(
-                                    "SELECT operation_id,ordinal FROM \
-                    knowledge_index_work_items WHERE identity=?1 \
-                    AND generation=?2 LIMIT 200",
-                                )?
-                                .query_map(params![key, source.generation.to_string()], |r| {
-                                    Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
-                                })?
-                                .collect::<Result<Vec<_>, _>>()?;
-                            for (op, ordinal) in &ids {
-                                tx.execute(
-                                    "DELETE FROM knowledge_index_work_items WHERE \
-                    operation_id=?1 AND ordinal=?2",
-                                    params![op, ordinal],
-                                )?;
-                            }
-                            Ok(ids.len())
-                        })?;
-                        if removed == 0 {
-                            break;
-                        }
-                    }
                     self.remove_generation_rows(&source)?;
                 }
             }
@@ -506,8 +525,22 @@ impl Core {
     pub(crate) fn remove_generation_rows(&self, source: &Generation) -> AppResult<()> {
         let key = source.key()?;
         let generation = source.generation.to_string();
+        self.store
+            .transaction(|tx| crate::knowledge::index::delete_completion::guard_sql(tx, source))?;
+        // Only the retired generation's exact failed writer can own ordinary
+        // staging work here. Deletion work has already been acknowledged by its
+        // certified original pages; another operation's rows are never erased.
         loop {
             let removed = self.store.transaction(|tx| {
+                crate::knowledge::index::delete_completion::retire_writer_work(tx, source)
+            })?;
+            if removed == 0 {
+                break;
+            }
+        }
+        loop {
+            let removed = self.store.transaction(|tx| {
+                crate::knowledge::index::delete_completion::guard_sql(tx, source)?;
                 let ids = tx
                     .prepare(
                         "SELECT chunk_id FROM \
@@ -531,6 +564,7 @@ impl Core {
             }
         }
         self.store.transaction(|tx| {
+            crate::knowledge::index::delete_completion::guard_sql(tx, source)?;
             tx.execute(
                 "DELETE FROM knowledge_index_generation_seals \
                     WHERE identity=?1 AND generation=?2 AND NOT \

@@ -20,7 +20,9 @@ use std::{
 use tokio::sync::{Notify, Semaphore, broadcast, mpsc, watch};
 use uuid::Uuid;
 mod child_operations;
+pub(crate) mod reap;
 use child_operations::ChildOperations;
+pub(crate) use reap::{JobReapEvidence, JobReapPort};
 pub struct JobContext {
     pub id: Uuid,
     pub cancel: watch::Receiver<bool>,
@@ -198,6 +200,7 @@ pub struct JobScheduler {
     shutdown_timeout: Duration,
     closed: Arc<AtomicBool>,
     signal: watch::Sender<bool>,
+    reap: Arc<reap::Registry>,
 }
 impl JobScheduler {
     pub fn new(store: Arc<LocalStore>) -> Self {
@@ -210,6 +213,7 @@ impl JobScheduler {
             shutdown_timeout: Duration::from_secs(5),
             closed: Arc::new(AtomicBool::new(true)),
             signal: watch::channel(false).0,
+            reap: reap::Registry::new(),
         }
     }
     pub fn register(&self, kind: JobKind, handler: Arc<dyn JobHandler>) -> AppResult<()> {
@@ -235,6 +239,9 @@ impl JobScheduler {
     pub(crate) fn wake_port(&self) -> Arc<Notify> {
         self.wake.clone()
     }
+    pub(crate) fn reap_port(&self) -> JobReapPort {
+        JobReapPort::new(self.reap.clone())
+    }
     pub fn start(&self) -> AppResult<()> {
         self.start_owned(Arc::new(()))
     }
@@ -253,6 +260,9 @@ impl JobScheduler {
         let handlers = Arc::new(s.handlers.clone());
         let after_terminal = s.after_terminal.clone();
         let control = Arc::new(Mutex::new(Control::default()));
+        let generation_id = Uuid::new_v4();
+        self.reap.begin(generation_id)?;
+        let reap = self.reap.clone();
         self.closed.store(false, Ordering::Release);
         self.signal.send_replace(false);
         let cancel = self.signal.clone();
@@ -281,6 +291,7 @@ impl JobScheduler {
                     closed.clone(),
                     children.clone(),
                     after_terminal.clone(),
+                    reap.clone(),
                 ));
             }
             let mut stop = stop;
@@ -310,11 +321,17 @@ impl JobScheduler {
                 }
             }
             children.drain().await;
+            if reap.quiesce(generation_id).await.is_err() {
+                return;
+            }
             drop(_lease);
+            if reap.joined(generation_id).is_err() {
+                return;
+            }
             done.send_replace(true);
         });
         s.generation = Some(Generation {
-            id: Uuid::new_v4(),
+            id: generation_id,
             cancel,
             completion,
             control,
@@ -613,6 +630,7 @@ async fn worker(
     closed: Arc<AtomicBool>,
     children: ChildOperations,
     after_terminal: Option<Arc<dyn AfterTerminal>>,
+    reap: Arc<reap::Registry>,
 ) {
     use futures_util::FutureExt;
     loop {
@@ -625,16 +643,17 @@ async fn worker(
         return;
                 }
         }
-        let claimed = match claim(&store, &control, &closed) {
+        let claimed = match claim(&store, &control, &closed, &reap) {
             Ok(v) => v,
             Err(_) => {
                 control.lock().unwrap().stopping = true;
                 return;
             }
         };
-        let Some((job, payload, cancel)) = claimed else {
+        let Some((job, payload, cancel, frame)) = claimed else {
             continue;
         };
+        let job_children = children.for_job(frame.clone());
         let _ = events.send(IntelligenceEvent::JobChanged { job: job.clone() });
         let result = match handlers.get(&job.kind) {
             Some(handler) => std::panic::AssertUnwindSafe(handler.run(
@@ -646,7 +665,7 @@ async fn worker(
                         closed: closed.clone(),
                         cancel: stop.clone(),
                     },
-                    children: children.clone(),
+                    children: job_children.clone(),
                 },
                 payload,
             ))
@@ -673,11 +692,12 @@ async fn worker(
                     closed: closed.clone(),
                     cancel: stop.clone(),
                 },
-                children: children.clone(),
+                children: job_children,
             }
             .operation_owner()
             .ok()
         });
+        frame.close_handler();
         let finished = store.transaction(|tx| {
             let mut c = control.lock().unwrap();
             let was_running = store::job_in_transaction(tx, job.id)?
@@ -731,6 +751,9 @@ async fn worker(
         if let Some(handler) = handlers.get(&job.kind) {
             let _ = handler.cleanup(Some(job.id)).await;
         }
+        if reap.prune().is_err() {
+            return;
+        }
         wake.notify_one();
     }
 }
@@ -738,8 +761,17 @@ fn claim(
     store: &LocalStore,
     control: &Mutex<Control>,
     closed: &AtomicBool,
-) -> AppResult<Option<(JobView, serde_json::Value, watch::Receiver<bool>)>> {
+    reap: &Arc<reap::Registry>,
+) -> AppResult<
+    Option<(
+        JobView,
+        serde_json::Value,
+        watch::Receiver<bool>,
+        Arc<reap::Frame>,
+    )>,
+> {
     use rusqlite::OptionalExtension;
+    let mut attempted = None;
     let claimed = store
         .transaction(|tx| {
             let mut control = control.lock().unwrap();
@@ -760,6 +792,11 @@ fn claim(
             };
             let id = Uuid::parse_str(&id).map_err(|_| error(IntelligenceErrorCode::Storage))?;
             let decoded = store::decode_payload(&payload)?;
+            let (rowid, hash) = reap::identity(tx, id)?;
+            let pending = reap.register(id, rowid, hash)?;
+            attempted = Some(id);
+            let payload =
+                serde_json::to_value(decoded).map_err(|_| error(IntelligenceErrorCode::Storage))?;
             tx.execute(
                 "UPDATE intelligence_jobs SET \
                     status='running',updated_at_ms=?1 WHERE \
@@ -767,23 +804,19 @@ fn claim(
                 rusqlite::params![now_ms(), id.to_string()],
             )?;
             let (cancel, receiver) = watch::channel(false);
+            let job = store::job_in_transaction(tx, id)?
+                .ok_or_else(|| error(IntelligenceErrorCode::Storage))?;
             control.active.insert(id, cancel);
-            let payload =
-                serde_json::to_value(decoded).map_err(|_| error(IntelligenceErrorCode::Storage))?;
-            Ok(Some((id, payload, receiver)))
+            Ok(Some((job, payload, receiver, pending)))
         })
-        .map_err(store::safe_store_error)?;
-    claimed
-        .map(|(id, payload, cancel)| {
-            Ok((
-                store
-                    .get_job(id)?
-                    .ok_or_else(|| error(IntelligenceErrorCode::Storage))?,
-                payload,
-                cancel,
-            ))
-        })
-        .transpose()
+        .map_err(store::safe_store_error);
+    if claimed.is_err() {
+        if let Some(id) = attempted {
+            control.lock().unwrap().active.remove(&id);
+        }
+    }
+    let claimed = claimed?;
+    Ok(claimed.map(|(job, payload, cancel, pending)| (job, payload, cancel, pending.commit())))
 }
 fn transition_tx(
     tx: &rusqlite::Transaction<'_>,

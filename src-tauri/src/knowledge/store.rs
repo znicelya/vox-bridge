@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 pub(super) const MAX_PATH_BYTES: usize = 32 * 1024;
-const MAX_PATH_JSON_BYTES: usize = 256 * 1024;
+pub(super) const MAX_PATH_JSON_BYTES: usize = 256 * 1024;
 const MAX_FIELD_BYTES: usize = 32 * 1024;
 const COLUMNS: &str = "d.id,d.title,d.kind,d.version,d.origin,d.sha256,d.status,d.created_at,d.updated_at_ms,d.error_code,(SELECT count(*) FROM document_chunks c WHERE c.document_id=d.id AND (d.origin='legacy' OR c.document_version=d.version)),d.original_path,d.managed_path,d.uri,d.index_identity";
 

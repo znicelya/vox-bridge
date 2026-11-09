@@ -361,10 +361,12 @@ async fn documents_completion_cleanup_error_retains_intent_and_marks_repair_with
     app.cancel_job(jobs[2].id).await.unwrap();
     app.close_all().await.unwrap();
     drop(permit);
-    assert!(matches!(
-        outcome,
-        Err(AppError::Intelligence(Code::Storage))
-    ));
+    assert!(
+        matches!(outcome, Err(AppError::Intelligence(Code::Storage))),
+        "ordinary cleanup outcome={outcome:?}, pending={state}, document={:?}/{:?}",
+        detail.summary.status,
+        detail.summary.error
+    );
     assert_eq!(state, "delete_pending");
     assert_eq!(
         detail.summary.status,

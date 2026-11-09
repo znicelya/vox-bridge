@@ -8,7 +8,7 @@ use crate::{
     error::AppResult,
     intelligence::{
         config::ServiceConfigStore,
-        jobs::{JobContext, JobHandler, JobScheduler, OperationLease},
+        jobs::{JobContext, JobHandler, JobReapPort, JobScheduler, OperationLease},
         store::{JobDraft, admit_job, decode_payload},
         types::{
             IntelligenceErrorCode as Code, JobAdmission, JobKind, JobStatus, JobView, ModelProfile,
@@ -25,9 +25,10 @@ use uuid::Uuid;
 mod delete;
 mod reindex;
 pub(crate) mod state;
-#[cfg(test)]
 pub(crate) use delete::DeleteInput;
+mod completion;
 mod continuation;
+pub(crate) mod job_proof;
 mod recovery;
 mod searches;
 #[cfg(test)]
@@ -38,6 +39,7 @@ pub(crate) enum CommitPoint {
     AfterVectorPersist,
     BeforeReady,
     AfterPointerPublication,
+    AfterDeletePublication,
     AdmissionCallback,
     BeforeLocalCopy,
     BeforeSearchRecheck,
@@ -55,16 +57,18 @@ pub(crate) struct Core {
     pub(crate) index: IndexOwner,
     pub(crate) data_dir: PathBuf,
     pub(crate) serial: tokio::sync::Mutex<()>,
+    pub(crate) reap: JobReapPort,
     #[cfg(test)]
     hook: Mutex<Option<CommitPoint>>,
     #[cfg(test)]
     action: Mutex<Option<(CommitPoint, Box<dyn FnOnce() + Send>)>>,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-struct IndexInput {
-    document_id: Uuid,
-    document_version: u32,
+pub(crate) struct IndexInput {
+    #[serde(deserialize_with = "job_proof::canonical_uuid")]
+    pub(crate) document_id: Uuid,
+    pub(crate) document_version: u32,
 }
 impl KnowledgeService {
     pub(crate) fn new(
@@ -83,6 +87,7 @@ impl KnowledgeService {
                 index,
                 data_dir,
                 serial: tokio::sync::Mutex::new(()),
+                reap: jobs.reap_port(),
                 #[cfg(test)]
                 hook: Mutex::new(None),
                 #[cfg(test)]
@@ -268,26 +273,36 @@ impl JobHandler for ReindexHandler {
         _awaiting: bool,
     ) -> AppResult<()> {
         if status != JobStatus::Succeeded {
-            tx.execute(
+            let Some(job) = job_proof::local_reindex(tx, id)? else {
+                return Ok(());
+            };
+            if tx.execute(
                 "UPDATE documents SET \
                     status='repair_required',\
                     error_code='index_repair_required' WHERE \
-                    status='indexing' AND id=(SELECT object_id \
-                    FROM intelligence_jobs WHERE id=?1) AND \
-                    version=(SELECT json_extract(payload_json,\
-                    '$.input.document_version') FROM \
-                    intelligence_jobs WHERE id=?1)",
-                [id.to_string()],
+                    status='indexing' AND id=?1 AND version=?2",
+                params![
+                    job.input.document_id.to_string(),
+                    job.input.document_version
+                ],
+            )? != 1
+            {
+                return Ok(());
+            }
+            tx.execute(
+                "UPDATE document_chunks SET index_state='repair_required' WHERE \
+                    document_id=?1 AND document_version=?2 AND index_state='indexing'",
+                params![
+                    job.input.document_id.to_string(),
+                    job.input.document_version
+                ],
             )?;
             tx.execute(
                 "INSERT INTO knowledge_repairs(document_id,\
-                    reason) SELECT d.id,'unsealed_generation' \
-                    FROM documents d JOIN intelligence_jobs j ON \
-                    j.object_id=d.id WHERE j.id=?1 AND \
-                    d.status='repair_required' ON \
+                    reason) VALUES (?1,'unsealed_generation') ON \
                     CONFLICT(document_id) DO UPDATE SET \
                     reason=excluded.reason",
-                [id.to_string()],
+                [job.input.document_id.to_string()],
             )?;
         }
         Ok(())

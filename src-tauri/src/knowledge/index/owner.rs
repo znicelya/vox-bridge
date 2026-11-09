@@ -50,6 +50,16 @@ impl PersistedReceipt {
         &self.seal_json
     }
 }
+// Only the actual native owner constructs this, after readers/engines have
+// ended and joined filesystem removal has confirmed the named path absent.
+pub(super) struct RemovalReceipt {
+    source: seal::Generation,
+}
+impl RemovalReceipt {
+    pub(super) fn source(&self) -> &seal::Generation {
+        &self.source
+    }
+}
 enum Phase {
     Dirty,
     Awaiting(String),
@@ -620,8 +630,10 @@ impl Runtime {
         }
         let path = preflight::generation_path(&self.root, source)?;
         self.pool.install(|| {
-            if !path.exists() {
-                return Ok(());
+            match std::fs::symlink_metadata(&path) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(_) => return Err(repair()),
+                Ok(_) => {}
             }
             preflight::directories(&path, false)?;
             let _lock = super::recovery::exclusive_lock(&path)?;
@@ -641,7 +653,14 @@ impl Runtime {
                     return Err(repair());
                 }
             }
-            std::fs::remove_dir_all(path).map_err(|_| repair())
+            std::fs::remove_dir_all(&path).map_err(|_| repair())?;
+            match std::fs::symlink_metadata(&path) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                _ => Err(repair()),
+            }
+        })?;
+        self.repository.acknowledge_removal(&RemovalReceipt {
+            source: source.clone(),
         })
     }
     pub(super) fn retire_recovery(
@@ -658,16 +677,27 @@ impl Runtime {
             return Err(busy());
         }
         self.repository.validate_recovery(fence, false)?;
+        self.repository
+            .can_retire(&intent.body().descriptor, &fence.source)?;
         let path = preflight::generation_path(&self.root, &fence.source)?;
         self.pool.install(|| {
-            if !path.exists() {
-                return Ok(());
+            match std::fs::symlink_metadata(&path) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(_) => return Err(repair()),
+                Ok(_) => {}
             }
             preflight::directories(&path, false)?;
             let _lock = super::recovery::exclusive_lock(&path)?;
             // Only an application-managed, now-unreferenced generation can be
             // retired. No dirty database decoder is entered during removal.
-            std::fs::remove_dir_all(&path).map_err(|_| repair())
+            std::fs::remove_dir_all(&path).map_err(|_| repair())?;
+            match std::fs::symlink_metadata(&path) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                _ => Err(repair()),
+            }
+        })?;
+        self.repository.acknowledge_removal(&RemovalReceipt {
+            source: fence.source.clone(),
         })
     }
     pub(super) fn begin_maintenance(

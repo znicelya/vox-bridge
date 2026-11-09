@@ -321,6 +321,7 @@ pub(crate) fn cleanup_rows(
         .map_err(safe)?;
     // Each bounded page releases SQLite before filesystem I/O; no full history allocation.
     for _ in 0..1000 {
+        crate::knowledge::index::delete_completion::guard_managed_cleanup(store, data_dir)?;
         let ids = store
             .transaction(|tx| {
                 Ok(tx

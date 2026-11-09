@@ -167,6 +167,13 @@ impl Core {
             return Err(error(Code::Cancelled));
         }
         self.store.transaction(|tx| {
+            let current: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM \
+                    knowledge_index_generations WHERE \
+                    identity=?1 AND active_generation=?2)",
+                params![identity, binding.generation.generation.to_string()],
+                |r| r.get(0),
+            )?;
             let mut q = tx.prepare(
                 "SELECT EXISTS(SELECT 1 FROM documents d JOIN \
                     document_chunks c ON c.document_id=d.id JOIN \
@@ -189,6 +196,21 @@ impl Core {
             )?;
             let mut keep = Vec::with_capacity(result.hits.len());
             for hit in &result.hits {
+                let complete = state::ready_coverage(
+                    tx,
+                    hit.document_id,
+                    hit.document_version,
+                    &identity,
+                    binding.generation.generation,
+                )?;
+                if current && !complete {
+                    state::mark_document_repair_tx(
+                        tx,
+                        hit.document_id,
+                        hit.document_version,
+                        "vector_missing",
+                    )?;
+                }
                 let eligible: bool = q.query_row(
                     params![
                         hit.document_id.to_string(),
@@ -200,7 +222,7 @@ impl Core {
                     ],
                     |r| r.get(0),
                 )?;
-                keep.push(eligible);
+                keep.push(eligible && complete);
             }
             let mut i = 0;
             result.hits.retain(|_| {
@@ -288,7 +310,9 @@ fn hydrate(
             state::mark_document_repair(store, doc, version, reason)?;
             return Ok(Hydrated::Skip);
         }
-        state::Record::Orphan | state::Record::Tombstone => return Ok(Hydrated::Skip),
+        state::Record::Orphan | state::Record::Tombstone | state::Record::Retained => {
+            return Ok(Hydrated::Skip);
+        }
     }
     store.transaction(|tx| {
         let mut q = tx.prepare(
@@ -322,8 +346,18 @@ fn hydrate(
         };
         let doc = Uuid::parse_str(state::text(r, 0, 36)?).map_err(|_| error(Code::Storage))?;
         let version: u32 = r.get(1)?;
+        if !state::ready_coverage(tx, doc, version, identity, generation)? {
+            state::mark_document_repair_tx(tx, doc, version, "vector_missing")?;
+            return Ok(Hydrated::Skip);
+        }
         let chunk = Uuid::parse_str(state::text(r, 2, 36)?).map_err(|_| error(Code::Storage))?;
-        let title = state::text(r, 3, 32768)?;
+        let title = match state::text(r, 3, 32768) {
+            Ok(title) => title,
+            Err(_) => {
+                state::mark_document_repair_tx(tx, doc, version, "stale_hash")?;
+                return Ok(Hydrated::Skip);
+            }
+        };
         let body = state::text(r, 4, 9600)?;
         let location_json = state::text(r, 5, 16 * 1024 * 1024)?;
         if body.chars().count() > 2400 {
@@ -351,20 +385,7 @@ fn hydrate(
             false
         };
         if !valid {
-            tx.execute(
-                "UPDATE documents SET \
-                    status='repair_required',\
-                    error_code='index_repair_required' WHERE \
-                    id=?1 AND status='ready' AND version=?2",
-                params![doc.to_string(), version],
-            )?;
-            tx.execute(
-                "INSERT INTO knowledge_repairs(document_id,\
-                    reason) VALUES (?1,'stale_hash') ON \
-                    CONFLICT(document_id) DO UPDATE SET \
-                    reason=excluded.reason",
-                [doc.to_string()],
-            )?;
+            state::mark_document_repair_tx(tx, doc, version, "stale_hash")?;
             return Ok(Hydrated::Skip);
         }
         let hit = BorrowedHit {

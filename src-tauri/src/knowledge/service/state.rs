@@ -142,6 +142,41 @@ pub(crate) fn health(
         Ok((healthy, total.saturating_sub(healthy)))
     })
 }
+/// A single surviving chunk never makes an incomplete document searchable.
+pub(crate) fn ready_coverage(
+    tx: &Transaction<'_>,
+    id: Uuid,
+    version: u32,
+    identity: &str,
+    generation: Uuid,
+) -> AppResult<bool> {
+    Ok(tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM documents d WHERE \
+                    d.id=?1 AND d.version=?2 AND \
+                    d.status='ready' AND d.index_identity=?3 AND \
+                    EXISTS(SELECT 1 FROM \
+                    knowledge_index_generations g WHERE \
+                    g.identity=?3 AND g.active_generation=?4) AND \
+                    EXISTS(SELECT 1 FROM document_chunks c WHERE \
+                    c.document_id=d.id AND \
+                    c.document_version=d.version) AND NOT \
+                    EXISTS(SELECT 1 FROM document_chunks c WHERE \
+                    c.document_id=d.id AND \
+                    c.document_version=d.version AND \
+                    (c.index_state!='ready' OR \
+                    c.embedding_identity IS NOT ?3 OR NOT \
+                    EXISTS(SELECT 1 FROM \
+                    knowledge_generation_mappings m WHERE \
+                    m.identity=?3 AND m.generation=?4 AND \
+                    m.published=1 AND m.chunk_id=c.id AND \
+                    m.document_id=d.id AND \
+                    m.document_version=d.version AND \
+                    m.content_hash=c.content_hash AND \
+                    m.vector_id=c.vector_id))))",
+        params![id.to_string(), version, identity, generation.to_string()],
+        |r| r.get(0),
+    )?)
+}
 pub(crate) fn mark_identity_repair(
     store: &LocalStore,
     identity: &str,
@@ -306,6 +341,7 @@ pub(crate) enum Record {
     Orphan,
     Repair(Uuid, u32, &'static str),
     Tombstone,
+    Retained,
 }
 pub(crate) fn classify(
     store: &LocalStore,
@@ -321,7 +357,7 @@ pub(crate) fn classify(
                     c.text,c.content_hash,c.location_json,\
                     c.vector_id,c.embedding_identity,\
                     d.index_identity,c.document_id,\
-                    c.document_version,c.index_state FROM \
+                    c.document_version,c.index_state,COALESCE(d.title,'') FROM \
                     knowledge_generation_mappings m JOIN \
                     knowledge_index_generations g ON \
                     g.identity=m.identity AND \
@@ -337,6 +373,15 @@ pub(crate) fn classify(
             vector.to_string()
         ])?;
         let Some(r) = rows.next()? else {
+            let retained: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM knowledge_index_work_items WHERE \
+                 identity=?1 AND generation=?2 AND vector_id=?3 AND document_id IS NOT NULL)",
+                params![identity, generation.to_string(), vector.to_string()],
+                |r| r.get(0),
+            )?;
+            if retained {
+                return Ok(Record::Retained);
+            }
             return Ok(if metadata.is_some() {
                 Record::Orphan
             } else {
@@ -346,6 +391,9 @@ pub(crate) fn classify(
         let current: Option<u32> = r.get(4)?;
         let status: Option<String> = r.get(5)?;
         let version: u32 = r.get(1)?;
+        if status.as_deref() == Some("deleting") {
+            return Ok(Record::Retained);
+        }
         if current != Some(version) || status.as_deref() != Some("ready") {
             return Ok(if metadata.is_some() {
                 Record::Orphan
@@ -354,6 +402,12 @@ pub(crate) fn classify(
             });
         }
         let doc = Uuid::parse_str(text(r, 0, 36)?).map_err(|_| error(Code::Storage))?;
+        if !ready_coverage(tx, doc, version, identity, generation)? {
+            return Ok(Record::Repair(doc, version, "vector_missing"));
+        }
+        if text(r, 15, 32768).is_err() {
+            return Ok(Record::Repair(doc, version, "stale_hash"));
+        }
         let Some(metadata) = metadata else {
             return Ok(Record::Repair(doc, version, "vector_missing"));
         };
@@ -407,31 +461,37 @@ pub(crate) fn mark_document_repair(
     version: u32,
     reason: &str,
 ) -> AppResult<()> {
-    store.transaction(|tx| {
-        if tx.execute(
-            "UPDATE documents SET \
+    store.transaction(|tx| mark_document_repair_tx(tx, id, version, reason))
+}
+pub(crate) fn mark_document_repair_tx(
+    tx: &Transaction<'_>,
+    id: Uuid,
+    version: u32,
+    reason: &str,
+) -> AppResult<()> {
+    if tx.execute(
+        "UPDATE documents SET \
                     status='repair_required',\
                     error_code='index_repair_required' WHERE \
                     id=?1 AND version=?2 AND status='ready'",
-            params![id.to_string(), version],
-        )? != 1
-        {
-            return Ok(());
-        }
-        tx.execute(
-            "UPDATE document_chunks SET \
+        params![id.to_string(), version],
+    )? != 1
+    {
+        return Ok(());
+    }
+    tx.execute(
+        "UPDATE document_chunks SET \
                     index_state='repair_required' WHERE \
                     document_id=?1 AND document_version=?2 AND \
                     index_state='ready'",
-            params![id.to_string(), version],
-        )?;
-        tx.execute(
-            "INSERT INTO knowledge_repairs(document_id,\
+        params![id.to_string(), version],
+    )?;
+    tx.execute(
+        "INSERT INTO knowledge_repairs(document_id,\
                     reason) VALUES (?1,?2) ON \
                     CONFLICT(document_id) DO UPDATE SET \
                     reason=excluded.reason",
-            params![id.to_string(), reason],
-        )?;
-        Ok(())
-    })
+        params![id.to_string(), reason],
+    )?;
+    Ok(())
 }

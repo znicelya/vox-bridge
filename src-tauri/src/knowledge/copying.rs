@@ -146,10 +146,20 @@ fn verify_path(path: &Path, file: &File, initial: &Metadata) -> AppResult<()> {
 }
 
 pub(super) fn managed_dir(data_dir: &Path, create: bool) -> AppResult<PathBuf> {
+    managed_location(data_dir, create, false)
+}
+pub(super) fn expected_managed_dir(data_dir: &Path) -> AppResult<PathBuf> {
+    managed_location(data_dir, false, true)
+}
+fn managed_location(data_dir: &Path, create: bool, allow_missing: bool) -> AppResult<PathBuf> {
     let base = fs::canonicalize(data_dir).map_err(io)?;
     let mut path = base;
+    let mut missing = false;
     for name in ["knowledge", "documents"] {
         path.push(name);
+        if missing {
+            continue;
+        }
         if create {
             match fs::create_dir(&path) {
                 Ok(()) => {}
@@ -157,7 +167,14 @@ pub(super) fn managed_dir(data_dir: &Path, create: bool) -> AppResult<PathBuf> {
                 Err(e) => return Err(io(e)),
             }
         }
-        let meta = fs::symlink_metadata(&path).map_err(io)?;
+        let meta = match fs::symlink_metadata(&path) {
+            Ok(meta) => meta,
+            Err(error) if allow_missing && error.kind() == std::io::ErrorKind::NotFound => {
+                missing = true;
+                continue;
+            }
+            Err(error) => return Err(io(error)),
+        };
         if !meta.is_dir() || meta.file_type().is_symlink() {
             return Err(error(Code::Storage));
         }

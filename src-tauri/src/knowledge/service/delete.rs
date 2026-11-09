@@ -1,17 +1,23 @@
 use super::*;
-use crate::knowledge::{documents::cleanup_managed, index::Seal};
-#[derive(Clone, Deserialize, serde::Serialize)]
+use crate::knowledge::index::{Seal, delete_completion as completed, delete_work};
+#[derive(Clone, Deserialize, serde::Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct DeleteInput {
+    #[serde(deserialize_with = "super::job_proof::canonical_uuid")]
     pub(crate) document_id: Uuid,
     pub(crate) document_version: u32,
     pub(crate) document: crate::knowledge::index::DocumentFence,
+    #[serde(deserialize_with = "super::job_proof::canonical_uuid")]
     pub(crate) operation_id: Uuid,
     pub(crate) identity: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "super::job_proof::optional_canonical_uuid"
+    )]
     pub(crate) generation: Option<Uuid>,
 }
 impl DeleteInput {
-    pub(super) fn validate(&self) -> AppResult<()> {
+    pub(crate) fn validate(&self) -> AppResult<()> {
         self.document.validate()?;
         if self.document.id != self.document_id
             || self.document.version != self.document_version
@@ -170,6 +176,27 @@ impl JobHandler for DeleteHandler {
             .await
             .map_err(code)
     }
+    fn terminal_tx(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        id: Uuid,
+        status: JobStatus,
+        _code: Option<Code>,
+        awaiting_reap: bool,
+    ) -> AppResult<()> {
+        completed::consume(tx, id, status, awaiting_reap, &self.0.reap)
+    }
+    async fn cleanup(&self, reaped: Option<Uuid>) -> AppResult<()> {
+        if let Some(id) = reaped {
+            self.0.store.transaction(|tx| {
+                if let Some(job) = job_proof::local_delete(tx, id)? {
+                    completed::consume(tx, id, job.status, false, &self.0.reap)?;
+                }
+                Ok(())
+            })?;
+        }
+        Ok(())
+    }
 }
 impl Core {
     pub(crate) async fn delete(
@@ -180,11 +207,37 @@ impl Core {
     ) -> AppResult<()> {
         input.validate()?;
         let fence = input.document.clone();
+        let proof = self.store.transaction(|tx| {
+            let validate = || {
+                let job = job_proof::delete(tx, input.operation_id)?
+                    .ok_or_else(|| error(Code::Configuration))?;
+                if job.input != *input {
+                    return Err(error(Code::Configuration));
+                }
+                Ok(job.proof)
+            };
+            match context {
+                Some(context) => context.commit(tx, validate),
+                None => validate(),
+            }
+        })?;
+        if self
+            .store
+            .transaction(|tx| completed::load(tx, input.operation_id))?
+            .is_some()
+        {
+            return self.finish_completion(input, owner).await;
+        }
         if fence.version != input.document_version
             || !self.store.transaction(|tx| fence.matches(tx, "deleting"))?
         {
             return Err(error(Code::Cancelled));
         }
+        let cleanup_directory =
+            completed::resolve_directory(self.data_dir.clone(), owner.clone()).await?;
+        let work_proof = self
+            .store
+            .transaction(|tx| completed::preflight(tx, input, &cleanup_directory))?;
         if let (Some(identity), Some(generation)) = (&input.identity, input.generation) {
             let descriptor = self.store.transaction(|tx| {
                 let mut q = tx.prepare(
@@ -204,30 +257,13 @@ impl Core {
             })?;
             let ticket = self.index.open_existing(descriptor, owner.clone())?;
             self.index.enqueue_open(&ticket)?.observe().await?;
-            let mut after = -1i64;
-            loop {
+            for page in 0..work_proof.count.div_ceil(delete_work::PAGE_SIZE) {
                 let rows = self.store.transaction(|tx| {
-                    Ok(tx
-                        .prepare(
-                            "SELECT ordinal,vector_id FROM \
-                    knowledge_index_work_items WHERE \
-                    operation_id=?1 AND ordinal>?2 ORDER BY \
-                    ordinal LIMIT 200",
-                        )?
-                        .query_map(params![input.operation_id.to_string(), after], |r| {
-                            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
-                        })?
-                        .collect::<Result<Vec<_>, _>>()?)
+                    proof.require(tx, &fence)?;
+                    work_proof.page(tx, input, page, true)
                 })?;
-                if rows.is_empty() {
-                    break;
-                }
-                let ids = rows
-                    .iter()
-                    .map(|(_, v)| v.parse().map_err(|_| error(Code::Storage)))
-                    .collect::<AppResult<Vec<u64>>>()?;
+                let ids = rows.iter().map(|row| row.vector).collect();
                 self.index.delete(&ticket, ids).await?;
-                after = rows.last().unwrap().0;
                 tokio::task::yield_now().await;
             }
             let receipt = self.index.persist(&ticket).await?;
@@ -238,22 +274,21 @@ impl Core {
                 work: input.operation_id,
                 document: fence,
                 job: context.map(JobContext::publication_fence),
+                job_proof: proof.clone(),
+                work_proof: work_proof.clone(),
+                cleanup_directory,
             };
             let ack = self.index.publish_plan(&ticket, &receipt, plan).await?;
             self.index.acknowledge(&ticket, ack).await?;
         } else {
             self.store.transaction(|tx| {
                 let remove = || {
+                    proof.require(tx, &fence)?;
+                    work_proof.require_live(tx, input)?;
                     if !fence.matches(tx, "deleting")? {
                         return Err(error(Code::Cancelled));
                     }
-                    tx.execute(
-                        "UPDATE knowledge_managed_files SET \
-                    state='delete_pending' WHERE document_id=?1",
-                        [fence.id.to_string()],
-                    )?;
-                    tx.execute("DELETE FROM documents WHERE id=?1", [fence.id.to_string()])?;
-                    Ok(())
+                    completed::publish_delete(tx, input, None, &cleanup_directory)
                 };
                 match context {
                     Some(c) => c.commit(tx, remove),
@@ -261,45 +296,8 @@ impl Core {
                 }
             })?;
         }
-        cleanup_managed(self.store.clone(), self.data_dir.clone(), owner).await?;
-        self.ack_delete(input.operation_id)
-    }
-    pub(crate) fn ack_delete(&self, operation: Uuid) -> AppResult<()> {
-        loop {
-            let count = self.store.transaction(|tx| {
-                let rows = tx
-                    .prepare(
-                        "SELECT ordinal,identity,generation,vector_id \
-                    FROM knowledge_index_work_items WHERE \
-                    operation_id=?1 ORDER BY ordinal LIMIT 200",
-                    )?
-                    .query_map([operation.to_string()], |r| {
-                        Ok((
-                            r.get::<_, i64>(0)?,
-                            r.get::<_, String>(1)?,
-                            r.get::<_, String>(2)?,
-                            r.get::<_, String>(3)?,
-                        ))
-                    })?
-                    .collect::<Result<Vec<_>, _>>()?;
-                for (ordinal, identity, generation, vector) in &rows {
-                    tx.execute(
-                        "DELETE FROM knowledge_generation_mappings \
-                    WHERE identity=?1 AND generation=?2 AND \
-                    vector_id=?3",
-                        params![identity, generation, vector],
-                    )?;
-                    tx.execute(
-                        "DELETE FROM knowledge_index_work_items WHERE \
-                    operation_id=?1 AND ordinal=?2",
-                        params![operation.to_string(), ordinal],
-                    )?;
-                }
-                Ok(rows.len())
-            })?;
-            if count == 0 {
-                return Ok(());
-            }
-        }
+        #[cfg(test)]
+        self.checkpoint(CommitPoint::AfterDeletePublication)?;
+        self.finish_completion(input, owner).await
     }
 }

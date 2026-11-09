@@ -1,4 +1,5 @@
 //! Actual-work accounting, independent of async observers and handler lifetime.
+use super::reap::{ChildCompletion, Frame};
 use super::{OperationLease, error};
 use crate::{error::AppResult, intelligence::types::IntelligenceErrorCode as Code};
 use std::sync::{Arc, Weak};
@@ -11,18 +12,29 @@ pub(super) struct ChildOperations {
     slots: Arc<Semaphore>,
     // Contexts/factories must not retain process ownership after generation done.
     process: Weak<dyn Send + Sync>,
+    frame: Option<Arc<Frame>>,
 }
 struct ChildOperation {
     // Fields drop in declaration order: release actual process ownership before
     // making the slot available to the generation's all-permits drain.
     _process: OperationLease,
     _slot: OwnedSemaphorePermit,
+    // Per-job completion is published only after process and shared-slot drop.
+    _completion: Option<ChildCompletion>,
 }
 impl ChildOperations {
     pub(super) fn new(process: &OperationLease) -> Self {
         Self {
             slots: Arc::new(Semaphore::new(CAPACITY as usize)),
             process: Arc::downgrade(process),
+            frame: None,
+        }
+    }
+
+    pub(super) fn for_job(&self, frame: Arc<Frame>) -> Self {
+        Self {
+            frame: Some(frame),
+            ..self.clone()
         }
     }
 
@@ -38,9 +50,11 @@ impl ChildOperations {
             .process
             .upgrade()
             .ok_or_else(|| error(Code::Interrupted))?;
+        let completion = self.frame.as_ref().map(|frame| frame.child()).transpose()?;
         Ok(Arc::new(ChildOperation {
             _process: process,
             _slot: slot,
+            _completion: completion,
         }))
     }
 

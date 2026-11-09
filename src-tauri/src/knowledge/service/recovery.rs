@@ -1,14 +1,21 @@
 //! Durable local deletion continuation, including witnessed dirty sources.
 use super::delete::DeleteInput;
 use super::*;
-use crate::knowledge::index::{ChunkMetadata, DocumentFence, Generation};
+use crate::knowledge::index::{
+    ChunkMetadata, DocumentFence, Generation, delete_completion as completed,
+};
+struct FinishedSource {
+    identity: String,
+    generation: Uuid,
+}
 impl Core {
     pub(crate) async fn resume_deletes(&self, owner: OperationLease) -> AppResult<()> {
+        self.resume_completions(owner.clone()).await?;
         let mut after = String::new();
         loop {
             let inputs = self.store.transaction(|tx| {
                 let mut q = tx.prepare(
-                    "SELECT d.id,j.payload_json,j.id FROM \
+                    "SELECT d.id,j.id FROM \
                     documents d JOIN intelligence_jobs j ON \
                     j.id=(SELECT id FROM intelligence_jobs WHERE \
                     kind='delete_document' AND object_id=d.id \
@@ -20,26 +27,83 @@ impl Core {
                 let mut rows = q.query([&after])?;
                 let mut out = Vec::new();
                 while let Some(r) = rows.next()? {
-                    let envelope = decode_payload(state::text(r, 1, 1024 * 1024)?)?;
-                    let input: DeleteInput =
-                        serde_json::from_value(envelope.input).map_err(|_| error(Code::Storage))?;
-                    out.push((
-                        state::text(r, 0, 36)?.to_owned(),
-                        state::text(r, 2, 36)?.to_owned(),
-                        input,
-                    ));
+                    let job = state::text(r, 1, 36)?;
+                    let input = match Uuid::parse_str(job).ok().filter(|id| id.to_string() == job) {
+                        Some(id) => job_proof::local_delete(tx, id)?,
+                        None => None,
+                    };
+                    out.push((state::text(r, 0, 36)?.to_owned(), job.to_owned(), input));
                 }
                 Ok(out)
             })?;
             if inputs.is_empty() {
                 break;
             }
-            for (id, job, input) in inputs {
+            // These small witnesses belong only to this approved 200-document
+            // page, not to the entire cohort. A successfully joined, certified
+            // source completion may have collected another cached member's
+            // journal before this page reaches it.
+            let mut finished_sources: Vec<FinishedSource> = Vec::new();
+            for (id, job, association) in inputs {
                 after = id;
+                let Some(association) = association else {
+                    continue;
+                };
+                let input = association.input;
                 if input.validate().is_err()
                     || input.document_id.to_string() != after
                     || input.operation_id.to_string() != job
                 {
+                    continue;
+                }
+                let exists: bool = self.store.transaction(|tx| {
+                    Ok(tx.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM documents WHERE id=?1)",
+                        [input.document_id.to_string()],
+                        |r| r.get(0),
+                    )?)
+                })?;
+                if !exists {
+                    if self
+                        .store
+                        .transaction(|tx| completed::load(tx, input.operation_id))?
+                        .is_some()
+                    {
+                        self.finish_completion(&input, owner.clone()).await?;
+                        continue;
+                    }
+                    let witnessed = finished_sources.iter().any(|source| {
+                        input.identity.as_deref() == Some(&source.identity)
+                            && input.generation == Some(source.generation)
+                    });
+                    self.store.transaction(|tx| {
+                        association.proof.require(tx, &input.document)?;
+                        let job = job_proof::delete(tx, input.operation_id)?.ok_or_else(|| error(Code::IndexRepairRequired))?;
+                        let retained: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM knowledge_index_work_items \
+                            WHERE operation_id=?1 OR document_id=?2) OR EXISTS(SELECT 1 FROM knowledge_managed_files \
+                            WHERE document_id=?2 OR (?3 IS NOT NULL AND job_id=?3))",
+                            params![input.operation_id.to_string(), input.document_id.to_string(), input.document.import_job.map(|id| id.to_string())], |r| r.get(0))?;
+                        if !witnessed || retained || job.input != input || matches!(job.status, JobStatus::Queued | JobStatus::Running) {
+                            return Err(error(Code::IndexRepairRequired));
+                        }
+                        let mut cursor = String::new();
+                        loop {
+                            let ids = completed::scan_operations(tx, &cursor)?;
+                            if ids.is_empty() { break }
+                            for operation in ids {
+                                cursor = operation.to_string();
+                                let value = completed::load(tx, operation)?.ok_or_else(|| error(Code::IndexRepairRequired))?;
+                                if value.header.input.document_id == input.document_id
+                                    && (value.header.input.document != input.document || !value.acknowledged || !value.files_cleaned) {
+                                    return Err(error(Code::IndexRepairRequired));
+                                }
+                            }
+                        }
+                        Ok(())
+                    })?;
+                    // This does not infer cleanup from row absence: the exact
+                    // job/page input and all current retained references above
+                    // agree with an actually finished same-page source cohort.
                     continue;
                 }
                 let result = if let (Some(identity), Some(generation)) =
@@ -52,6 +116,28 @@ impl Core {
                 } else {
                     self.delete(&input, owner.clone(), None).await
                 };
+                if result.is_ok() {
+                    if let (Some(identity), Some(generation)) = (&input.identity, input.generation)
+                    {
+                        let retired: bool = self.store.transaction(|tx| Ok(!tx.query_row(
+                            "SELECT EXISTS(SELECT 1 FROM knowledge_index_generation_seals WHERE identity=?1 AND generation=?2)",
+                            params![identity, generation.to_string()], |r| r.get::<_, bool>(0),
+                        )?))?;
+                        if retired
+                            && !finished_sources.iter().any(|source| {
+                                source.identity == *identity && source.generation == generation
+                            })
+                        {
+                            if finished_sources.len() >= 200 {
+                                return Err(error(Code::ResourceLimit));
+                            }
+                            finished_sources.push(FinishedSource {
+                                identity: identity.clone(),
+                                generation,
+                            });
+                        }
+                    }
+                }
                 if let Err(failure) = result {
                     let remains: bool = self.store.transaction(|tx| {
                         Ok(tx.query_row(
@@ -63,7 +149,17 @@ impl Core {
                     if !remains {
                         return Err(failure);
                     }
-                    if let Some(identity) = &input.identity {
+                    let dirty_active = self.store.transaction(|tx| {
+                        Ok(tx.query_row(
+                            "SELECT EXISTS(SELECT 1 FROM knowledge_index_generation_seals s \
+                         JOIN knowledge_index_generations g ON g.identity=s.identity \
+                         AND g.active_generation=s.generation WHERE s.identity IS ?1 \
+                         AND s.generation IS ?2 AND s.dirty=1)",
+                            params![input.identity, input.generation.map(|id| id.to_string())],
+                            |r| r.get::<_, bool>(0),
+                        )?)
+                    })?;
+                    if let Some(identity) = input.identity.as_ref().filter(|_| dirty_active) {
                         state::mark_identity_repair(&self.store, identity, "unsealed_generation")?;
                     }
                 }
@@ -78,6 +174,14 @@ impl Core {
         owner: OperationLease,
     ) -> AppResult<()> {
         input.validate()?;
+        let proof = self.store.transaction(|tx| {
+            let job = job_proof::delete(tx, input.operation_id)?
+                .ok_or_else(|| error(Code::Configuration))?;
+            if job.input != *input {
+                return Err(error(Code::Configuration));
+            }
+            Ok(job.proof)
+        })?;
         if !self
             .store
             .transaction(|tx| input.document.matches(tx, "deleting"))?
@@ -85,6 +189,11 @@ impl Core {
             return Err(error(Code::IndexRepairRequired));
         }
         let source = evidence.source().clone();
+        let cleanup_directory =
+            completed::resolve_directory(self.data_dir.clone(), owner.clone()).await?;
+        let work_proof = self
+            .store
+            .transaction(|tx| completed::preflight(tx, input, &cleanup_directory))?;
         let count = evidence.count();
         let destination = Generation {
             generation: Uuid::new_v4(),
@@ -141,21 +250,19 @@ impl Core {
             count: ordinal,
             delete_work: input.operation_id,
             document: input.document.clone(),
+            job_proof: proof,
+            work_proof: work_proof.clone(),
+            cleanup_directory,
         };
         let ack = self.index.publish_plan(&target, &receipt, plan).await?;
         self.index.acknowledge(&target, ack).await?;
         #[cfg(test)]
         self.checkpoint(CommitPoint::AfterPointerPublication)?;
         self.index.end_recovery(reader).await?;
+        self.prepare_completion_files(owner.clone()).await?;
         self.index.retire_recovery(&target, evidence.fence).await?;
-        self.ack_delete(input.operation_id)?;
-        self.remove_generation_rows(&source)?;
-        crate::knowledge::documents::cleanup_managed(
-            self.store.clone(),
-            self.data_dir.clone(),
-            owner,
-        )
-        .await
+        self.finish_source_deletes(&source, owner).await?;
+        Ok(())
     }
     fn validate_survivors(&self, source: &Generation, count: u64) -> AppResult<()> {
         let mut start = 0u64;

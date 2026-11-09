@@ -13,6 +13,27 @@ impl Core {
     ) -> AppResult<()> {
         let owner = context.operation_owner()?;
         let _serial = self.serial.lock().await;
+        let (proof, admitted_document) = self.store.transaction(|tx| {
+            context.commit(tx, || {
+                let job = job_proof::reindex(tx, context.id)?
+                    .ok_or_else(|| error(Code::Configuration))?;
+                if job.input != input || job.profile != *profile {
+                    return Err(error(Code::Configuration));
+                }
+                let document = state::fence(tx, input.document_id)?;
+                let status: String = tx.query_row(
+                    "SELECT status FROM documents WHERE id=?1",
+                    [input.document_id.to_string()],
+                    |r| r.get(0),
+                )?;
+                if document.version != input.document_version
+                    || matches!(status.as_str(), "parsing" | "deleting")
+                {
+                    return Err(error(Code::Cancelled));
+                }
+                Ok((job.proof, document))
+            })
+        })?;
         let pending: u64 = self.store.transaction(|tx| {
             Ok(tx.query_row(
                 "SELECT count(*) FROM document_chunks WHERE \
@@ -35,8 +56,9 @@ impl Core {
         }
         let fence = self.store.transaction(|tx| {
             context.commit(tx, || {
+                proof.require(tx, &admitted_document)?;
                 let f = state::fence(tx, input.document_id)?;
-                if f.version != input.document_version {
+                if f != admitted_document {
                     return Err(error(Code::Cancelled));
                 }
                 let status: String = tx.query_row(
@@ -97,6 +119,15 @@ impl Core {
                 if inputs.is_empty() {
                     return Err(error(Code::ResourceLimit));
                 }
+                self.store.transaction(|tx| {
+                    context.commit(tx, || {
+                        proof.require(tx, &fence)?;
+                        if !fence.matches(tx, "indexing")? {
+                            return Err(error(Code::Cancelled));
+                        }
+                        Ok(())
+                    })
+                })?;
                 let vectors = self
                     .embeddings
                     .embed(
@@ -156,6 +187,15 @@ impl Core {
                 let t = ticket.as_ref().unwrap();
                 let key = t.generation().key()?;
                 for (chunk, vector) in page[start..cursor].iter().zip(vectors) {
+                    self.store.transaction(|tx| {
+                        context.commit(tx, || {
+                            proof.require(tx, &fence)?;
+                            if !fence.matches(tx, "indexing")? {
+                                return Err(error(Code::Cancelled));
+                            }
+                            Ok(())
+                        })
+                    })?;
                     if *context.cancel.borrow() {
                         return Err(error(Code::Cancelled));
                     }
@@ -197,8 +237,15 @@ impl Core {
             expected_generation: expected,
             count: staged,
             job: context.publication_fence(),
+            job_proof: proof,
+            cleanup_directory: crate::knowledge::index::delete_completion::resolve_directory(
+                self.data_dir.clone(),
+                owner.clone(),
+            )
+            .await?,
         });
         let ack = self.index.publish_plan(&ticket, &receipt, plan).await?;
-        self.index.acknowledge(&ticket, ack).await
+        self.index.acknowledge(&ticket, ack).await?;
+        self.resume_completions(owner).await
     }
 }
