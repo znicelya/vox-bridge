@@ -1,0 +1,64 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.15s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 9 tests
+test knowledge::index_tests::review_fixes::knowledge_review_final_search_recheck_excludes_a_newly_incomplete_document ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_missing_mapping_excludes_the_entire_document ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_oversized_title_repairs_its_owner_and_preserves_neighbors ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_reconcile_audits_missing_mappings_from_current_chunks ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_ready_publication_rechecks_the_durable_job_object ... FAILED
+test knowledge::index_tests::review_jobs::knowledge_review_runtime_delete_rejects_consistent_input_for_the_wrong_job_object ... FAILED
+test knowledge::index_tests::review_jobs::knowledge_review_runtime_reindex_cannot_mutate_a_foreign_document ... FAILED
+test knowledge::index_tests::review_jobs::knowledge_review_stale_terminal_job_cannot_overwrite_a_newer_repair_reason ... FAILED
+test knowledge::index_tests::review_jobs::knowledge_review_startup_requires_bounded_matching_reindex_ownership ... FAILED
+
+failures:
+
+---- knowledge::index_tests::review_jobs::knowledge_review_ready_publication_rechecks_the_durable_job_object stdout ----
+
+thread 'knowledge::index_tests::review_jobs::knowledge_review_ready_publication_rechecks_the_durable_job_object' (226720) panicked at src/knowledge/index_tests/review_jobs.rs:198:5:
+assertion `left != right` failed
+  left: Succeeded
+ right: Succeeded
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- knowledge::index_tests::review_jobs::knowledge_review_runtime_delete_rejects_consistent_input_for_the_wrong_job_object stdout ----
+
+thread 'knowledge::index_tests::review_jobs::knowledge_review_runtime_delete_rejects_consistent_input_for_the_wrong_job_object' (226726) panicked at src/knowledge/index_tests/review_jobs.rs:149:5:
+assertion `left == right` failed
+  left: Succeeded
+ right: Failed
+
+---- knowledge::index_tests::review_jobs::knowledge_review_runtime_reindex_cannot_mutate_a_foreign_document stdout ----
+
+thread 'knowledge::index_tests::review_jobs::knowledge_review_runtime_reindex_cannot_mutate_a_foreign_document' (226732) panicked at src/knowledge/index_tests/review_jobs.rs:108:5:
+assertion `left == right` failed
+  left: Succeeded
+ right: Failed
+
+---- knowledge::index_tests::review_jobs::knowledge_review_stale_terminal_job_cannot_overwrite_a_newer_repair_reason stdout ----
+
+thread 'knowledge::index_tests::review_jobs::knowledge_review_stale_terminal_job_cannot_overwrite_a_newer_repair_reason' (226738) panicked at src/knowledge/index_tests/review_jobs.rs:178:5:
+assertion `left == right` failed
+  left: "unsealed_generation"
+ right: "newer_association"
+
+---- knowledge::index_tests::review_jobs::knowledge_review_startup_requires_bounded_matching_reindex_ownership stdout ----
+
+thread 'knowledge::index_tests::review_jobs::knowledge_review_startup_requires_bounded_matching_reindex_ownership' (226744) panicked at src/knowledge/index_tests/review_jobs.rs:81:5:
+assertion `left == right` failed
+  left: [("valid", true, "indexing", true), ("wrong_document", true, "indexing", true), ("missing_document", true, "indexing", true), ("oversize", true, "indexing", true), ("malformed", false, "indexing", true), ("wrong_kind", true, "repair_required", true), ("profile_kind", true, "indexing", true), ("duplicate_profile", true, "indexing", true), ("exclusion", true, "indexing", true), ("noncanonical_uuid", true, "indexing", true)]
+ right: [("valid", true, "indexing", true), ("wrong_document", true, "repair_required", true), ("missing_document", true, "repair_required", true), ("oversize", true, "repair_required", true), ("malformed", true, "repair_required", true), ("wrong_kind", true, "repair_required", true), ("profile_kind", true, "repair_required", true), ("duplicate_profile", true, "repair_required", true), ("exclusion", true, "repair_required", true), ("noncanonical_uuid", true, "repair_required", true)]
+
+
+failures:
+    knowledge::index_tests::review_jobs::knowledge_review_ready_publication_rechecks_the_durable_job_object
+    knowledge::index_tests::review_jobs::knowledge_review_runtime_delete_rejects_consistent_input_for_the_wrong_job_object
+    knowledge::index_tests::review_jobs::knowledge_review_runtime_reindex_cannot_mutate_a_foreign_document
+    knowledge::index_tests::review_jobs::knowledge_review_stale_terminal_job_cannot_overwrite_a_newer_repair_reason
+    knowledge::index_tests::review_jobs::knowledge_review_startup_requires_bounded_matching_reindex_ownership
+
+test result: FAILED. 4 passed; 5 failed; 0 ignored; 0 measured; 693 filtered out; finished in 3.54s
+
+error: test failed, to rerun pass `--lib`

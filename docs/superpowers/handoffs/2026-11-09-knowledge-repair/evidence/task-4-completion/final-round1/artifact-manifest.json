@@ -1,0 +1,200 @@
+{
+  "source_tree": "da23738987e178f23b1f5bda34c9c8250d5f4f4e",
+  "source_paths": 42,
+  "all_required_gates_exit_zero": true,
+  "independent_review": "in progress; no verdict yet",
+  "artifacts": [
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/complete-repair-round1-review-brief.md",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/complete-repair-round1-review-brief.md",
+      "bytes": 31983,
+      "sha256": "49ea653c51171d7e02d5e7c28e29b55f1ef1549caacd2883022bc1022b6df1c6",
+      "test_results": []
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/controller-gates-round1.py",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/controller-gates-round1.py",
+      "bytes": 9448,
+      "sha256": "4938371075e82e0a71afcd7461056026968ea668c3b1972ca96cbf9d7e4f9fa0",
+      "test_results": []
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-gate-repair-brief.md",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-gate-repair-brief.md",
+      "bytes": 3724,
+      "sha256": "6b6b4dd4f093cd9c15767a5d3e5a7af29fb60a8dbfe7a21692e56832ee472e18",
+      "test_results": []
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-gate-repair-report.md",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-gate-repair-report.md",
+      "bytes": 16188,
+      "sha256": "80504b9c7523211bfef4dc311f326cc996668f8e0397324a5c8b35ff07605d0a",
+      "test_results": []
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-binding-controlled-green.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-repair-binding-controlled-green.log",
+      "bytes": 1491,
+      "sha256": "f19b9bec8c5b0f2f878a8c6a3ed14abde1a46e0c327d2671fa051fee921f9a3c",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 747 filtered out; finished in 0.31s"
+      ]
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-direct-peers-isolated-green.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-repair-direct-peers-isolated-green.log",
+      "bytes": 1706,
+      "sha256": "bbc71f0527b8e7bb10f407abae2d32dfc57bbbd6b077ded75902b087fb25c523",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 747 filtered out; finished in 56.62s"
+      ]
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-documents-formatted-green.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-repair-documents-formatted-green.log",
+      "bytes": 1845,
+      "sha256": "b880aa0cc9593a42901b82d5cc72a5b2175767d35e588ea003c0cd865e7ea9cf",
+      "test_results": [
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 743 filtered out; finished in 0.22s"
+      ]
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-documents-green.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-repair-documents-green.log",
+      "bytes": 1964,
+      "sha256": "b8864ba25eae5a1b7e942a326d34a7ed1ec533cd55260875a41eae9b0cadeb23",
+      "test_results": [
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 743 filtered out; finished in 0.24s"
+      ]
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-documents-original-red.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-repair-documents-original-red.log",
+      "bytes": 2043,
+      "sha256": "3d11ee6e48086bfe5ae2084d2afc809ddf591ce8fa68dd6578db52499b44d2ad",
+      "test_results": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 747 filtered out; finished in 0.04s"
+      ]
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-documents-trace-red.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-repair-documents-trace-red.log",
+      "bytes": 2203,
+      "sha256": "e909ebb22d4d222ac8f11b4f94ebc0f23817a34b8e67a2c3c33e08cf4993ec9e",
+      "test_results": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 747 filtered out; finished in 0.05s"
+      ]
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-handback-integrity.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-repair-handback-integrity.log",
+      "bytes": 2034,
+      "sha256": "c7269bdc44b1a8e8230e9d7eb7562f6c1d16bf062dcdf36b8192f91521717d80",
+      "test_results": []
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-knowledge-default-parallel-green.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-repair-knowledge-default-parallel-green.log",
+      "bytes": 17049,
+      "sha256": "0af15d9d4e3b07d4ee04c6a4e19d398c2ba7d646ea1eb01aeb633f64e7dc5c69",
+      "test_results": [
+        "test result: ok. 106 passed; 0 failed; 0 ignored; 0 measured; 642 filtered out; finished in 84.86s"
+      ]
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-knowledge-original-parallel-red.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-repair-knowledge-original-parallel-red.log",
+      "bytes": 13530,
+      "sha256": "4432306ee96057f611a31a7a798d5b66a7820c9cc80176b5fbd23ce831e10cd2",
+      "test_results": [
+        "test result: FAILED. 88 passed; 1 failed; 0 ignored; 0 measured; 659 filtered out; finished in 86.51s"
+      ]
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-knowledge-parallel-trace-red.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-repair-knowledge-parallel-trace-red.log",
+      "bytes": 17275,
+      "sha256": "a845d90049ed5c065921c4ec576a699f74f6329b9d1894c870e72a7020ed1eef",
+      "test_results": [
+        "test result: FAILED. 87 passed; 2 failed; 0 ignored; 0 measured; 659 filtered out; finished in 85.35s"
+      ]
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-owned-rustfmt.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-repair-owned-rustfmt.log",
+      "bytes": 322,
+      "sha256": "0b3aeefcfa9147712b59f997b473345d8fb2a3000b6b6e7b1db9ad27a0717ac9",
+      "test_results": []
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round1/complete-repair-review.diff",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/complete-repair-review.diff",
+      "bytes": 402039,
+      "sha256": "8f4212dc633a694f665cb3f5673a8988b294be7566bb992a3a2520d7ebcbee66",
+      "test_results": []
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round1/final-all-targets.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-all-targets.log",
+      "bytes": 85126,
+      "sha256": "17c4cd906d0976a74af0d651ad56499a57e97899fc934c63e585a66bc21e4a4f",
+      "test_results": [
+        "test result: ok. 748 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 87.76s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s",
+        "test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ]
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round1/final-desktop-build.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-desktop-build.log",
+      "bytes": 191,
+      "sha256": "e837595fe30a06a7f6cf4183b574227810311377e34515ca80d8f59712d9fe2d",
+      "test_results": []
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round1/final-frozen-diff-check.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-frozen-diff-check.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "test_results": []
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round1/final-production-check.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-production-check.log",
+      "bytes": 191,
+      "sha256": "d39bada1742e4d6c351a42f7fecff65798c81b59db73d24ba8e496248cb36a28",
+      "test_results": []
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round1/final-rustfmt.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-rustfmt.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "test_results": []
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round1/final-verification.json",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/final-verification.json",
+      "bytes": 3962,
+      "sha256": "99c4f0abbf4c6c2ca17b29f6674aa86a18dc8826e5eb74b5b0d2c1fbf851c5b0",
+      "test_results": []
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round1/frozen-source-paths.txt",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/frozen-source-paths.txt",
+      "bytes": 2035,
+      "sha256": "dd81067e39ddecdf446895a754911925be0f6aaff6e1a4f48140731253cea2f8",
+      "test_results": []
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round1/source-freeze.json",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/final-round1/source-freeze.json",
+      "bytes": 7447,
+      "sha256": "c95ed68671fe785410308a9610d060e90f8e2a7e5f86c573e14d2aa2f5ba0d62",
+      "test_results": []
+    }
+  ]
+}

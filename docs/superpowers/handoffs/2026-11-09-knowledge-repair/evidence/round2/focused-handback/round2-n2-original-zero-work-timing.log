@@ -1,0 +1,23 @@
+COMMAND: env CARGO_HOME=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106 CARGO_TARGET_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107 TMPDIR=/dev/shm/voxbridge-intelligence-20261109.q7xaof9u PKG_CONFIG_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig PKG_CONFIG_SYSROOT_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot LIBRARY_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib knowledge_review_fresh_swap_certifies_valid_source_bound_zero_work_member -- --nocapture
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.67s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 1 test
+
+thread 'knowledge::index_tests::review_replacement::cohorts::knowledge_review_fresh_swap_certifies_valid_source_bound_zero_work_member' (647976) panicked at src/knowledge/index_tests/review_replacement/cohorts.rs:181:5:
+assertion failed: !has_certificate(&h, job.id)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test knowledge::index_tests::review_replacement::cohorts::knowledge_review_fresh_swap_certifies_valid_source_bound_zero_work_member ... FAILED
+
+failures:
+
+failures:
+    knowledge::index_tests::review_replacement::cohorts::knowledge_review_fresh_swap_certifies_valid_source_bound_zero_work_member
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 755 filtered out; finished in 0.73s
+
+error: test failed, to rerun pass `--lib`
+
+ACTUAL_EXIT: 101
+DURATION_SECONDS: 1.458

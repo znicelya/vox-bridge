@@ -1,0 +1,288 @@
+{
+  "kind": "author_and_frozen_source_only",
+  "final_controller_gates_in_progress": true,
+  "files": [
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/complete-repair-review.diff",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/complete-repair-review.diff",
+      "bytes": 392723,
+      "sha256": "ec094d1c6bc813e61d2ead0b6266d1b2bb11fd53be15483e19cb392060129697"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/controller-gates.py",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/controller-gates.py",
+      "bytes": 8864,
+      "sha256": "3ef0cbcabac27a4f595d9e7c20109bef3c08faf53e4a07e325bde3966a91e57e"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/frozen-source-paths.txt",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/frozen-source-paths.txt",
+      "bytes": 1951,
+      "sha256": "179ea00e04fb30d4c8ccbc2249eede2ff21d9285652da21b49ab1cf45012a191"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/source-freeze.json",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/source-freeze.json",
+      "bytes": 6734,
+      "sha256": "e7826c3bd0ad918a2389144b70553e887b6dac4e125ef08d8a8e60bccb1384f4"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-cohort-edge-check.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-cohort-edge-check.log",
+      "bytes": 2700,
+      "sha256": "75f6a0b54fcb01a379f1c5a97196215fc49678248e9dd6016774fd1ccb8a266d"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-completion-brief.md",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-completion-brief.md",
+      "bytes": 7939,
+      "sha256": "9d9136e4ef5a98bcc96f1f867945224f6d1db2fcdfe07fe61513eba76ff80160"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-completion-report.md",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-completion-report.md",
+      "bytes": 23188,
+      "sha256": "7daf613978ba82375fbe27762135ee18f7350c53e7109cc58fb6e341863bb36a"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-connected-cohort-check.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-connected-cohort-check.log",
+      "bytes": 5449,
+      "sha256": "2082f584937841bbc7f18650d8332d4703f4155c1c57c46313f7be2334a390ab"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-connected-knowledge-regression.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-connected-knowledge-regression.log",
+      "bytes": 11851,
+      "sha256": "36ddebab672951aa22299aa8359eca633812e22b712158c4986dd3064fc0505c"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-direct-peers-batched-green.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-direct-peers-batched-green.log",
+      "bytes": 1619,
+      "sha256": "b726afcc7f2580246526cfb61ea4acd06f61f5469e2850975f011efabd672b8d"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-direct-peers-reap-check.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-direct-peers-reap-check.log",
+      "bytes": 2146,
+      "sha256": "2471a5c62ba4422b4d8d8fe0796df91c3ff85eebe51ec4809720ffbd0d8476ef"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-direct-peers-timing-red.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-direct-peers-timing-red.log",
+      "bytes": 2677,
+      "sha256": "7488c7896a6f53ed6f20a5def7d6397f0e6c7ff548bf8e3879e04e13315f5769"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-file-flags-red.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-file-flags-red.log",
+      "bytes": 2661,
+      "sha256": "e93ef46bf82595af0989fab3c4db9533d5d4193ca16299c6296dae3a6aef82ba"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-file-owner-canonical-red.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-file-owner-canonical-red.log",
+      "bytes": 4862,
+      "sha256": "13ec43411d2259d5ef5681f04dbe0e14c53ac09617c435d84957f7ff7ad775f0"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-file-owner-consumers-green.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-file-owner-consumers-green.log",
+      "bytes": 2228,
+      "sha256": "17f0508f3f8504f25723d00fa94d5c6cd7e64e3fc8670b3d7be16908e3a22bd3"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-file-ownership-consumers-red.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-file-ownership-consumers-red.log",
+      "bytes": 4301,
+      "sha256": "325b61a987cc0917ac7e2ee5123defae28c491752a6908e866725bdda86fd9f2"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-file-ownership-red.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-file-ownership-red.log",
+      "bytes": 3592,
+      "sha256": "a012c155e15b879b9a5bd4a3b0b7a9b2d3d71ecbfae3aade321626596a3732f0"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-file-paths-and-flags-red.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-file-paths-and-flags-red.log",
+      "bytes": 3360,
+      "sha256": "bfd6549174a8ee5f04976a3ca2c25ee476c437e56680925e186833e5ace5d6e1"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-final-knowledge-focused.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-final-knowledge-focused.log",
+      "bytes": 14740,
+      "sha256": "f17f0e391a4aded081cde8defea4ab7ffbc4729727968a3903e0f7f2c2835e0d"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-final-scheduler-focused.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-final-scheduler-focused.log",
+      "bytes": 4767,
+      "sha256": "5731c6a104f7e1ef1a8d2d6cd7e71bf9030e9fcc72eebf27d98d503f7429e163"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-full-path-connected-check.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-full-path-connected-check.log",
+      "bytes": 3610,
+      "sha256": "fc71ca3b67af35b5cba1de008a6399c6e538d12ccddab41e546afec6ef72b303"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-handback-integrity.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-handback-integrity.log",
+      "bytes": 857,
+      "sha256": "95dd557b14dc0f45174c1e14077041aca81a65d18c6867dd628edf0837c4060b"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-initial-red.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-initial-red.log",
+      "bytes": 4114,
+      "sha256": "0820d32850f96b3ea8d183249a90c21af881fe01644163467511a70ef5e8da20"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-native-path-codec-green.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-native-path-codec-green.log",
+      "bytes": 1537,
+      "sha256": "d0c044f944c6ff595ee7864572ad0ea081d1f92bf523d7ced7e00a06969180f5"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-native-path-codec-red.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-native-path-codec-red.log",
+      "bytes": 2267,
+      "sha256": "d5c6d73f300a1d6e66c23bb955cb55fa58f092ef52433c57033442f18ecab79c"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-owned-rustfmt.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-owned-rustfmt.log",
+      "bytes": 2027,
+      "sha256": "c914852a4f4acfc77f62860912226592d25900fd2fb2eda00b5c27798531dbdf"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-protocol-green-check.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-protocol-green-check.log",
+      "bytes": 4660,
+      "sha256": "260ad0126323c817f04f5ca2a6c96a52bfabd58e34ed2b27a6b564052b60c33b"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-reap-api-compile-red.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-reap-api-compile-red.log",
+      "bytes": 3731,
+      "sha256": "f4b3db3631f8e6989e057faa3ea3b2983fec0d7135040e86b887ee05ca6f1c6e"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-reap-producer-check.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-reap-producer-check.log",
+      "bytes": 2592,
+      "sha256": "c736c8d031335082323fe219fa7458d664751387a304fef5b4d4c1d4073da185"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-reap-producer-green.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-reap-producer-green.log",
+      "bytes": 2191,
+      "sha256": "bcf7a129a58942d1a9449cbe60c3c13fa6eb7e8a94719eccb4e97e1f5fac15ba"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-reap-quiescence-green.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-reap-quiescence-green.log",
+      "bytes": 2431,
+      "sha256": "0a52b3f463bee7acfd3b1b5091c6a0959b75753da8edb4f2d1f337bd69335b7c"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-reap-shutdown-window-red.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-reap-shutdown-window-red.log",
+      "bytes": 2180,
+      "sha256": "7ac7678afced5f0797088c57b4cc2a5447bb13b19e6a5ba0c30ff27732ca74fc"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-replacement-connected-green.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-replacement-connected-green.log",
+      "bytes": 4655,
+      "sha256": "180eea54d07e366d78c1d5e87dc41e6c731fea64b52141b01ced6b1e16aa9620"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-replacement-runtime-red.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-replacement-runtime-red.log",
+      "bytes": 14629,
+      "sha256": "402af6d9d34a45537ecda783feb5fea26de0990fc6764a0382a4fa51b79a9161"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-retention-authority-green.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-retention-authority-green.log",
+      "bytes": 1692,
+      "sha256": "fd06da71c4f25f15e85d199c8076dadab7dc6e36512a5182cdaaa63cc6a09280"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-retention-authority-red.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-retention-authority-red.log",
+      "bytes": 3051,
+      "sha256": "187b7ce14cabee1b93554690ab9081b09c412aa727c34d0370ca6641faa93cac"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-scheduler-focused-green.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-scheduler-focused-green.log",
+      "bytes": 4886,
+      "sha256": "d42d3c978a27320584b11c14391e956744a2fff0dae1f180b32affb5cd97ce33"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-settlement-gc-edge-red.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-settlement-gc-edge-red.log",
+      "bytes": 2845,
+      "sha256": "3f4c649bf85977c4697fe9af099a7f048db86095b444d2f5fdb66a38239bc43c"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-settlement-gc-retry-green.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-settlement-gc-retry-green.log",
+      "bytes": 2108,
+      "sha256": "6b634e3c935a9cd701d6c129c06a2ee5be4774c3360f76610bac264885329a53"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-settlement-gc-retry-red.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-settlement-gc-retry-red.log",
+      "bytes": 2264,
+      "sha256": "1117fd1332dcd850fb08ebef731c9c16badd6c73018d1be32efd414d98cf6a02"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-settlement-no-replay-green.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-settlement-no-replay-green.log",
+      "bytes": 1816,
+      "sha256": "124f11f5d60fd06b1901f19f1cd802552323d64643b670ed18a57480cfaa2136"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-settlement-no-replay-red.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-settlement-no-replay-red.log",
+      "bytes": 2548,
+      "sha256": "33e24539f7c6df27f117408c822a9f4a0580b8ec362e25fd61df8687ffdce7ed"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-source-removal-authority-red.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-source-removal-authority-red.log",
+      "bytes": 2331,
+      "sha256": "b28f4d18050b15a6e77b048fc2fb17e7d2d8a574f0b9ad7d88deac0fb8316b33"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-terminal-reap-waiter-green.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-terminal-reap-waiter-green.log",
+      "bytes": 2151,
+      "sha256": "19f94d00bbfc60ee3fe0640b8d598c0d6a02be0cdf8ae3d426c932e75b4e5031"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-terminal-reap-waiter-red.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-terminal-reap-waiter-red.log",
+      "bytes": 2285,
+      "sha256": "34978b38aa4bb600c0c9716805d7e8e5a1e3c81b543d651ffae94d10e561b29c"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-terminal-reap-waiter-trace.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-terminal-reap-waiter-trace.log",
+      "bytes": 2323,
+      "sha256": "179f985286c06ab15ea19df5e65f88febc82383ddfb75ccc5a6faa6ff64c81ad"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-terminal-reap-waiter-verified.log",
+      "archive_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/task-4-terminal-reap-waiter-verified.log",
+      "bytes": 1531,
+      "sha256": "b3c4c889f78da68818532e393f4dc9b3be984d5c67a1d8aea7fa6f659750efc7"
+    }
+  ]
+}

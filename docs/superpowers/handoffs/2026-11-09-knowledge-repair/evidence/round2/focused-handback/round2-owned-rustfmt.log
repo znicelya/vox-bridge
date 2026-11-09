@@ -1,0 +1,5 @@
+COMMAND: rustfmt --edition 2024 --config skip_children=true src-tauri/src/knowledge/index/delete_work.rs src-tauri/src/knowledge/index/delete_completion.rs src-tauri/src/knowledge/index/delete_completion/files.rs src-tauri/src/knowledge/index/delete_completion/journal.rs src-tauri/src/knowledge/index/delete_completion/publication.rs src-tauri/src/knowledge/index/delete_completion/retirement.rs src-tauri/src/knowledge/service/completion.rs src-tauri/src/knowledge/index_tests.rs src-tauri/src/knowledge/index_tests/review_replacement/cohorts.rs src-tauri/src/knowledge/index_tests/review_round2.rs src-tauri/src/knowledge/index_tests/review_round2/files.rs src-tauri/src/knowledge/index_tests/review_round2/peers.rs src-tauri/src/knowledge/index_tests/review_round2/startup.rs
+
+
+ACTUAL_EXIT: 0
+DURATION_SECONDS: 0.071

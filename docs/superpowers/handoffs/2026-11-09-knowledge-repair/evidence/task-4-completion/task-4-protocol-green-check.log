@@ -1,0 +1,39 @@
+COMMAND: env CARGO_HOME="$PWD/.superpowers/toolchain/cargo-writable-20261106" CARGO_TARGET_DIR="$PWD/.superpowers/toolchain/cargo-target-intelligence-20261107" TMPDIR="/dev/shm/voxbridge-intelligence-20261109.q7xaof9u" PKG_CONFIG_PATH="$PWD/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig" PKG_CONFIG_SYSROOT_DIR="$PWD/.superpowers/toolchain/alsa/sysroot" LIBRARY_PATH="$PWD/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu" cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib knowledge_review_ -- --test-threads=1
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 37.84s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 28 tests
+test knowledge::index_tests::publication::knowledge_review_evidence_accepts_1024_bytes_and_sqlite_rejects_1025_utf8_bytes ... ok
+test knowledge::index_tests::publication::knowledge_review_evidence_rejects_oversized_retained_ascii_before_publication ... ok
+test knowledge::index_tests::publication::knowledge_review_evidence_rejects_oversized_retained_multibyte_before_publication ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_keeps_historical_published_mapping_evidence_without_old_chunks ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_first_page_foreign_vector_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_foreign_association_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_foreign_vector_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_malformed_fence_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_missing_later_page_work_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_resume_preserves_invalid_target_proof_and_clean_neighbors ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_final_search_recheck_excludes_a_newly_incomplete_document ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_missing_mapping_excludes_the_entire_document ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_oversized_title_repairs_its_owner_and_preserves_neighbors ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_reconcile_audits_missing_mappings_from_current_chunks ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_ready_publication_rechecks_the_durable_job_object ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_runtime_delete_rejects_consistent_input_for_the_wrong_job_object ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_runtime_reindex_cannot_mutate_a_foreign_document ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_stale_terminal_job_cannot_overwrite_a_newer_repair_reason ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_startup_requires_bounded_matching_reindex_ownership ... ok
+test knowledge::index_tests::review_replacement::flags::knowledge_review_completed_file_paths_are_rechecked_before_source_retirement ... ok
+test knowledge::index_tests::review_replacement::flags::knowledge_review_files_cleaned_flag_cannot_hide_retained_final_or_temp_bytes ... ok
+test knowledge::index_tests::review_replacement::flags::knowledge_review_zero_work_terminal_consumption_requires_independent_actual_file_cleanup ... ok
+test knowledge::index_tests::review_replacement::knowledge_review_automatic_rebuild_completes_delete_admitted_before_later_source_page ... ok
+test knowledge::index_tests::review_replacement::knowledge_review_fresh_swap_rejects_unstaged_native_target_record ... ok
+test knowledge::index_tests::review_replacement::knowledge_review_managed_metadata_loss_keeps_bytes_and_settlement_until_actual_cleanup ... ok
+test knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_more_than_200_retained_duplicate_operations ... ok
+test knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_two_retained_same_source_deletes ... ok
+test knowledge::index_tests::review_replacement::knowledge_review_recovery_resumes_both_document_gone_work_sets_after_pointer_crash ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 693 filtered out; finished in 73.09s
+
+
+ACTUAL_EXIT=0

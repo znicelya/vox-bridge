@@ -1,0 +1,3 @@
+COMMAND: rustfmt --edition 2024 --config skip_children=true src-tauri/src/app/documents/tests.rs src-tauri/src/knowledge/index/delete_completion/files.rs src-tauri/src/knowledge/index_tests.rs src-tauri/src/knowledge/index_tests/binding.rs src-tauri/src/knowledge/index_tests/review_replacement/cohorts.rs
+
+ACTUAL_EXIT: 0

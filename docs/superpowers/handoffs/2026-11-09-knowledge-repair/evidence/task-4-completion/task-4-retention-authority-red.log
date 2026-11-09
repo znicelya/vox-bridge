@@ -1,0 +1,32 @@
+COMMAND: env CARGO_HOME=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106 CARGO_TARGET_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107 TMPDIR=/dev/shm/voxbridge-intelligence-20261109.q7xaof9u PKG_CONFIG_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig PKG_CONFIG_SYSROOT_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot LIBRARY_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib knowledge_review_retention_authority_ -- --test-threads=1
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.40s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 2 tests
+test knowledge::index_tests::review_replacement::authority::knowledge_review_retention_authority_source_removed_flag_cannot_authorize_sql_cleanup ... FAILED
+test knowledge::index_tests::review_replacement::cohorts::knowledge_review_retention_authority_fresh_swap_rejects_different_source_target_peer ... FAILED
+
+failures:
+
+---- knowledge::index_tests::review_replacement::authority::knowledge_review_retention_authority_source_removed_flag_cannot_authorize_sql_cleanup stdout ----
+
+thread 'knowledge::index_tests::review_replacement::authority::knowledge_review_retention_authority_source_removed_flag_cannot_authorize_sql_cleanup' (402690) panicked at src/knowledge/index_tests/review_deletion.rs:5:78:
+called `Option::unwrap()` on a `None` value
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- knowledge::index_tests::review_replacement::cohorts::knowledge_review_retention_authority_fresh_swap_rejects_different_source_target_peer stdout ----
+
+thread 'knowledge::index_tests::review_replacement::cohorts::knowledge_review_retention_authority_fresh_swap_rejects_different_source_target_peer' (402696) panicked at src/knowledge/index_tests/review_replacement/cohorts.rs:71:5:
+fresh replacement cannot certify one source and strand the same target's other source-bound operation
+
+
+failures:
+    knowledge::index_tests::review_replacement::authority::knowledge_review_retention_authority_source_removed_flag_cannot_authorize_sql_cleanup
+    knowledge::index_tests::review_replacement::cohorts::knowledge_review_retention_authority_fresh_swap_rejects_different_source_target_peer
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 727 filtered out; finished in 1.58s
+
+error: test failed, to rerun pass `--lib`
+
+ACTUAL_EXIT: 101

@@ -1,0 +1,27 @@
+COMMAND: env CARGO_HOME=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106 CARGO_TARGET_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107 TMPDIR=/dev/shm/voxbridge-intelligence-20261109.q7xaof9u PKG_CONFIG_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig PKG_CONFIG_SYSROOT_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot LIBRARY_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib knowledge_review_settlement_ -- --test-threads=1
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.36s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 3 tests
+test knowledge::index_tests::review_replacement::settlement::knowledge_review_settlement_does_not_replay_proved_consumed_history ... FAILED
+test knowledge::index_tests::review_replacement::settlement::knowledge_review_settlement_requires_independent_header_bound_consumption_receipt ... ok
+test knowledge::index_tests::review_replacement::settlement::knowledge_review_settlement_two_retained_deletes_publish_empty_native_destination ... ok
+
+failures:
+
+---- knowledge::index_tests::review_replacement::settlement::knowledge_review_settlement_does_not_replay_proved_consumed_history stdout ----
+
+thread 'knowledge::index_tests::review_replacement::settlement::knowledge_review_settlement_does_not_replay_proved_consumed_history' (473144) panicked at src/knowledge/index_tests/review_replacement/settlement.rs:43:5:
+fully proved consumed history must remain retirement authority without replaying cleanup
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    knowledge::index_tests::review_replacement::settlement::knowledge_review_settlement_does_not_replay_proved_consumed_history
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 740 filtered out; finished in 3.01s
+
+error: test failed, to rerun pass `--lib`
+
+ACTUAL_EXIT: 101

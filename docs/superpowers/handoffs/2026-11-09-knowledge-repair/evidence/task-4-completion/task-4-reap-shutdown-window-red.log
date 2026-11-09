@@ -1,0 +1,25 @@
+COMMAND: env CARGO_HOME=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106 CARGO_TARGET_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107 TMPDIR=/dev/shm/voxbridge-intelligence-20261109.q7xaof9u PKG_CONFIG_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig PKG_CONFIG_SYSROOT_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot LIBRARY_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib intelligence_reap_shutdown_waits_ -- --test-threads=1
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.58s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 1 test
+test intelligence::jobs::tests::reap::intelligence_reap_shutdown_waits_for_completion_publication_after_slot_release ... FAILED
+
+failures:
+
+---- intelligence::jobs::tests::reap::intelligence_reap_shutdown_waits_for_completion_publication_after_slot_release stdout ----
+
+thread 'intelligence::jobs::tests::reap::intelligence_reap_shutdown_waits_for_completion_publication_after_slot_release' (495055) panicked at src/intelligence/jobs/tests/reap.rs:281:5:
+shared-slot drain cannot publish generation completion before per-job completion drops
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    intelligence::jobs::tests::reap::intelligence_reap_shutdown_waits_for_completion_publication_after_slot_release
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 746 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--lib`
+
+ACTUAL_EXIT: 101

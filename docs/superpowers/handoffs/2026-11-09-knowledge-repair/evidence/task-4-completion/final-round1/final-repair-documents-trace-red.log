@@ -1,0 +1,25 @@
+COMMAND: env CARGO_HOME=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106 CARGO_TARGET_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107 TMPDIR=/dev/shm/voxbridge-intelligence-20261109.q7xaof9u PKG_CONFIG_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig PKG_CONFIG_SYSROOT_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot LIBRARY_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib documents_completion_cleanup_error_
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 32.41s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 1 test
+test app::documents::tests::documents_completion_cleanup_error_retains_intent_and_marks_repair_without_following_symlink ... FAILED
+
+failures:
+
+---- app::documents::tests::documents_completion_cleanup_error_retains_intent_and_marks_repair_without_following_symlink stdout ----
+
+thread 'app::documents::tests::documents_completion_cleanup_error_retains_intent_and_marks_repair_without_following_symlink' (532962) panicked at src/app/documents/tests.rs:364:5:
+ordinary cleanup outcome=Err(Intelligence(IndexRepairRequired)), pending=delete_pending, document=Failed/Some(Cancelled)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    app::documents::tests::documents_completion_cleanup_error_retains_intent_and_marks_repair_without_following_symlink
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 747 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `--lib`
+
+ACTUAL_EXIT: 101

@@ -1,0 +1,30 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.11s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 7 tests
+test knowledge::index_tests::review_deletion::knowledge_review_delete_keeps_historical_published_mapping_evidence_without_old_chunks ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_first_page_foreign_vector_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_foreign_association_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_foreign_vector_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_malformed_fence_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_missing_later_page_work_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_resume_preserves_invalid_target_proof_and_clean_neighbors ... FAILED
+
+failures:
+
+---- knowledge::index_tests::review_deletion::knowledge_review_delete_resume_preserves_invalid_target_proof_and_clean_neighbors stdout ----
+
+thread 'knowledge::index_tests::review_deletion::knowledge_review_delete_resume_preserves_invalid_target_proof_and_clean_neighbors' (264201) panicked at src/knowledge/index_tests/review_deletion.rs:82:13:
+assertion `left == right` failed: invalid clean-source proof must isolate its target
+  left: "repair_required"
+ right: "ready"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    knowledge::index_tests::review_deletion::knowledge_review_delete_resume_preserves_invalid_target_proof_and_clean_neighbors
+
+test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 702 filtered out; finished in 5.52s
+
+error: test failed, to rerun pass `--lib`

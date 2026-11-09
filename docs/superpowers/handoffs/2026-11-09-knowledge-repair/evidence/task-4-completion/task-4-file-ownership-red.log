@@ -1,0 +1,44 @@
+COMMAND: env CARGO_HOME="$PWD/.superpowers/toolchain/cargo-writable-20261106" CARGO_TARGET_DIR="$PWD/.superpowers/toolchain/cargo-target-intelligence-20261107" TMPDIR="/dev/shm/voxbridge-intelligence-20261109.q7xaof9u" PKG_CONFIG_PATH="$PWD/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig" PKG_CONFIG_SYSROOT_DIR="$PWD/.superpowers/toolchain/alsa/sysroot" LIBRARY_PATH="$PWD/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu" cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib knowledge::index_tests::review_replacement::files:: -- --test-threads=1
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.63s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 4 tests
+test knowledge::index_tests::review_replacement::files::knowledge_review_cleanup_rejects_additional_file_owned_by_original_import_job ... FAILED
+test knowledge::index_tests::review_replacement::files::knowledge_review_managed_full_path_drift_is_rejected_before_native_delete ... FAILED
+test knowledge::index_tests::review_replacement::files::knowledge_review_managed_path_change_before_publication_retains_original_work ... FAILED
+test knowledge::index_tests::review_replacement::files::knowledge_review_real_managed_cleanup_failure_keeps_source_work_and_retries ... ok
+
+failures:
+
+---- knowledge::index_tests::review_replacement::files::knowledge_review_cleanup_rejects_additional_file_owned_by_original_import_job stdout ----
+
+thread 'knowledge::index_tests::review_replacement::files::knowledge_review_cleanup_rejects_additional_file_owned_by_original_import_job' (371408) panicked at src/knowledge/index_tests/review_replacement/files.rs:119:66:
+called `Result::unwrap()` on an `Err` value: Intelligence(Busy)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- knowledge::index_tests::review_replacement::files::knowledge_review_managed_full_path_drift_is_rejected_before_native_delete stdout ----
+
+thread 'knowledge::index_tests::review_replacement::files::knowledge_review_managed_full_path_drift_is_rejected_before_native_delete' (371418) panicked at src/knowledge/index_tests/review_replacement/files.rs:26:5:
+assertion `left == right` failed: a matching basename cannot authorize a different full path
+  left: Succeeded
+ right: Failed
+
+---- knowledge::index_tests::review_replacement::files::knowledge_review_managed_path_change_before_publication_retains_original_work stdout ----
+
+thread 'knowledge::index_tests::review_replacement::files::knowledge_review_managed_path_change_before_publication_retains_original_work' (371424) panicked at src/knowledge/index_tests/review_replacement/files.rs:65:5:
+assertion `left == right` failed: publication must recheck the entire original path association
+  left: Succeeded
+ right: Failed
+
+
+failures:
+    knowledge::index_tests::review_replacement::files::knowledge_review_cleanup_rejects_additional_file_owned_by_original_import_job
+    knowledge::index_tests::review_replacement::files::knowledge_review_managed_full_path_drift_is_rejected_before_native_delete
+    knowledge::index_tests::review_replacement::files::knowledge_review_managed_path_change_before_publication_retains_original_work
+
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 721 filtered out; finished in 1.74s
+
+error: test failed, to rerun pass `--lib`
+
+ACTUAL_EXIT=101

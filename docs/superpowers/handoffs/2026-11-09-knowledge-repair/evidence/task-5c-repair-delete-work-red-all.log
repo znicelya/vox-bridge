@@ -1,0 +1,59 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.64s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 6 tests
+test knowledge::index_tests::review_deletion::knowledge_review_delete_keeps_historical_published_mapping_evidence_without_old_chunks ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_first_page_foreign_vector_before_mutation ... FAILED
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_foreign_association_before_mutation ... FAILED
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_foreign_vector_before_mutation ... FAILED
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_malformed_fence_before_mutation ... FAILED
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_missing_later_page_work_before_mutation ... FAILED
+
+failures:
+
+---- knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_first_page_foreign_vector_before_mutation stdout ----
+
+thread 'knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_first_page_foreign_vector_before_mutation' (258436) panicked at src/knowledge/index_tests/review_deletion.rs:55:9:
+assertion `left == right` failed: foreign_first
+  left: Succeeded
+ right: Failed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_foreign_association_before_mutation stdout ----
+
+thread 'knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_foreign_association_before_mutation' (258442) panicked at src/knowledge/index_tests/review_deletion.rs:52:12:
+called `Result::unwrap()` on an `Err` value: Storage(SqliteFailure(Error { code: ConstraintViolation, extended_code: 787 }, Some("FOREIGN KEY constraint failed")))
+
+---- knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_foreign_vector_before_mutation stdout ----
+
+thread 'knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_foreign_vector_before_mutation' (258448) panicked at src/knowledge/index_tests/review_deletion.rs:55:9:
+assertion `left == right` failed: foreign_late
+  left: Succeeded
+ right: Failed
+
+---- knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_malformed_fence_before_mutation stdout ----
+
+thread 'knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_malformed_fence_before_mutation' (258468) panicked at src/knowledge/index_tests/review_deletion.rs:55:9:
+assertion `left == right` failed: fence_late
+  left: Succeeded
+ right: Failed
+
+---- knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_missing_later_page_work_before_mutation stdout ----
+
+thread 'knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_missing_later_page_work_before_mutation' (258487) panicked at src/knowledge/index_tests/review_deletion.rs:55:9:
+assertion `left == right` failed: missing_late
+  left: Succeeded
+ right: Failed
+
+
+failures:
+    knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_first_page_foreign_vector_before_mutation
+    knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_foreign_association_before_mutation
+    knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_foreign_vector_before_mutation
+    knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_malformed_fence_before_mutation
+    knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_missing_later_page_work_before_mutation
+
+test result: FAILED. 1 passed; 5 failed; 0 ignored; 0 measured; 702 filtered out; finished in 4.53s
+
+error: test failed, to rerun pass `--lib`

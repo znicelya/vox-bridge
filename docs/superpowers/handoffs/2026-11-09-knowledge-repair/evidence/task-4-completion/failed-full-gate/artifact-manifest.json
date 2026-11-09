@@ -1,0 +1,30 @@
+{
+  "tree": "3afb692d013bbc8e4830b130f504d18fa8f63e33",
+  "status": "failed; 745 passed / 3 failed; later gates not executed",
+  "artifacts": [
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/source-freeze.json",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/failed-full-gate/source-freeze.json",
+      "bytes": 6734,
+      "sha256": "e7826c3bd0ad918a2389144b70553e887b6dac4e125ef08d8a8e60bccb1384f4"
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/frozen-source-paths.txt",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/failed-full-gate/frozen-source-paths.txt",
+      "bytes": 1951,
+      "sha256": "179ea00e04fb30d4c8ccbc2249eede2ff21d9285652da21b49ab1cf45012a191"
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-all-targets.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/failed-full-gate/final-all-targets.log",
+      "bytes": 84323,
+      "sha256": "cbfcc54de9012a05925ad93b1b6251afa960808ac3e2e5b1ec2dc621202c3858"
+    },
+    {
+      "original": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-verification.json",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-4-completion/failed-full-gate/final-verification.json",
+      "bytes": 1589,
+      "sha256": "041ae766bdcdbcdefcaef28925d33132812fda01b426cb0f79d614f759147194"
+    }
+  ]
+}

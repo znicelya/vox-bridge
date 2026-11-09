@@ -1,0 +1,43 @@
+{
+  "tree": "42ad04b3c5027f0ed7a84c509522502983bf8a84",
+  "all_required_gates_exit_zero": true,
+  "independent_review": "pending",
+  "artifacts": [
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round2/final-verification.json",
+      "archive": "final-verification.json",
+      "bytes": 3963,
+      "sha256": "fb3200059d1a23a3e58c8a92aa0ce88cc6ee395e3283365ee5f5d5db5782ccf6"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round2/final-all-targets.log",
+      "archive": "final-all-targets.log",
+      "bytes": 86178,
+      "sha256": "20607296013d0a98f4e20d32f8ff2b2944974afd2ada6df69bed8668792adb6b"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round2/final-production-check.log",
+      "archive": "final-production-check.log",
+      "bytes": 190,
+      "sha256": "7ba881762eb5c5f34babb65e62004f214d84038b5a51ae3f2292e3c80e5a8e88"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round2/final-desktop-build.log",
+      "archive": "final-desktop-build.log",
+      "bytes": 191,
+      "sha256": "8583467ccd7200a84e50d4549b9d76699fd9e06fe5d1c2b0e81e9a000ff0d6f7"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round2/final-rustfmt.log",
+      "archive": "final-rustfmt.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round2/final-frozen-diff-check.log",
+      "archive": "final-frozen-diff-check.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

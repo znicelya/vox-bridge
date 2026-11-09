@@ -1,0 +1,31 @@
+COMMAND: env CARGO_HOME=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106 CARGO_TARGET_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107 TMPDIR=/dev/shm/voxbridge-intelligence-20261109.q7xaof9u PKG_CONFIG_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig PKG_CONFIG_SYSROOT_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot LIBRARY_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib knowledge_review_direct_delete_certifies_202_ -- --test-threads=1
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.51s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 1 test
+test knowledge::index_tests::review_replacement::cohorts::knowledge_review_direct_delete_certifies_202_exact_terminal_peers_and_retains_history ... FAILED
+
+failures:
+
+---- knowledge::index_tests::review_replacement::cohorts::knowledge_review_direct_delete_certifies_202_exact_terminal_peers_and_retains_history stdout ----
+completion source validated 326.532306ms
+completion files prepared 5.228470521s
+
+thread 'knowledge::index_tests::review_replacement::cohorts::knowledge_review_direct_delete_certifies_202_exact_terminal_peers_and_retains_history' (465374) panicked at src/knowledge/index_tests.rs:168:10:
+called `Result::unwrap()` on an `Err` value: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+completion work acknowledged 16.694053164s
+
+thread 'knowledge::index_tests::review_replacement::cohorts::knowledge_review_direct_delete_certifies_202_exact_terminal_peers_and_retains_history' (465374) panicked at src/knowledge/index_tests/review_replacement/cohorts.rs:59:25:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+
+
+failures:
+    knowledge::index_tests::review_replacement::cohorts::knowledge_review_direct_delete_certifies_202_exact_terminal_peers_and_retains_history
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 739 filtered out; finished in 21.39s
+
+error: test failed, to rerun pass `--lib`
+
+ACTUAL_EXIT: 101

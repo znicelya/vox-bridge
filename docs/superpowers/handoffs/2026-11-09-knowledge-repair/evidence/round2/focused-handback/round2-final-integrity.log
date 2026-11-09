@@ -1,0 +1,394 @@
+COMMAND: python3 /dev/shm/voxbridge-intelligence-20261109.q7xaof9u/round2-final-integrity.py
+
+{
+  "initial_state_sha256": "cc0a79844c5dbe61e99dcc39dbdb6748886c7b28ff433114a3bc9259d126937a",
+  "head": "b72556091fc533dafb0a336907bf077fec377615",
+  "branch": "codex/vox-bridge-implementation",
+  "reviewed_tree": "da23738987e178f23b1f5bda34c9c8250d5f4f4e",
+  "protected_gitignore_worktree_sha256": "1e708ede61f6522d88e4bea58f5c55e70831f404fd00f7a6710d424446e57a3a",
+  "protected_gitignore_index_sha256": "1e708ede61f6522d88e4bea58f5c55e70831f404fd00f7a6710d424446e57a3a",
+  "staged_paths": [
+    ".gitignore"
+  ],
+  "checks": {
+    "all_75_preserved_evidence_match_bytes_and_sha256": true,
+    "all_14_frozen_inputs_match_sha256": true,
+    "all_42_initial_sources_only_expected_9_changes": true,
+    "frozen_git_sources_missing_none": true,
+    "frozen_git_sources_only_expected_9_changes": true,
+    "frozen_git_sources_only_expected_4_additions": true,
+    "recorded_42_initial_sources_match_frozen_git_blobs": true,
+    "head_unchanged": true,
+    "branch_unchanged": true,
+    "only_protected_gitignore_staged": true,
+    "protected_index_gitignore_sha256_unchanged": true,
+    "protected_worktree_gitignore_sha256_unchanged": true,
+    "finalized_review_sha256_unchanged": true,
+    "rust_test_threads_unset": true,
+    "runner_environment_matches_initial_frozen_environment": true,
+    "cargo_rustc_rustfmt_test_runner_processes_all_ended": true
+  },
+  "preserved_evidence": {
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/complete-repair-review-brief.md": {
+      "sha256": "5363119524a9c550d609c5ee616eca596855696a667b50112f0f4edd6c0e698b",
+      "bytes": 31076
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/complete-repair-review.diff": {
+      "sha256": "ec094d1c6bc813e61d2ead0b6266d1b2bb11fd53be15483e19cb392060129697",
+      "bytes": 392723
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/complete-repair-round1-review-brief.md": {
+      "sha256": "49ea653c51171d7e02d5e7c28e29b55f1ef1549caacd2883022bc1022b6df1c6",
+      "bytes": 31983
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/controller-gates.py": {
+      "sha256": "3ef0cbcabac27a4f595d9e7c20109bef3c08faf53e4a07e325bde3966a91e57e",
+      "bytes": 8864
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-all-targets.log": {
+      "sha256": "cbfcc54de9012a05925ad93b1b6251afa960808ac3e2e5b1ec2dc621202c3858",
+      "bytes": 84323
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-gate-repair-brief.md": {
+      "sha256": "6b6b4dd4f093cd9c15767a5d3e5a7af29fb60a8dbfe7a21692e56832ee472e18",
+      "bytes": 3724
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-gate-repair-report.md": {
+      "sha256": "80504b9c7523211bfef4dc311f326cc996668f8e0397324a5c8b35ff07605d0a",
+      "bytes": 16188
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-binding-controlled-green.log": {
+      "sha256": "f19b9bec8c5b0f2f878a8c6a3ed14abde1a46e0c327d2671fa051fee921f9a3c",
+      "bytes": 1491
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-direct-peers-isolated-green.log": {
+      "sha256": "bbc71f0527b8e7bb10f407abae2d32dfc57bbbd6b077ded75902b087fb25c523",
+      "bytes": 1706
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-documents-formatted-green.log": {
+      "sha256": "b880aa0cc9593a42901b82d5cc72a5b2175767d35e588ea003c0cd865e7ea9cf",
+      "bytes": 1845
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-documents-green.log": {
+      "sha256": "b8864ba25eae5a1b7e942a326d34a7ed1ec533cd55260875a41eae9b0cadeb23",
+      "bytes": 1964
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-documents-original-red.log": {
+      "sha256": "3d11ee6e48086bfe5ae2084d2afc809ddf591ce8fa68dd6578db52499b44d2ad",
+      "bytes": 2043
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-handback-integrity.log": {
+      "sha256": "95dd557b14dc0f45174c1e14077041aca81a65d18c6867dd628edf0837c4060b",
+      "bytes": 857
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-initial-red.log": {
+      "sha256": "0820d32850f96b3ea8d183249a90c21af881fe01644163467511a70ef5e8da20",
+      "bytes": 4114
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-native-path-codec-green.log": {
+      "sha256": "d0c044f944c6ff595ee7864572ad0ea081d1f92bf523d7ced7e00a06969180f5",
+      "bytes": 1537
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-native-path-codec-red.log": {
+      "sha256": "d5c6d73f300a1d6e66c23bb955cb55fa58f092ef52433c57033442f18ecab79c",
+      "bytes": 2267
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-owned-rustfmt.log": {
+      "sha256": "c914852a4f4acfc77f62860912226592d25900fd2fb2eda00b5c27798531dbdf",
+      "bytes": 2027
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-protocol-green-check.log": {
+      "sha256": "260ad0126323c817f04f5ca2a6c96a52bfabd58e34ed2b27a6b564052b60c33b",
+      "bytes": 4660
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-reap-api-compile-red.log": {
+      "sha256": "f4b3db3631f8e6989e057faa3ea3b2983fec0d7135040e86b887ee05ca6f1c6e",
+      "bytes": 3731
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-reap-producer-check.log": {
+      "sha256": "c736c8d031335082323fe219fa7458d664751387a304fef5b4d4c1d4073da185",
+      "bytes": 2592
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-reap-producer-green.log": {
+      "sha256": "bcf7a129a58942d1a9449cbe60c3c13fa6eb7e8a94719eccb4e97e1f5fac15ba",
+      "bytes": 2191
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-reap-quiescence-green.log": {
+      "sha256": "0a52b3f463bee7acfd3b1b5091c6a0959b75753da8edb4f2d1f337bd69335b7c",
+      "bytes": 2431
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-reap-shutdown-window-red.log": {
+      "sha256": "7ac7678afced5f0797088c57b4cc2a5447bb13b19e6a5ba0c30ff27732ca74fc",
+      "bytes": 2180
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-replacement-connected-green.log": {
+      "sha256": "180eea54d07e366d78c1d5e87dc41e6c731fea64b52141b01ced6b1e16aa9620",
+      "bytes": 4655
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-replacement-runtime-red.log": {
+      "sha256": "402af6d9d34a45537ecda783feb5fea26de0990fc6764a0382a4fa51b79a9161",
+      "bytes": 14629
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-retention-authority-green.log": {
+      "sha256": "fd06da71c4f25f15e85d199c8076dadab7dc6e36512a5182cdaaa63cc6a09280",
+      "bytes": 1692
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-retention-authority-red.log": {
+      "sha256": "187b7ce14cabee1b93554690ab9081b09c412aa727c34d0370ca6641faa93cac",
+      "bytes": 3051
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-settlement-gc-edge-red.log": {
+      "sha256": "3f4c649bf85977c4697fe9af099a7f048db86095b444d2f5fdb66a38239bc43c",
+      "bytes": 2845
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-settlement-gc-retry-green.log": {
+      "sha256": "6b634e3c935a9cd701d6c129c06a2ee5be4774c3360f76610bac264885329a53",
+      "bytes": 2108
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-settlement-gc-retry-red.log": {
+      "sha256": "1117fd1332dcd850fb08ebef731c9c16badd6c73018d1be32efd414d98cf6a02",
+      "bytes": 2264
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-settlement-no-replay-green.log": {
+      "sha256": "124f11f5d60fd06b1901f19f1cd802552323d64643b670ed18a57480cfaa2136",
+      "bytes": 1816
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-settlement-no-replay-red.log": {
+      "sha256": "33e24539f7c6df27f117408c822a9f4a0580b8ec362e25fd61df8687ffdce7ed",
+      "bytes": 2548
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-source-removal-authority-red.log": {
+      "sha256": "b28f4d18050b15a6e77b048fc2fb17e7d2d8a574f0b9ad7d88deac0fb8316b33",
+      "bytes": 2331
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-terminal-reap-waiter-green.log": {
+      "sha256": "19f94d00bbfc60ee3fe0640b8d598c0d6a02be0cdf8ae3d426c932e75b4e5031",
+      "bytes": 2151
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-terminal-reap-waiter-red.log": {
+      "sha256": "34978b38aa4bb600c0c9716805d7e8e5a1e3c81b543d651ffae94d10e561b29c",
+      "bytes": 2285
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-terminal-reap-waiter-trace.log": {
+      "sha256": "179f985286c06ab15ea19df5e65f88febc82383ddfb75ccc5a6faa6ff64c81ad",
+      "bytes": 2323
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-terminal-reap-waiter-verified.log": {
+      "sha256": "b3c4c889f78da68818532e393f4dc9b3be984d5c67a1d8aea7fa6f659750efc7",
+      "bytes": 1531
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-documents-trace-red.log": {
+      "sha256": "e909ebb22d4d222ac8f11b4f94ebc0f23817a34b8e67a2c3c33e08cf4993ec9e",
+      "bytes": 2203
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-completion-report.md": {
+      "sha256": "7daf613978ba82375fbe27762135ee18f7350c53e7109cc58fb6e341863bb36a",
+      "bytes": 23188
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-full-path-connected-check.log": {
+      "sha256": "fc71ca3b67af35b5cba1de008a6399c6e538d12ccddab41e546afec6ef72b303",
+      "bytes": 3610
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-scheduler-focused-green.log": {
+      "sha256": "d42d3c978a27320584b11c14391e956744a2fff0dae1f180b32affb5cd97ce33",
+      "bytes": 4886
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-connected-cohort-check.log": {
+      "sha256": "2082f584937841bbc7f18650d8332d4703f4155c1c57c46313f7be2334a390ab",
+      "bytes": 5449
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-connected-knowledge-regression.log": {
+      "sha256": "36ddebab672951aa22299aa8359eca633812e22b712158c4986dd3064fc0505c",
+      "bytes": 11851
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-direct-peers-batched-green.log": {
+      "sha256": "b726afcc7f2580246526cfb61ea4acd06f61f5469e2850975f011efabd672b8d",
+      "bytes": 1619
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-direct-peers-reap-check.log": {
+      "sha256": "2471a5c62ba4422b4d8d8fe0796df91c3ff85eebe51ec4809720ffbd0d8476ef",
+      "bytes": 2146
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-direct-peers-timing-red.log": {
+      "sha256": "7488c7896a6f53ed6f20a5def7d6397f0e6c7ff548bf8e3879e04e13315f5769",
+      "bytes": 2677
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-file-flags-red.log": {
+      "sha256": "e93ef46bf82595af0989fab3c4db9533d5d4193ca16299c6296dae3a6aef82ba",
+      "bytes": 2661
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-file-owner-canonical-red.log": {
+      "sha256": "13ec43411d2259d5ef5681f04dbe0e14c53ac09617c435d84957f7ff7ad775f0",
+      "bytes": 4862
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-file-owner-consumers-green.log": {
+      "sha256": "17f0508f3f8504f25723d00fa94d5c6cd7e64e3fc8670b3d7be16908e3a22bd3",
+      "bytes": 2228
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-file-ownership-consumers-red.log": {
+      "sha256": "325b61a987cc0917ac7e2ee5123defae28c491752a6908e866725bdda86fd9f2",
+      "bytes": 4301
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-file-ownership-red.log": {
+      "sha256": "a012c155e15b879b9a5bd4a3b0b7a9b2d3d71ecbfae3aade321626596a3732f0",
+      "bytes": 3592
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-file-paths-and-flags-red.log": {
+      "sha256": "bfd6549174a8ee5f04976a3ca2c25ee476c437e56680925e186833e5ace5d6e1",
+      "bytes": 3360
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-final-knowledge-focused.log": {
+      "sha256": "f17f0e391a4aded081cde8defea4ab7ffbc4729727968a3903e0f7f2c2835e0d",
+      "bytes": 14740
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-final-scheduler-focused.log": {
+      "sha256": "5731c6a104f7e1ef1a8d2d6cd7e71bf9030e9fcc72eebf27d98d503f7429e163",
+      "bytes": 4767
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-handback-integrity.log": {
+      "sha256": "c7269bdc44b1a8e8230e9d7eb7562f6c1d16bf062dcdf36b8192f91521717d80",
+      "bytes": 2034
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-knowledge-default-parallel-green.log": {
+      "sha256": "0af15d9d4e3b07d4ee04c6a4e19d398c2ba7d646ea1eb01aeb633f64e7dc5c69",
+      "bytes": 17049
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-knowledge-original-parallel-red.log": {
+      "sha256": "4432306ee96057f611a31a7a798d5b66a7820c9cc80176b5fbd23ce831e10cd2",
+      "bytes": 13530
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-knowledge-parallel-trace-red.log": {
+      "sha256": "a845d90049ed5c065921c4ec576a699f74f6329b9d1894c870e72a7020ed1eef",
+      "bytes": 17275
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-repair-owned-rustfmt.log": {
+      "sha256": "0b3aeefcfa9147712b59f997b473345d8fb2a3000b6b6e7b1db9ad27a0717ac9",
+      "bytes": 322
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-verification.json": {
+      "sha256": "041ae766bdcdbcdefcaef28925d33132812fda01b426cb0f79d614f759147194",
+      "bytes": 1589
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/frozen-source-paths.txt": {
+      "sha256": "179ea00e04fb30d4c8ccbc2249eede2ff21d9285652da21b49ab1cf45012a191",
+      "bytes": 1951
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-repair-brief.md": {
+      "sha256": "092aca416f8225eb24449e68c48d9a6931cdccbed5d883a160a10c287d39c1ff",
+      "bytes": 6896
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/source-freeze.json": {
+      "sha256": "e7826c3bd0ad918a2389144b70553e887b6dac4e125ef08d8a8e60bccb1384f4",
+      "bytes": 6734
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-cohort-edge-check.log": {
+      "sha256": "75f6a0b54fcb01a379f1c5a97196215fc49678248e9dd6016774fd1ccb8a266d",
+      "bytes": 2700
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-completion-brief.md": {
+      "sha256": "9d9136e4ef5a98bcc96f1f867945224f6d1db2fcdfe07fe61513eba76ff80160",
+      "bytes": 7939
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round1/complete-repair-review.diff": {
+      "sha256": "8f4212dc633a694f665cb3f5673a8988b294be7566bb992a3a2520d7ebcbee66",
+      "bytes": 402039
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round1/final-all-targets.log": {
+      "sha256": "17c4cd906d0976a74af0d651ad56499a57e97899fc934c63e585a66bc21e4a4f",
+      "bytes": 85126
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round1/final-desktop-build.log": {
+      "sha256": "e837595fe30a06a7f6cf4183b574227810311377e34515ca80d8f59712d9fe2d",
+      "bytes": 191
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round1/final-frozen-diff-check.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round1/final-production-check.log": {
+      "sha256": "d39bada1742e4d6c351a42f7fecff65798c81b59db73d24ba8e496248cb36a28",
+      "bytes": 191
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round1/final-rustfmt.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round1/final-verification.json": {
+      "sha256": "99c4f0abbf4c6c2ca17b29f6674aa86a18dc8826e5eb74b5b0d2c1fbf851c5b0",
+      "bytes": 3962
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round1/frozen-source-paths.txt": {
+      "sha256": "dd81067e39ddecdf446895a754911925be0f6aaff6e1a4f48140731253cea2f8",
+      "bytes": 2035
+    },
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round1/source-freeze.json": {
+      "sha256": "c95ed68671fe785410308a9610d060e90f8e2a7e5f86c573e14d2aa2f5ba0d62",
+      "bytes": 7447
+    },
+    "docs/superpowers/reviews/2026-11-09-task5c-repair.md": {
+      "sha256": "1f467d5e6010a3e11f86ae2c0538b6da0883ab91f1f134210268c78242431dd5",
+      "bytes": 36980
+    }
+  },
+  "frozen_inputs": {
+    "src-tauri/Cargo.toml": "1cc0b646854e8b47b15fa26688c6cd50eec7601e21ef0333a6bc515f26092f99",
+    "src-tauri/Cargo.lock": "984bb85a7571b73d77ed39c6742eed0d1ba79fd62170d9fa42e9b9a55f95ac9a",
+    "package.json": "34e24f7865afdb7fd6f29ae0c3a84764ce0f8992b141a52e8517adda14cf0001",
+    "src/lib/knowledge-wire.ts": "6e25c3a05ee71af8f537da6db813e50cea1b9e5ab61165e6bdfcb0d636bb5205",
+    "src/lib/knowledge-wire.test.ts": "3459e330a35595927e84b8449fd3ea2a68d7c9100f366c13b96d60950b35ab1b",
+    "docs/superpowers/plans/2026-11-09-knowledge-review-fixes.md": "cf883c104f775512cbb34c37523b1e24031ed25424927c8a3bac2ae009256ec4",
+    "docs/superpowers/reviews/2026-11-09-task5c.md": "5121c5cd642793880ce51d56d4a5c8e11692c3d3003f578428e3d207a0afb17e",
+    "docs/superpowers/reviews/2026-11-09-delete-proof-ruling.md": "76e130db802072fdbc194986131f7efb0f57031af8614a6f119fc197db3b5889",
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-completion-report.md": "7daf613978ba82375fbe27762135ee18f7350c53e7109cc58fb6e341863bb36a",
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-4-completion-brief.md": "9d9136e4ef5a98bcc96f1f867945224f6d1db2fcdfe07fe61513eba76ff80160",
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-gate-repair-report.md": "80504b9c7523211bfef4dc311f326cc996668f8e0397324a5c8b35ff07605d0a",
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-gate-repair-brief.md": "6b6b4dd4f093cd9c15767a5d3e5a7af29fb60a8dbfe7a21692e56832ee472e18",
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/complete-repair-round1-review-brief.md": "49ea653c51171d7e02d5e7c28e29b55f1ef1549caacd2883022bc1022b6df1c6",
+    ".superpowers/sdd/2026-11-09-knowledge-review-fixes/controller-gates-round1.py": "4938371075e82e0a71afcd7461056026968ea668c3b1972ca96cbf9d7e4f9fa0"
+  },
+  "frozen_git_rust_source_count": 216,
+  "missing_frozen_git_sources": [],
+  "changed_frozen_git_sources": [
+    "src-tauri/src/knowledge/index/delete_completion.rs",
+    "src-tauri/src/knowledge/index/delete_completion/files.rs",
+    "src-tauri/src/knowledge/index/delete_completion/journal.rs",
+    "src-tauri/src/knowledge/index/delete_completion/publication.rs",
+    "src-tauri/src/knowledge/index/delete_completion/retirement.rs",
+    "src-tauri/src/knowledge/index/delete_work.rs",
+    "src-tauri/src/knowledge/index_tests.rs",
+    "src-tauri/src/knowledge/index_tests/review_replacement/cohorts.rs",
+    "src-tauri/src/knowledge/service/completion.rs"
+  ],
+  "new_round2_sources": [
+    "src-tauri/src/knowledge/index_tests/review_round2.rs",
+    "src-tauri/src/knowledge/index_tests/review_round2/files.rs",
+    "src-tauri/src/knowledge/index_tests/review_round2/peers.rs",
+    "src-tauri/src/knowledge/index_tests/review_round2/startup.rs"
+  ],
+  "final_owned_source_sha256": {
+    "src-tauri/src/knowledge/index/delete_completion.rs": "35223ef53d75fdee1dfe9b804d3857184642a932ad7701ad73c3c76b257da574",
+    "src-tauri/src/knowledge/index/delete_completion/files.rs": "a33f8594bc8cdf991be5f0c0e41859e47ab9f3f965dae6eb4d2b95966b1c4a12",
+    "src-tauri/src/knowledge/index/delete_completion/journal.rs": "1c9bbe91b2e24c99ae37eb674dfd1ad2870acf3d79bd89d408acfbb51899165d",
+    "src-tauri/src/knowledge/index/delete_completion/publication.rs": "92b334832c43f6983614b9bfd9477a2a508596bb1c1d3e3d4cae6b8e06c1510c",
+    "src-tauri/src/knowledge/index/delete_completion/retirement.rs": "868e9f1bd01d57dc0cc13890c35ea0f43a9edf352ed833e9cff710dc0dcabfca",
+    "src-tauri/src/knowledge/index/delete_work.rs": "0f4dba5cdaab885627fefebd0654511dd8c94dd37d02a78815642a4df79fd613",
+    "src-tauri/src/knowledge/index_tests.rs": "4f0a4977123730b68225cb6b0133288b318e3f3e25cdabf6aade4fb860d3cbd7",
+    "src-tauri/src/knowledge/index_tests/review_replacement/cohorts.rs": "359dfffcd5ee48d69bf83b2573f9f305ecd830fe26c6ae674de0822bd60b20ad",
+    "src-tauri/src/knowledge/index_tests/review_round2.rs": "204af6c1d889ac0b5a220e67aa5e79c627a4dbbd3ef5ead6992f233ccdfc9a5c",
+    "src-tauri/src/knowledge/index_tests/review_round2/files.rs": "cb4e1cbb446e13ec7e5288054d4ce84a8e314d73c14f152343ce09c8db346182",
+    "src-tauri/src/knowledge/index_tests/review_round2/peers.rs": "15b7138464242769aa15145d54c1509798930126d5d49ae501013d6b439ab609",
+    "src-tauri/src/knowledge/index_tests/review_round2/startup.rs": "e4bd98b07e8ba845ddb652a58da2b2fee34c13329dd640de5eb752a1395befbf",
+    "src-tauri/src/knowledge/service/completion.rs": "c9221e66645c7ee8ea003fbc93cdb029e7e151dbf3db5d3b5c54c83bc8b564af"
+  },
+  "active_build_or_test_processes": [],
+  "environment": {
+    "CARGO_HOME": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106",
+    "CARGO_TARGET_DIR": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107",
+    "TMPDIR": "/dev/shm/voxbridge-intelligence-20261109.q7xaof9u",
+    "PKG_CONFIG_PATH": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig",
+    "PKG_CONFIG_SYSROOT_DIR": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot",
+    "LIBRARY_PATH": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu"
+  }
+}
+
+ACTUAL_EXIT: 0

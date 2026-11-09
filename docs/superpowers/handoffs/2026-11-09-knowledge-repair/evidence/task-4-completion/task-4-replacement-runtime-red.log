@@ -1,0 +1,247 @@
+COMMAND: env CARGO_HOME="$PWD/.superpowers/toolchain/cargo-writable-20261106" CARGO_TARGET_DIR="$PWD/.superpowers/toolchain/cargo-target-intelligence-20261107" TMPDIR="/dev/shm/voxbridge-intelligence-20261109.q7xaof9u" PKG_CONFIG_PATH="$PWD/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig" PKG_CONFIG_SYSROOT_DIR="$PWD/.superpowers/toolchain/alsa/sysroot" LIBRARY_PATH="$PWD/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu" cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib knowledge_review_ -- --test-threads=1
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+warning: unused imports: `check_files` and `mark_files_cleaned`
+ --> src/knowledge/index/delete_completion.rs:7:24
+  |
+7 | pub(crate) use files::{check_files, mark_files_cleaned};
+  |                        ^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `CompletionKind`, `load`, `operations`, `optional_publication`, `publication as read_publication`, `scan_operations`, and `scan_publications`
+ --> src/knowledge/index/delete_completion.rs:8:26
+  |
+8 | ...::{load, operations, publication as read_publication, optional_publication, scan_operations, scan_publications, CompletionKind};
+  |       ^^^^  ^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^
+
+warning: unused imports: `preflight`, `publish_delete`, and `publish_fresh`
+ --> src/knowledge/index/delete_completion.rs:9:30
+  |
+9 | pub(crate) use publication::{preflight, publish_delete, publish_fresh};
+  |                              ^^^^^^^^^  ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^
+
+warning: unused imports: `acknowledge`, `consume`, `guard_sql`, `settle_local`, and `validate_complete`
+  --> src/knowledge/index/delete_completion.rs:10:29
+   |
+10 | pub(crate) use retirement::{acknowledge, consume, guard_physical, guard_sql, settle_local, validate_complete};
+   |                             ^^^^^^^^^^^  ^^^^^^^                  ^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^
+
+warning: function `insert` is never used
+  --> src/knowledge/index/delete_completion.rs:48:4
+   |
+48 | fn insert(tx: &Transaction<'_>, key: &str, value: &impl Serialize) -> AppResult<()> {
+   |    ^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `FileProof` is never constructed
+  --> src/knowledge/index/delete_completion/files.rs:35:19
+   |
+35 | pub(super) struct FileProof {
+   |                   ^^^^^^^^^
+
+warning: function `capture` is never used
+  --> src/knowledge/index/delete_completion/files.rs:49:15
+   |
+49 | pub(super) fn capture(tx: &Transaction<'_>, input: &DeleteInput, write: bool) -> AppResult<FileProof> {
+   |               ^^^^^^^
+
+warning: function `check_files` is never used
+   --> src/knowledge/index/delete_completion/files.rs:150:21
+    |
+150 | pub(crate) async fn check_files(
+    |                     ^^^^^^^^^^^
+
+warning: function `mark_files_cleaned` is never used
+   --> src/knowledge/index/delete_completion/files.rs:192:15
+    |
+192 | pub(crate) fn mark_files_cleaned(tx: &Transaction<'_>, operation: Uuid) -> AppResult<()> {
+    |               ^^^^^^^^^^^^^^^^^^
+
+warning: method `source_descriptor` is never used
+  --> src/knowledge/index/delete_completion/journal.rs:41:19
+   |
+19 | impl Authority {
+   | -------------- method in this implementation
+...
+41 |     pub(crate) fn source_descriptor(&self) -> AppResult<Option<Generation>> {
+   |                   ^^^^^^^^^^^^^^^^^
+
+warning: function `optional_publication` is never used
+   --> src/knowledge/index/delete_completion/journal.rs:132:15
+    |
+132 | pub(crate) fn optional_publication(tx: &Transaction<'_>, id: Uuid) -> AppResult<Option<Publication>> {
+    |               ^^^^^^^^^^^^^^^^^^^^
+
+warning: variant `Document` is never constructed
+ --> src/knowledge/index/delete_completion/publication.rs:6:52
+  |
+6 | pub(super) enum Scope<'a> { Source(&'a str, Uuid), Document(&'a DeleteInput) }
+  |                 ----- variant in this enum         ^^^^^^^^
+
+warning: function `preflight` is never used
+  --> src/knowledge/index/delete_completion/publication.rs:93:15
+   |
+93 | pub(crate) fn preflight(tx: &Transaction<'_>, input: &DeleteInput) -> AppResult<delete_work::DeleteWorkProof> {
+   |               ^^^^^^^^^
+
+warning: function `publish_delete` is never used
+   --> src/knowledge/index/delete_completion/publication.rs:114:15
+    |
+114 | pub(crate) fn publish_delete(tx: &Transaction<'_>, input: &DeleteInput, receipt: Option<&super::super::owner::PersistedReceipt>) ->...
+    |               ^^^^^^^^^^^^^^
+
+warning: function `publish_fresh` is never used
+   --> src/knowledge/index/delete_completion/publication.rs:125:15
+    |
+125 | pub(crate) fn publish_fresh(tx: &Transaction<'_>, receipt: &super::super::owner::PersistedReceipt, source: Uuid, count: u32, kind: ...
+    |               ^^^^^^^^^^^^^
+
+warning: function `source_descriptor` is never used
+   --> src/knowledge/index/delete_completion/publication.rs:133:4
+    |
+133 | fn source_descriptor(tx: &Transaction<'_>, identity: &str, source: Uuid) -> AppResult<Generation> {
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: function `target_key` is never used
+   --> src/knowledge/index/delete_completion/publication.rs:144:4
+    |
+144 | fn target_key(publication: Uuid, document: Uuid) -> String { format!("{}.{}", key("target", publication), document) }
+    |    ^^^^^^^^^^
+
+warning: function `build` is never used
+   --> src/knowledge/index/delete_completion/publication.rs:145:4
+    |
+145 | fn build(tx: &Transaction<'_>, authority: Authority, scope: Scope<'_>) -> AppResult<()> {
+    |    ^^^^^
+
+warning: function `ensure_targets` is never used
+   --> src/knowledge/index/delete_completion/publication.rs:208:4
+    |
+208 | fn ensure_targets(tx: &Transaction<'_>, authority: &Authority, scope: &Scope<'_>) -> AppResult<()> {
+    |    ^^^^^^^^^^^^^^
+
+warning: function `delete_targets` is never used
+   --> src/knowledge/index/delete_completion/publication.rs:229:4
+    |
+229 | fn delete_targets(tx: &Transaction<'_>, authority: &Authority) -> AppResult<()> {
+    |    ^^^^^^^^^^^^^^
+
+warning: function `validate_complete` is never used
+   --> src/knowledge/index/delete_completion/retirement.rs:129:15
+    |
+129 | pub(crate) fn validate_complete(tx: &Transaction<'_>, publication_id: Uuid) -> AppResult<()> {
+    |               ^^^^^^^^^^^^^^^^^
+
+warning: function `guard_sql` is never used
+   --> src/knowledge/index/delete_completion/retirement.rs:138:15
+    |
+138 | pub(crate) fn guard_sql(tx: &Transaction<'_>, source: &Generation) -> AppResult<()> {
+    |               ^^^^^^^^^
+
+warning: function `acknowledge` is never used
+   --> src/knowledge/index/delete_completion/retirement.rs:162:15
+    |
+162 | pub(crate) fn acknowledge(tx: &Transaction<'_>, operation: Uuid, page: u32) -> AppResult<()> {
+    |               ^^^^^^^^^^^
+
+warning: function `local_load` is never used
+   --> src/knowledge/index/delete_completion/retirement.rs:198:4
+    |
+198 | fn local_load(tx: &Transaction<'_>, operation: Uuid) -> AppResult<Option<Certificate>> {
+    |    ^^^^^^^^^^
+
+warning: function `consume` is never used
+   --> src/knowledge/index/delete_completion/retirement.rs:206:15
+    |
+206 | pub(crate) fn consume(tx: &Transaction<'_>, operation: Uuid, status: JobStatus, awaiting_reap: bool) -> AppResult<()> {
+    |               ^^^^^^^
+
+warning: function `settle_local` is never used
+   --> src/knowledge/index/delete_completion/retirement.rs:216:15
+    |
+216 | pub(crate) fn settle_local(tx: &Transaction<'_>, publication_id: Uuid) -> AppResult<()> {
+    |               ^^^^^^^^^^^^
+
+warning: function `collect` is never used
+   --> src/knowledge/index/delete_completion/retirement.rs:231:4
+    |
+231 | fn collect(tx: &Transaction<'_>, publication_id: Uuid) -> AppResult<()> {
+    |    ^^^^^^^
+
+warning: `vox-bridge` (lib test) generated 27 warnings (run `cargo fix --lib -p vox-bridge --tests` to apply 4 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 32.99s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 25 tests
+test knowledge::index_tests::publication::knowledge_review_evidence_accepts_1024_bytes_and_sqlite_rejects_1025_utf8_bytes ... ok
+test knowledge::index_tests::publication::knowledge_review_evidence_rejects_oversized_retained_ascii_before_publication ... ok
+test knowledge::index_tests::publication::knowledge_review_evidence_rejects_oversized_retained_multibyte_before_publication ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_keeps_historical_published_mapping_evidence_without_old_chunks ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_first_page_foreign_vector_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_foreign_association_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_foreign_vector_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_malformed_fence_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_missing_later_page_work_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_resume_preserves_invalid_target_proof_and_clean_neighbors ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_final_search_recheck_excludes_a_newly_incomplete_document ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_missing_mapping_excludes_the_entire_document ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_oversized_title_repairs_its_owner_and_preserves_neighbors ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_reconcile_audits_missing_mappings_from_current_chunks ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_ready_publication_rechecks_the_durable_job_object ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_runtime_delete_rejects_consistent_input_for_the_wrong_job_object ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_runtime_reindex_cannot_mutate_a_foreign_document ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_stale_terminal_job_cannot_overwrite_a_newer_repair_reason ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_startup_requires_bounded_matching_reindex_ownership ... ok
+test knowledge::index_tests::review_replacement::knowledge_review_automatic_rebuild_completes_delete_admitted_before_later_source_page ... FAILED
+test knowledge::index_tests::review_replacement::knowledge_review_fresh_swap_rejects_unstaged_native_target_record ... ok
+test knowledge::index_tests::review_replacement::knowledge_review_managed_metadata_loss_keeps_bytes_and_settlement_until_actual_cleanup ... FAILED
+test knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_more_than_200_retained_duplicate_operations ... FAILED
+test knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_two_retained_same_source_deletes ... FAILED
+test knowledge::index_tests::review_replacement::knowledge_review_recovery_resumes_both_document_gone_work_sets_after_pointer_crash ... FAILED
+
+failures:
+
+---- knowledge::index_tests::review_replacement::knowledge_review_automatic_rebuild_completes_delete_admitted_before_later_source_page stdout ----
+
+thread 'knowledge::index_tests::review_replacement::knowledge_review_automatic_rebuild_completes_delete_admitted_before_later_source_page' (326159) panicked at src/knowledge/index_tests/review_replacement.rs:153:5:
+assertion `left == right` failed
+  left: Failed
+ right: Succeeded
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- knowledge::index_tests::review_replacement::knowledge_review_managed_metadata_loss_keeps_bytes_and_settlement_until_actual_cleanup stdout ----
+
+thread 'knowledge::index_tests::review_replacement::knowledge_review_managed_metadata_loss_keeps_bytes_and_settlement_until_actual_cleanup' (326211) panicked at src/knowledge/index_tests/review_replacement.rs:97:5:
+assertion `left == right` failed: row absence is not actual unlink completion
+  left: Succeeded
+ right: Failed
+
+---- knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_more_than_200_retained_duplicate_operations stdout ----
+
+thread 'knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_more_than_200_retained_duplicate_operations' (326217) panicked at src/knowledge/index_tests/review_replacement.rs:58:51:
+called `Result::unwrap()` on an `Err` value: Intelligence(IndexRepairRequired)
+
+---- knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_two_retained_same_source_deletes stdout ----
+
+thread 'knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_two_retained_same_source_deletes' (326227) panicked at src/knowledge/index_tests/review_replacement.rs:213:51:
+called `Result::unwrap()` on an `Err` value: Intelligence(IndexRepairRequired)
+
+---- knowledge::index_tests::review_replacement::knowledge_review_recovery_resumes_both_document_gone_work_sets_after_pointer_crash stdout ----
+
+thread 'knowledge::index_tests::review_replacement::knowledge_review_recovery_resumes_both_document_gone_work_sets_after_pointer_crash' (326242) panicked at src/knowledge/index_tests/review_replacement.rs:207:9:
+publication must complete the entire source cohort
+
+
+failures:
+    knowledge::index_tests::review_replacement::knowledge_review_automatic_rebuild_completes_delete_admitted_before_later_source_page
+    knowledge::index_tests::review_replacement::knowledge_review_managed_metadata_loss_keeps_bytes_and_settlement_until_actual_cleanup
+    knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_more_than_200_retained_duplicate_operations
+    knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_two_retained_same_source_deletes
+    knowledge::index_tests::review_replacement::knowledge_review_recovery_resumes_both_document_gone_work_sets_after_pointer_crash
+
+test result: FAILED. 20 passed; 5 failed; 0 ignored; 0 measured; 693 filtered out; finished in 17.20s
+
+error: test failed, to rerun pass `--lib`
+
+ACTUAL_EXIT=101

@@ -1,0 +1,16 @@
+COMMAND: env CARGO_HOME=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106 CARGO_TARGET_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107 TMPDIR=/dev/shm/voxbridge-intelligence-20261109.q7xaof9u PKG_CONFIG_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig PKG_CONFIG_SYSROOT_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot LIBRARY_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib app::documents::tests
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.84s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 5 tests
+test app::documents::tests::documents_completion_cleanup_error_retains_intent_and_marks_repair_without_following_symlink ... ok
+test app::documents::tests::documents_app_queued_cancel_updates_domain_and_cleans_only_candidate_without_parser ... ok
+test app::documents::tests::documents_app_restart_reconciles_already_terminal_association_without_replaying_parser ... ok
+test app::documents::tests::documents_app_parser_permit_and_generation_live_until_reap_and_late_success_cannot_commit ... ok
+test app::documents::tests::documents_app_copy_observer_loss_retains_process_lock_and_prevents_late_admission ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 743 filtered out; finished in 0.24s
+
+
+ACTUAL_EXIT: 0

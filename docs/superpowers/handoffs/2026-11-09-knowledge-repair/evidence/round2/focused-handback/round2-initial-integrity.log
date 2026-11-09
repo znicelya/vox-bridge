@@ -1,0 +1,8 @@
+42 SOURCES / 14 INPUTS: all current hashes match final-round1/source-freeze.json
+PREVIOUS FINAL GATES: all five log hashes match final-round1/final-verification.json
+HEAD/BRANCH: unchanged; protected .gitignore sole staged path, both hashes unchanged
+PRESERVED_EVIDENCE_COUNT: 75
+INITIAL_STATE: /dev/shm/voxbridge-intelligence-20261109.q7xaof9u/round2-initial-state.json
+INITIAL_STATE_SHA256: cc0a79844c5dbe61e99dcc39dbdb6748886c7b28ff433114a3bc9259d126937a
+RUST_TEST_THREADS: unset
+ACTUAL_EXIT: 0

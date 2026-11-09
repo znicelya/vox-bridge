@@ -1,0 +1,36 @@
+COMMAND: git rev-parse HEAD
+b72556091fc533dafb0a336907bf077fec377615
+ACTUAL_EXIT: 0
+
+COMMAND: git rev-parse --abbrev-ref HEAD
+codex/vox-bridge-implementation
+ACTUAL_EXIT: 0
+
+COMMAND: git diff --check
+ACTUAL_EXIT: 0
+
+COMMAND: git diff --cached --name-only
+.gitignore
+ACTUAL_EXIT: 0
+
+COMMAND: ps -C cargo -o pid=,args=
+ACTUAL_EXIT: 1
+
+ORIGINAL_INPUT_HASHES: all match source-freeze.json
+ORIGINAL_UNMODIFIED_SOURCE_HASHES: 37 match; only 3 declared repair paths changed
+CHANGED_FROZEN_PATHS: ["src-tauri/src/knowledge/index/delete_completion/files.rs", "src-tauri/src/knowledge/index_tests.rs", "src-tauri/src/knowledge/index_tests/review_replacement/cohorts.rs"]
+PRESERVED_ARTIFACT_SHA256 source-freeze.json: e7826c3bd0ad918a2389144b70553e887b6dac4e125ef08d8a8e60bccb1384f4
+PRESERVED_ARTIFACT_SHA256 frozen-source-paths.txt: 179ea00e04fb30d4c8ccbc2249eede2ff21d9285652da21b49ab1cf45012a191
+PRESERVED_ARTIFACT_SHA256 complete-repair-review.diff: ec094d1c6bc813e61d2ead0b6266d1b2bb11fd53be15483e19cb392060129697
+PRESERVED_ARTIFACT_SHA256 controller-gates.py: 3ef0cbcabac27a4f595d9e7c20109bef3c08faf53e4a07e325bde3966a91e57e
+PRESERVED_ARTIFACT_SHA256 final-verification.json: 041ae766bdcdbcdefcaef28925d33132812fda01b426cb0f79d614f759147194
+PRESERVED_ARTIFACT_SHA256 final-all-targets.log: cbfcc54de9012a05925ad93b1b6251afa960808ac3e2e5b1ec2dc621202c3858
+PRESERVED_ARTIFACT_SHA256 task-4-completion-report.md: 7daf613978ba82375fbe27762135ee18f7350c53e7109cc58fb6e341863bb36a
+ORIGINAL_PACKAGE: SHA256 and byte count match original freeze
+ORIGINAL_FULL_GATE: SHA256 matches saved verification; exit 101 preserved
+GITIGNORE_WORKTREE_SHA256: 1e708ede61f6522d88e4bea58f5c55e70831f404fd00f7a6710d424446e57a3a
+GITIGNORE_INDEX_SHA256: 1e708ede61f6522d88e4bea58f5c55e70831f404fd00f7a6710d424446e57a3a
+RUST_TEST_THREADS: unset; no test concurrency override
+FINAL_FOCUSED_RESULTS: knowledge_ 106/0/exit0; app::documents::tests 5/0/exit0; no compiler warnings
+PENDING_AUTHOR_WORK: no source edits, Cargo/test processes or exec sessions
+ACTUAL_EXIT: 0

@@ -1,0 +1,54 @@
+COMMAND: env CARGO_HOME=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106 CARGO_TARGET_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107 TMPDIR=/dev/shm/voxbridge-intelligence-20261109.q7xaof9u PKG_CONFIG_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig PKG_CONFIG_SYSROOT_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot LIBRARY_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib knowledge::index_tests::review_replacement::files -- --test-threads=1
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.49s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 6 tests
+test knowledge::index_tests::review_replacement::files::knowledge_review_cleanup_rejects_additional_file_owned_by_original_import_job ... FAILED
+test knowledge::index_tests::review_replacement::files::knowledge_review_managed_full_path_drift_is_rejected_before_native_delete ... FAILED
+test knowledge::index_tests::review_replacement::files::knowledge_review_managed_path_change_before_publication_retains_original_work ... FAILED
+test knowledge::index_tests::review_replacement::files::knowledge_review_native_imported_managed_path_deletes_locally ... ok
+test knowledge::index_tests::review_replacement::files::knowledge_review_owned_managed_cleanup_consumer_cannot_bypass_certified_file_set ... FAILED
+test knowledge::index_tests::review_replacement::files::knowledge_review_real_managed_cleanup_failure_keeps_source_work_and_retries ... ok
+
+failures:
+
+---- knowledge::index_tests::review_replacement::files::knowledge_review_cleanup_rejects_additional_file_owned_by_original_import_job stdout ----
+
+thread 'knowledge::index_tests::review_replacement::files::knowledge_review_cleanup_rejects_additional_file_owned_by_original_import_job' (388393) panicked at src/knowledge/index_tests/review_replacement/files.rs:158:5:
+assertion `left == right` failed: a new target-owned file cannot be cleaned as an uncertified prefix
+  left: Succeeded
+ right: Failed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- knowledge::index_tests::review_replacement::files::knowledge_review_managed_full_path_drift_is_rejected_before_native_delete stdout ----
+
+thread 'knowledge::index_tests::review_replacement::files::knowledge_review_managed_full_path_drift_is_rejected_before_native_delete' (388399) panicked at src/knowledge/index_tests/review_replacement/files.rs:80:5:
+assertion `left == right` failed: a matching basename cannot authorize a different full path
+  left: Succeeded
+ right: Failed
+
+---- knowledge::index_tests::review_replacement::files::knowledge_review_managed_path_change_before_publication_retains_original_work stdout ----
+
+thread 'knowledge::index_tests::review_replacement::files::knowledge_review_managed_path_change_before_publication_retains_original_work' (388409) panicked at src/knowledge/index_tests/review_replacement/files.rs:119:5:
+assertion `left == right` failed: publication must recheck the entire original path association
+  left: Succeeded
+ right: Failed
+
+---- knowledge::index_tests::review_replacement::files::knowledge_review_owned_managed_cleanup_consumer_cannot_bypass_certified_file_set stdout ----
+
+thread 'knowledge::index_tests::review_replacement::files::knowledge_review_owned_managed_cleanup_consumer_cannot_bypass_certified_file_set' (388424) panicked at src/knowledge/index_tests/review_replacement/files.rs:186:5:
+the actual managed cleanup consumer must guard the complete certified owner set
+
+
+failures:
+    knowledge::index_tests::review_replacement::files::knowledge_review_cleanup_rejects_additional_file_owned_by_original_import_job
+    knowledge::index_tests::review_replacement::files::knowledge_review_managed_full_path_drift_is_rejected_before_native_delete
+    knowledge::index_tests::review_replacement::files::knowledge_review_managed_path_change_before_publication_retains_original_work
+    knowledge::index_tests::review_replacement::files::knowledge_review_owned_managed_cleanup_consumer_cannot_bypass_certified_file_set
+
+test result: FAILED. 2 passed; 4 failed; 0 ignored; 0 measured; 721 filtered out; finished in 2.27s
+
+error: test failed, to rerun pass `--lib`
+
+ACTUAL_EXIT: 101

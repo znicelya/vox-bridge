@@ -1,0 +1,22 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.32s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 1 test
+test knowledge::index_tests::review_deletion::knowledge_review_delete_resume_preserves_invalid_target_proof_and_clean_neighbors ... FAILED
+
+failures:
+
+---- knowledge::index_tests::review_deletion::knowledge_review_delete_resume_preserves_invalid_target_proof_and_clean_neighbors stdout ----
+
+thread 'knowledge::index_tests::review_deletion::knowledge_review_delete_resume_preserves_invalid_target_proof_and_clean_neighbors' (267211) panicked at src/knowledge/index_tests/review_deletion.rs:83:59:
+called `Result::unwrap()` on an `Err` value: Storage(SqliteFailure(Error { code: ConstraintViolation, extended_code: 1811 }, Some("FOREIGN KEY constraint failed")))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    knowledge::index_tests::review_deletion::knowledge_review_delete_resume_preserves_invalid_target_proof_and_clean_neighbors
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 708 filtered out; finished in 0.66s
+
+error: test failed, to rerun pass `--lib`

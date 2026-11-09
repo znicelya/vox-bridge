@@ -1,0 +1,74 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 23.81s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 25 tests
+test knowledge::index_tests::publication::knowledge_review_evidence_accepts_1024_bytes_and_sqlite_rejects_1025_utf8_bytes ... ok
+test knowledge::index_tests::publication::knowledge_review_evidence_rejects_oversized_retained_ascii_before_publication ... ok
+test knowledge::index_tests::publication::knowledge_review_evidence_rejects_oversized_retained_multibyte_before_publication ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_keeps_historical_published_mapping_evidence_without_old_chunks ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_first_page_foreign_vector_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_foreign_association_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_foreign_vector_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_malformed_fence_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_missing_later_page_work_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_resume_preserves_invalid_target_proof_and_clean_neighbors ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_final_search_recheck_excludes_a_newly_incomplete_document ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_missing_mapping_excludes_the_entire_document ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_oversized_title_repairs_its_owner_and_preserves_neighbors ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_reconcile_audits_missing_mappings_from_current_chunks ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_ready_publication_rechecks_the_durable_job_object ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_runtime_delete_rejects_consistent_input_for_the_wrong_job_object ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_runtime_reindex_cannot_mutate_a_foreign_document ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_stale_terminal_job_cannot_overwrite_a_newer_repair_reason ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_startup_requires_bounded_matching_reindex_ownership ... ok
+test knowledge::index_tests::review_replacement::knowledge_review_automatic_rebuild_completes_delete_admitted_before_later_source_page ... FAILED
+test knowledge::index_tests::review_replacement::knowledge_review_fresh_swap_rejects_unstaged_native_target_record ... ok
+test knowledge::index_tests::review_replacement::knowledge_review_managed_metadata_loss_keeps_bytes_and_settlement_until_actual_cleanup ... FAILED
+test knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_more_than_200_retained_duplicate_operations ... FAILED
+test knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_two_retained_same_source_deletes ... FAILED
+test knowledge::index_tests::review_replacement::knowledge_review_recovery_resumes_both_document_gone_work_sets_after_pointer_crash ... FAILED
+
+failures:
+
+---- knowledge::index_tests::review_replacement::knowledge_review_automatic_rebuild_completes_delete_admitted_before_later_source_page stdout ----
+
+thread 'knowledge::index_tests::review_replacement::knowledge_review_automatic_rebuild_completes_delete_admitted_before_later_source_page' (286152) panicked at src/knowledge/index_tests/review_replacement.rs:153:5:
+assertion `left == right` failed
+  left: Failed
+ right: Succeeded
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- knowledge::index_tests::review_replacement::knowledge_review_managed_metadata_loss_keeps_bytes_and_settlement_until_actual_cleanup stdout ----
+
+thread 'knowledge::index_tests::review_replacement::knowledge_review_managed_metadata_loss_keeps_bytes_and_settlement_until_actual_cleanup' (286368) panicked at src/knowledge/index_tests/review_replacement.rs:97:5:
+assertion `left == right` failed: row absence is not actual unlink completion
+  left: Succeeded
+ right: Failed
+
+---- knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_more_than_200_retained_duplicate_operations stdout ----
+
+thread 'knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_more_than_200_retained_duplicate_operations' (286388) panicked at src/knowledge/index_tests/review_replacement.rs:58:51:
+called `Result::unwrap()` on an `Err` value: Storage(SqliteFailure(Error { code: ConstraintViolation, extended_code: 1811 }, Some("FOREIGN KEY constraint failed")))
+
+---- knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_two_retained_same_source_deletes stdout ----
+
+thread 'knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_two_retained_same_source_deletes' (286398) panicked at src/knowledge/index_tests/review_replacement.rs:213:51:
+called `Result::unwrap()` on an `Err` value: Storage(SqliteFailure(Error { code: ConstraintViolation, extended_code: 1811 }, Some("FOREIGN KEY constraint failed")))
+
+---- knowledge::index_tests::review_replacement::knowledge_review_recovery_resumes_both_document_gone_work_sets_after_pointer_crash stdout ----
+
+thread 'knowledge::index_tests::review_replacement::knowledge_review_recovery_resumes_both_document_gone_work_sets_after_pointer_crash' (286412) panicked at src/knowledge/index_tests/review_replacement.rs:207:9:
+publication must complete the entire source cohort
+
+
+failures:
+    knowledge::index_tests::review_replacement::knowledge_review_automatic_rebuild_completes_delete_admitted_before_later_source_page
+    knowledge::index_tests::review_replacement::knowledge_review_managed_metadata_loss_keeps_bytes_and_settlement_until_actual_cleanup
+    knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_more_than_200_retained_duplicate_operations
+    knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_two_retained_same_source_deletes
+    knowledge::index_tests::review_replacement::knowledge_review_recovery_resumes_both_document_gone_work_sets_after_pointer_crash
+
+test result: FAILED. 20 passed; 5 failed; 0 ignored; 0 measured; 693 filtered out; finished in 16.86s
+
+error: test failed, to rerun pass `--lib`

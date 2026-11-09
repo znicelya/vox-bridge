@@ -1,0 +1,1590 @@
+ src-tauri/src/knowledge/index/delete_completion.rs |   7 +-
+ .../src/knowledge/index/delete_completion/files.rs |  66 ++++++-
+ .../knowledge/index/delete_completion/journal.rs   |   7 +-
+ .../index/delete_completion/publication.rs         |   8 +-
+ .../index/delete_completion/retirement.rs          |  34 +++-
+ src-tauri/src/knowledge/index/delete_work.rs       |  36 +++-
+ src-tauri/src/knowledge/index_tests.rs             |   1 +
+ .../index_tests/review_replacement/cohorts.rs      |   7 +
+ .../src/knowledge/index_tests/review_round2.rs     | 183 +++++++++++++++++++
+ .../knowledge/index_tests/review_round2/files.rs   | 165 +++++++++++++++++
+ .../knowledge/index_tests/review_round2/peers.rs   | 195 ++++++++++++++++++++
+ .../knowledge/index_tests/review_round2/startup.rs | 200 +++++++++++++++++++++
+ src-tauri/src/knowledge/service/completion.rs      |  50 +++++-
+ 13 files changed, 933 insertions(+), 26 deletions(-)
+diff --git a/src-tauri/src/knowledge/index/delete_completion.rs b/src-tauri/src/knowledge/index/delete_completion.rs
+index d0e6e1d..45bc0c8 100644
+--- a/src-tauri/src/knowledge/index/delete_completion.rs
++++ b/src-tauri/src/knowledge/index/delete_completion.rs
+@@ -1,30 +1,31 @@
+ //! Explicit durable completion, independent of changing destination seals.
+ mod files;
+ mod journal;
+ mod publication;
+ mod retirement;
+ 
+ pub(crate) use files::{
+-    ManagedDirectory, check_files, guard_managed_cleanup, mark_files_cleaned, resolve_directory,
++    ManagedDirectory, check_collection, check_files, guard_managed_cleanup, mark_files_cleaned,
++    resolve_directory,
+ };
+ pub(crate) use journal::{
+     CompletionKind, load, operations, optional_publication, publication as read_publication,
+     resume_input, scan_operations, scan_publications,
+ };
+ pub(crate) use publication::{preflight, publish_delete, publish_fresh};
+ #[cfg(test)]
+ pub(crate) use retirement::acknowledge;
+ pub(super) use retirement::mark_source_removed;
+ pub(crate) use retirement::{
+-    acknowledge_batch, consume, guard_physical, guard_sql, retire_writer_work, settle_local,
+-    validate_complete,
++    acknowledge_batch, collect, collection_ready, consume, guard_physical, guard_sql,
++    retire_writer_work, settle_local, validate_complete,
+ };
+ 
+ use super::{Generation, delete_work, repair};
+ use crate::{
+     error::AppResult,
+     knowledge::service::{DeleteInput, job_proof, state},
+ };
+ use rusqlite::{Transaction, params};
+ use serde::{Deserialize, Serialize};
+ use sha2::{Digest, Sha256};
+diff --git a/src-tauri/src/knowledge/index/delete_completion/files.rs b/src-tauri/src/knowledge/index/delete_completion/files.rs
+index 10efd0d..e39e4da 100644
+--- a/src-tauri/src/knowledge/index/delete_completion/files.rs
++++ b/src-tauri/src/knowledge/index/delete_completion/files.rs
+@@ -136,20 +136,35 @@ pub(super) struct FileProof {
+ struct Cleaned {
+     version: u32,
+     operation: Uuid,
+     publication: Uuid,
+     header_sha256: String,
+     file_root: String,
+ }
+ // Only the joined filesystem check below can issue this receipt. Terminal
+ // SQLite hooks validate its separate immutable record, never a mutable flag.
+ pub(crate) struct FileReceipt(Cleaned);
++// Not serializable or reconstructible from a prior cleaned flag/receipt.
++// The exact complete publication was checked under this still-held owner.
++pub(crate) struct CollectionReceipt {
++    publication: Uuid,
++    root: String,
++    _owner: OperationLease,
++}
++impl CollectionReceipt {
++    pub(super) fn require(&self, publication: &journal::Publication) -> AppResult<()> {
++        if self.publication != publication.authority.id || self.root != publication.root {
++            return Err(repair());
++        }
++        Ok(())
++    }
++}
+ fn cleaned(header: &Header) -> AppResult<Cleaned> {
+     Ok(Cleaned {
+         version: 1,
+         operation: header.input.operation_id,
+         publication: header.publication,
+         header_sha256: hash(header)?,
+         file_root: header.file_root.clone(),
+     })
+ }
+ pub(super) fn validate_receipt(
+@@ -201,44 +216,60 @@ pub(super) fn capture(
+         .map(crate::knowledge::store::decode_path)
+         .transpose()
+         .map_err(|_| repair())?
+     };
+     let mut matched_current = managed.is_none();
+     let mut after = String::new();
+     let mut count = 0u32;
+     let mut hashes = Vec::new();
+     loop {
+         let descriptors = {
+-            let mut q = tx.prepare("SELECT file_id,relative_name,document_version,job_id,state \
+-                FROM knowledge_managed_files WHERE document_id=?1 AND file_id>?2 ORDER BY file_id LIMIT 100")?;
+-            let mut rows = q.query(params![input.document_id.to_string(), after])?;
++            // Match the complete inverse original-owner set checked after
++            // publication, while the document/import associations still exist.
++            let mut q = tx.prepare("SELECT file_id,relative_name,document_version,job_id,state,document_id \
++                FROM knowledge_managed_files f WHERE file_id>?1 \
++                AND (document_id=?2 OR (?3 IS NOT NULL AND job_id=?3) OR EXISTS(SELECT 1 \
++                    FROM intelligence_jobs j WHERE j.id=f.job_id AND j.kind='import' AND j.object_id=?2)) \
++                ORDER BY file_id LIMIT 100")?;
++            let mut rows = q.query(params![
++                after,
++                input.document_id.to_string(),
++                input.document.import_job.map(|job| job.to_string())
++            ])?;
+             let mut out = Vec::new();
+             while let Some(r) = rows.next()? {
+                 let text = |column, max| state::text(r, column, max).map_err(|_| repair());
+                 let raw_id = text(0, 36)?;
+                 let id = Uuid::parse_str(raw_id).map_err(|_| repair())?;
+                 let raw_job = state::optional_text(r, 3, 36).map_err(|_| repair())?;
+                 let job = raw_job
+                     .map(|raw| {
+                         let id = Uuid::parse_str(raw).map_err(|_| repair())?;
+                         if id.to_string() != raw {
+                             return Err(repair());
+                         }
+                         Ok(id)
+                     })
+                     .transpose()?;
+                 let relative_name = text(1, 96)?.to_owned();
+                 let expected_path = directory.path.join(&relative_name);
++                // A missing/changed nullable owner is corruption, never a
++                // reason to synthesize a corrected descriptor from the input.
++                let raw_document = text(5, 36)?;
++                let document = Uuid::parse_str(raw_document).map_err(|_| repair())?;
++                if document.to_string() != raw_document {
++                    return Err(repair());
++                }
+                 let descriptor = Descriptor {
+                     id,
+                     relative_name,
+-                    document: input.document_id,
++                    document,
+                     version: r.get(2).map_err(|_| repair())?,
+                     job,
+                     path_sha256: path_hash(&expected_path)?,
+                 };
+                 descriptor.validate(input)?;
+                 descriptor.require_import(tx, input)?;
+                 if id.to_string() != raw_id
+                     || !matches!(text(4, 32)?, "retained" | "delete_pending")
+                 {
+                     return Err(repair());
+@@ -583,10 +614,37 @@ pub(crate) fn mark_files_cleaned(
+     }
+     require_metadata_absent(tx, &value.header)?;
+     match read::<Cleaned>(tx, &key("cleaned", operation))? {
+         Some(existing) if existing != receipt.0 => return Err(repair()),
+         Some(_) => {}
+         None => insert(tx, &key("cleaned", operation), &receipt.0)?,
+     }
+     value.files_cleaned = true;
+     update(tx, &key("operation", operation), &value)
+ }
++pub(crate) async fn check_collection(
++    store: Arc<LocalStore>,
++    data_dir: PathBuf,
++    publication_id: Uuid,
++    owner: OperationLease,
++) -> AppResult<CollectionReceipt> {
++    let publication = store.transaction(|tx| journal::publication(tx, publication_id))?;
++    for batch in 0..publication.batches {
++        let operations = store.transaction(|tx| journal::operations(tx, publication_id, batch))?;
++        for operation in operations {
++            check_files(
++                store.clone(),
++                data_dir.clone(),
++                operation,
++                owner.clone(),
++                true,
++            )
++            .await?
++            .ok_or_else(repair)?;
++        }
++    }
++    Ok(CollectionReceipt {
++        publication: publication_id,
++        root: publication.root,
++        _owner: owner,
++    })
++}
+diff --git a/src-tauri/src/knowledge/index/delete_completion/journal.rs b/src-tauri/src/knowledge/index/delete_completion/journal.rs
+index b6531ca..48f4e1f 100644
+--- a/src-tauri/src/knowledge/index/delete_completion/journal.rs
++++ b/src-tauri/src/knowledge/index/delete_completion/journal.rs
+@@ -123,20 +123,21 @@ pub(crate) struct Certificate {
+     pub(crate) consumed: bool,
+ }
+ #[derive(Clone, Serialize, Deserialize)]
+ #[serde(deny_unknown_fields)]
+ pub(super) struct WorkPage {
+     pub(super) version: u32,
+     pub(super) operation: Uuid,
+     pub(super) index: u32,
+     pub(super) count: u32,
+     pub(super) association_sha256: String,
++    pub(super) semantic_sha256: String,
+     pub(super) acknowledged: bool,
+ }
+ pub(super) fn publication_root(
+     authority: &Authority,
+     count: u64,
+     batches: u64,
+ ) -> AppResult<Sha256> {
+     let mut root = Sha256::new();
+     field(&mut root, b"voxbridge-delete-publication-v1");
+     field(&mut root, hash(authority)?.as_bytes());
+@@ -250,20 +251,21 @@ pub(super) fn work_page(
+                 .ok_or_else(repair)?,
+         )
+         .ok_or_else(repair)?
+         .min(delete_work::PAGE_SIZE);
+     if page.version != 1
+         || page.operation != header.input.operation_id
+         || page.index != index
+         || page.count != count
+         || count == 0
+         || !super::super::codec::is_hash(&page.association_sha256)
++        || !super::super::codec::is_hash(&page.semantic_sha256)
+     {
+         return Err(repair());
+     }
+     Ok(page)
+ }
+ // These views cannot escape their SQLite transaction. Only one bounded anchor
+ // batch is decoded at a time; each certificate and mutable work flag is read
+ // again when used. The complete ordered root is verified before issuing a view.
+ pub(super) struct VerifiedPublication<'tx, 'conn> {
+     tx: &'tx Transaction<'conn>,
+@@ -438,54 +440,57 @@ fn validate_certificate(
+     {
+         return Err(repair());
+     }
+     if leaf.operation != operation
+         || leaf.header_sha256 != hash(header)?
+         || present_document(tx, header.input.document_id)?
+     {
+         return Err(repair());
+     }
+     let mut hashes = Vec::new();
++    let mut associations = Vec::new();
+     let mut remaining = 0u64;
+     let mut all_ack = true;
+     let stored_pages: u64 = tx.query_row(
+         "SELECT count(*) FROM intelligence_meta WHERE key LIKE ?1",
+         [format!("{}.%", key("page", operation))],
+         |r| r.get(0),
+     )?;
+     if stored_pages != u64::from(header.pages) {
+         return Err(repair());
+     }
+     for index in 0..header.pages {
+         let page = work_page(tx, &value, index)?;
+         let rows = delete_work::certified_rows(tx, &header.input, index)?;
+         if page.acknowledged {
+             if !rows.is_empty() {
+                 return Err(repair());
+             }
+         } else {
+             if rows.len() as u32 != page.count
+                 || delete_work::page_hash(&rows) != page.association_sha256
++                || delete_work::association_page_hash(&rows)? != page.semantic_sha256
+             {
+                 return Err(repair());
+             }
+             remaining = remaining
+                 .checked_add(u64::from(page.count))
+                 .ok_or_else(repair)?;
+             all_ack = false;
+         }
+         hashes.push(page.association_sha256);
++        associations.push(page.semantic_sha256);
+     }
+     if work_count(tx, operation)? != remaining {
+         return Err(repair());
+     }
+-    let proof = delete_work::from_pages(&header.input, header.count, hashes)?;
++    let proof = delete_work::from_pages(&header.input, header.count, hashes, associations)?;
+     if proof.root != header.work_root || proof.shared_root(&header.input)? != header.shared_root {
+         return Err(repair());
+     }
+     files::validate_pages(tx, header)?;
+     files::validate_receipt(tx, header, value.files_cleaned)?;
+     if value.files_cleaned {
+         files::require_metadata_absent(tx, header)?
+     }
+     if value.acknowledged && (!all_ack || !value.files_cleaned || remaining != 0) {
+         return Err(repair());
+diff --git a/src-tauri/src/knowledge/index/delete_completion/publication.rs b/src-tauri/src/knowledge/index/delete_completion/publication.rs
+index 51f85fd..3674be4 100644
+--- a/src-tauri/src/knowledge/index/delete_completion/publication.rs
++++ b/src-tauri/src/knowledge/index/delete_completion/publication.rs
+@@ -305,28 +305,34 @@ fn build(
+                 shared_root: proof.shared_root(&job.input)?,
+                 pages: proof.pages.len() as u32,
+                 file_count: file_proof.count,
+                 file_root: file_proof.root,
+                 file_pages: file_proof.pages,
+                 file_directory_sha256: file_proof.directory_sha256,
+                 publication: authority.id,
+                 authority_sha256: hash(&authority)?,
+                 ordinal: count,
+             };
+-            for (index, association) in proof.pages.into_iter().enumerate() {
++            for (index, (association, semantic)) in proof
++                .pages
++                .into_iter()
++                .zip(proof.association_pages)
++                .enumerate()
++            {
+                 let page = WorkPage {
+                     version: 1,
+                     operation: id,
+                     index: index as u32,
+                     count: (proof.count - index as u32 * delete_work::PAGE_SIZE)
+                         .min(delete_work::PAGE_SIZE),
+                     association_sha256: association,
++                    semantic_sha256: semantic,
+                     acknowledged: false,
+                 };
+                 insert(tx, &page_key("page", id, index as u64), &page)?;
+             }
+             if prior_target.is_none() {
+                 insert(tx, &target, &job.input.document)?
+             }
+             leaves.push(Leaf {
+                 operation: id,
+                 header_sha256: hash(&header)?,
+diff --git a/src-tauri/src/knowledge/index/delete_completion/retirement.rs b/src-tauri/src/knowledge/index/delete_completion/retirement.rs
+index 4293067..debecba 100644
+--- a/src-tauri/src/knowledge/index/delete_completion/retirement.rs
++++ b/src-tauri/src/knowledge/index/delete_completion/retirement.rs
+@@ -142,22 +142,21 @@ fn peer_in(
+         let peer = publication.load_at(ordinal)?;
+         if peer.header.input.operation_id == header.input.operation_id {
+             continue;
+         }
+         if peer.header.input.document == header.input.document
+             && peer.header.input.identity == header.input.identity
+             && peer.header.input.generation == header.input.generation
+             && peer.header.count == header.count
+             && peer.header.shared_root == header.shared_root
+             && journal::work_page(tx, &peer, page)?.acknowledged
+-            && journal::work_page(tx, &peer, page)?.association_sha256
+-                == expected.association_sha256
++            && journal::work_page(tx, &peer, page)?.semantic_sha256 == expected.semantic_sha256
+         {
+             return Ok(true);
+         }
+     }
+     Ok(false)
+ }
+ fn validate_mappings(tx: &Transaction<'_>, certificate: &Certificate) -> AppResult<()> {
+     for page in 0..certificate.header.pages {
+         if journal::work_page(tx, certificate, page)?.acknowledged {
+             continue;
+@@ -566,21 +565,23 @@ pub(crate) fn consume(
+         return Ok(());
+     };
+     if !value.acknowledged {
+         return Ok(());
+     }
+     let job = job_proof::delete(tx, operation)?.ok_or_else(repair)?;
+     if job.status != status {
+         return Err(repair());
+     }
+     consume_proved(tx, &mut value, status, reap)?;
+-    collect(tx, value.header.publication)
++    // Terminal SQL consumption has no current filesystem authority. In
++    // particular, fresh startup must retain a genuine prior cleaned receipt.
++    Ok(())
+ }
+ pub(crate) fn settle_local(
+     tx: &Transaction<'_>,
+     publication_id: Uuid,
+     reap: &JobReapPort,
+ ) -> AppResult<()> {
+     let Some(_) = read::<journal::Publication>(tx, &key("publication", publication_id))? else {
+         return Ok(());
+     };
+     let publication = journal::verified(tx, publication_id)?;
+@@ -588,50 +589,65 @@ pub(crate) fn settle_local(
+         let batch = publication.batch(batch)?;
+         for index in 0..batch.len() {
+             let operation = batch.operation(index)?;
+             let mut value = batch.load(index)?;
+             let job = job_proof::delete(tx, operation)?.ok_or_else(repair)?;
+             if value.acknowledged && !matches!(job.status, JobStatus::Queued | JobStatus::Running) {
+                 consume_proved(tx, &mut value, job.status, reap)?;
+             }
+         }
+     }
+-    collect(tx, publication_id)
++    Ok(())
+ }
+-fn collect(tx: &Transaction<'_>, publication_id: Uuid) -> AppResult<()> {
++pub(crate) fn collection_ready(tx: &Transaction<'_>, publication_id: Uuid) -> AppResult<bool> {
++    if journal::optional_publication(tx, publication_id)?.is_none() {
++        return Ok(false);
++    }
+     let publication = journal::verified(tx, publication_id)?;
++    can_collect(&publication)
++}
++fn can_collect(publication: &journal::VerifiedPublication<'_, '_>) -> AppResult<bool> {
++    let tx = publication.transaction();
+     let source_absent: bool = match (&publication.value.authority.identity, publication.value.authority.source) {
+         (Some(identity), Some(source)) => !tx.query_row("SELECT EXISTS(SELECT 1 FROM knowledge_index_generation_seals WHERE identity=?1 AND generation=?2)",
+             params![identity, source.to_string()], |r| r.get::<_, bool>(0))?,
+         _ => true,
+     };
+     let mut all_succeeded = true;
+     for batch in 0..publication.value.batches {
+         let batch = publication.batch(batch)?;
+         for index in 0..batch.len() {
+             let operation = batch.operation(index)?;
+             let value = batch.load(index)?;
+             if !value.acknowledged || !value.consumed {
+-                return Ok(());
++                return Ok(false);
+             }
+             let job = job_proof::delete(tx, operation)?.ok_or_else(repair)?;
+             all_succeeded &= job.status == JobStatus::Succeeded;
+         }
+     }
+-    let can_collect = match publication.value.authority.kind {
++    Ok(match publication.value.authority.kind {
+         CompletionKind::Unindexed => true,
+         CompletionKind::Delete => {
+             all_succeeded || (publication.value.source_removed && source_absent)
+         }
+         _ => publication.value.source_removed && source_absent,
+-    };
+-    if !can_collect {
++    })
++}
++pub(crate) fn collect(
++    tx: &Transaction<'_>,
++    publication_id: Uuid,
++    receipt: files::CollectionReceipt,
++) -> AppResult<()> {
++    let publication = journal::verified(tx, publication_id)?;
++    receipt.require(&publication.value)?;
++    if !can_collect(&publication)? {
+         return Ok(());
+     }
+     // Validate the entire closed cohort above, then collect it atomically.
+     // A crash rolls back this whole transaction, including every bounded page.
+     for batch in 0..publication.value.batches {
+         let batch = publication.batch(batch)?;
+         for index in 0..batch.len() {
+             let operation = batch.operation(index)?;
+             tx.execute("DELETE FROM intelligence_meta WHERE key=?1 OR key LIKE ?2 OR key LIKE ?3 OR key=?4",
+                 params![key("operation", operation), format!("{}.%", key("page", operation)), format!("{}.%", key("files", operation)), key("cleaned", operation)])?;
+diff --git a/src-tauri/src/knowledge/index/delete_work.rs b/src-tauri/src/knowledge/index/delete_work.rs
+index 8071782..a53f1eb 100644
+--- a/src-tauri/src/knowledge/index/delete_work.rs
++++ b/src-tauri/src/knowledge/index/delete_work.rs
+@@ -9,31 +9,33 @@ use sha2::{Digest, Sha256};
+ use uuid::Uuid;
+ 
+ pub(crate) const PAGE_SIZE: u32 = 200;
+ const MAX_WORK: u32 = 200_000;
+ 
+ #[derive(Clone, Debug, PartialEq, Eq)]
+ pub(crate) struct DeleteWorkProof {
+     pub(crate) count: u32,
+     pub(crate) root: String,
+     pub(crate) pages: Vec<String>,
++    pub(crate) association_pages: Vec<String>,
+ }
+ pub(crate) struct WorkRow {
+     pub(crate) ordinal: u32,
+     identity: String,
+     generation: Uuid,
+     pub(crate) vector: u64,
+     document: Uuid,
+     version: u32,
+     chunk: Uuid,
+     hash: String,
+     fence_json: String,
++    fence: DocumentFence,
+ }
+ fn uuid(raw: &str) -> AppResult<Uuid> {
+     let id = Uuid::parse_str(raw).map_err(|_| repair())?;
+     if id.to_string() != raw {
+         return Err(repair());
+     }
+     Ok(id)
+ }
+ fn read(r: &rusqlite::Row<'_>, input: &DeleteInput) -> AppResult<WorkRow> {
+     let text = |column, max| state::text(r, column, max).map_err(|_| repair());
+@@ -68,20 +70,21 @@ fn read(r: &rusqlite::Row<'_>, input: &DeleteInput) -> AppResult<WorkRow> {
+     Ok(WorkRow {
+         ordinal: r.get(0).map_err(|_| repair())?,
+         identity: identity.into(),
+         generation,
+         vector,
+         document,
+         version,
+         chunk,
+         hash: hash.into(),
+         fence_json: fence_json.into(),
++        fence,
+     })
+ }
+ impl WorkRow {
+     pub(crate) fn mapping(&self, tx: &Transaction<'_>) -> AppResult<bool> {
+         Ok(tx.query_row(
+             "SELECT EXISTS(SELECT 1 FROM knowledge_generation_mappings WHERE \
+              identity=?1 AND generation=?2 AND vector_id=?3 AND document_id=?4 AND \
+              document_version=?5 AND chunk_id=?6 AND content_hash=?7 AND published=1)",
+             params![
+                 self.identity,
+@@ -245,20 +248,43 @@ pub(crate) fn page_hash(rows: &[WorkRow]) -> String {
+         field(&mut hash, row.generation.as_bytes());
+         field(&mut hash, &row.vector.to_le_bytes());
+         field(&mut hash, row.document.as_bytes());
+         field(&mut hash, &row.version.to_le_bytes());
+         field(&mut hash, row.chunk.as_bytes());
+         field(&mut hash, row.hash.as_bytes());
+         field(&mut hash, row.fence_json.as_bytes());
+     }
+     format!("{:x}", hash.finalize())
+ }
++pub(crate) fn association_page_hash(rows: &[WorkRow]) -> AppResult<String> {
++    // Raw page_hash remains each operation's immutable original evidence.
++    // Peers share complete typed associations, including the canonical fence,
++    // rather than requiring identical valid JSON whitespace.
++    let mut hash = Sha256::new();
++    field(&mut hash, b"voxbridge-delete-semantic-page-v1");
++    field(&mut hash, &(rows.len() as u32).to_le_bytes());
++    for row in rows {
++        field(&mut hash, &row.ordinal.to_le_bytes());
++        field(&mut hash, row.identity.as_bytes());
++        field(&mut hash, row.generation.as_bytes());
++        field(&mut hash, &row.vector.to_le_bytes());
++        field(&mut hash, row.document.as_bytes());
++        field(&mut hash, &row.version.to_le_bytes());
++        field(&mut hash, row.chunk.as_bytes());
++        field(&mut hash, row.hash.as_bytes());
++        field(
++            &mut hash,
++            &serde_json::to_vec(&row.fence).map_err(|_| repair())?,
++        );
++    }
++    Ok(format!("{:x}", hash.finalize()))
++}
+ pub(crate) fn capture(tx: &Transaction<'_>, input: &DeleteInput) -> AppResult<DeleteWorkProof> {
+     require_document(tx, input)?;
+     let count = counts(tx, input)?;
+     let mappings: u64 = tx.query_row(
+         "SELECT count(*) FROM knowledge_generation_mappings WHERE document_id=?1 \
+          AND identity IS ?2 AND generation IS ?3 AND published=1",
+         params![
+             input.document_id.to_string(),
+             input.identity,
+             input.generation.map(|id| id.to_string())
+@@ -282,69 +308,75 @@ pub(crate) fn capture(tx: &Transaction<'_>, input: &DeleteInput) -> AppResult<De
+     }
+     fingerprint(tx, input, count, true)
+ }
+ fn fingerprint(
+     tx: &Transaction<'_>,
+     input: &DeleteInput,
+     count: u32,
+     live: bool,
+ ) -> AppResult<DeleteWorkProof> {
+     let mut pages = Vec::new();
++    let mut association_pages = Vec::new();
+     for page in 0..count.div_ceil(PAGE_SIZE) {
+         let rows = rows(tx, input, page, live)?;
+         if rows.len() as u32 != (count - page * PAGE_SIZE).min(PAGE_SIZE) {
+             return Err(repair());
+         }
+         pages.push(page_hash(&rows));
++        association_pages.push(association_page_hash(&rows)?);
+     }
+-    from_pages(input, count, pages)
++    from_pages(input, count, pages, association_pages)
+ }
+ pub(crate) fn from_pages(
+     input: &DeleteInput,
+     count: u32,
+     pages: Vec<String>,
++    association_pages: Vec<String>,
+ ) -> AppResult<DeleteWorkProof> {
+     if count > MAX_WORK
+         || pages.len() != count.div_ceil(PAGE_SIZE) as usize
+         || pages.iter().any(|p| !is_hash(p))
++        || association_pages.len() != pages.len()
++        || association_pages.iter().any(|p| !is_hash(p))
+     {
+         return Err(repair());
+     }
+     let mut hash = Sha256::new();
+     field(&mut hash, b"voxbridge-delete-work-v1");
+     let encoded = serde_json::to_vec(input).map_err(|_| repair())?;
+     field(&mut hash, &encoded);
+     field(&mut hash, &count.to_le_bytes());
+     for page in &pages {
+         field(&mut hash, page.as_bytes())
+     }
+     Ok(DeleteWorkProof {
+         count,
+         root: format!("{:x}", hash.finalize()),
+         pages,
++        association_pages,
+     })
+ }
+ impl DeleteWorkProof {
+     pub(crate) fn shared_root(&self, input: &DeleteInput) -> AppResult<String> {
+         let encoded = serde_json::to_vec(&(
+             &input.document_id,
+             input.document_version,
+             &input.document,
+             &input.identity,
+             input.generation,
+         ))
+         .map_err(|_| repair())?;
+         let mut hash = Sha256::new();
+         field(&mut hash, b"voxbridge-delete-shared-associations-v1");
+         field(&mut hash, &encoded);
+         field(&mut hash, &self.count.to_le_bytes());
+-        for page in &self.pages {
++        for page in &self.association_pages {
+             field(&mut hash, page.as_bytes())
+         }
+         Ok(format!("{:x}", hash.finalize()))
+     }
+     pub(crate) fn require_live(&self, tx: &Transaction<'_>, input: &DeleteInput) -> AppResult<()> {
+         if capture(tx, input)? != *self {
+             return Err(repair());
+         }
+         Ok(())
+     }
+diff --git a/src-tauri/src/knowledge/index_tests.rs b/src-tauri/src/knowledge/index_tests.rs
+index 8b56285..dc11c19 100644
+--- a/src-tauri/src/knowledge/index_tests.rs
++++ b/src-tauri/src/knowledge/index_tests.rs
+@@ -535,10 +535,11 @@ impl super::parser::DocumentParser for FixtureParser {
+ mod binding;
+ mod continuation;
+ 
+ mod recovery;
+ 
+ mod publication;
+ mod review_deletion;
+ mod review_fixes;
+ mod review_jobs;
+ mod review_replacement;
++mod review_round2;
+diff --git a/src-tauri/src/knowledge/index_tests/review_replacement/cohorts.rs b/src-tauri/src/knowledge/index_tests/review_replacement/cohorts.rs
+index ae3a6fd..0c39b3f 100644
+--- a/src-tauri/src/knowledge/index_tests/review_replacement/cohorts.rs
++++ b/src-tauri/src/knowledge/index_tests/review_replacement/cohorts.rs
+@@ -171,20 +171,27 @@ async fn knowledge_review_fresh_swap_certifies_valid_source_bound_zero_work_memb
+         h.h.store
+             .transaction(|tx| completed::load(tx, job.id))
+             .unwrap()
+             .unwrap();
+     assert_eq!((certificate.header.count, certificate.header.pages), (0, 0));
+     assert!(certificate.acknowledged && !certificate.consumed);
+     assert!(!exists(&h, target));
+     assert!(!generation_path(&h, &source).exists());
+     drop(serial);
+     assert_eq!(h.wait(job.id).await.status, JobStatus::Succeeded);
++    let serial = h.service.core.serial.lock().await;
++    h.service
++        .core
++        .resume_completions(Arc::new(()))
++        .await
++        .unwrap();
++    drop(serial);
+     assert!(!has_certificate(&h, job.id));
+     let replacement = generation(&h).await;
+     let after = std::fs::read(generation_path(&h, &replacement).join("vectors.bin")).unwrap();
+     assert_eq!(&after[24..24 + 128 * 4], &before[24..24 + 128 * 4]);
+     assert_eq!(h.embeddings.calls.load(Ordering::SeqCst), calls);
+     h.close().await;
+ }
+ 
+ #[tokio::test]
+ async fn knowledge_review_fresh_ready_replacement_completes_retained_source_delete() {
+diff --git a/src-tauri/src/knowledge/index_tests/review_round2.rs b/src-tauri/src/knowledge/index_tests/review_round2.rs
+new file mode 100644
+index 0000000..5cbef24
+--- /dev/null
++++ b/src-tauri/src/knowledge/index_tests/review_round2.rs
+@@ -0,0 +1,183 @@
++use super::review_deletion::{exists, generation, generation_path, work_count};
++use super::*;
++use crate::knowledge::index::delete_completion as completed;
++
++mod files;
++mod peers;
++mod startup;
++
++fn queue_axis(h: &KnowledgeHarness, position: usize) {
++    let mut vector = vec![0.0; 128];
++    vector[position] = 1.0;
++    h.embeddings.vectors.lock().unwrap().push_back(vector);
++}
++
++async fn cancelled_delete(h: &KnowledgeHarness, target: Uuid) -> JobView {
++    let serial = h.service.core.serial.lock().await;
++    let job = h.service.delete_owned(target, Arc::new(())).await.unwrap();
++    h.wait_running(job.id).await;
++    h.h.jobs.cancel(job.id).await.unwrap();
++    drop(serial);
++    assert_eq!(h.wait(job.id).await.status, JobStatus::Cancelled);
++    assert!(exists(h, target));
++    job
++}
++
++fn pad_original_fence(h: &KnowledgeHarness, operation: Uuid) {
++    h.h.store
++        .transaction(|tx| {
++            let original: String = tx.query_row(
++                "SELECT document_fence_json FROM knowledge_index_work_items WHERE operation_id=?1 AND ordinal=0",
++                [operation.to_string()],
++                |row| row.get(0),
++            )?;
++            let padded = format!("{original}{}", " ".repeat(1024 - original.len()));
++            assert_eq!(padded.len(), 1024);
++            assert_eq!(
++                serde_json::from_str::<serde_json::Value>(&padded).unwrap(),
++                serde_json::from_str::<serde_json::Value>(&original).unwrap()
++            );
++            assert_eq!(tx.execute(
++                "UPDATE knowledge_index_work_items SET document_fence_json=?2 WHERE operation_id=?1 AND ordinal=0",
++                rusqlite::params![operation.to_string(), padded],
++            )?, 1);
++            Ok(())
++        })
++        .unwrap();
++}
++
++fn survivor_bits(h: &KnowledgeHarness, source: &crate::knowledge::index::Generation) -> Vec<u8> {
++    let vectors = std::fs::read(generation_path(h, source).join("vectors.bin")).unwrap();
++    vectors[24..24 + 128 * 4].to_vec()
++}
++
++async fn native_target(versions: u32) -> (KnowledgeHarness, Uuid, Uuid, Vec<JobView>) {
++    let h = KnowledgeHarness::with_auto(true).await;
++    let good = h.import_text("neighbor", "48V");
++    assert_eq!(h.index(good).await.status, JobStatus::Succeeded);
++    let documents = crate::knowledge::documents::DocumentService::new(
++        h.h.store.clone(),
++        h.h.config.clone(),
++        h.h.jobs.clone(),
++        Arc::new(FixtureParser),
++        h.h.temp_dir.path().to_path_buf(),
++    );
++    let mut target = None;
++    let mut imports = Vec::new();
++    for version in 1..=versions {
++        let original = h.h.temp_dir.path().join(format!("native-{version}.txt"));
++        std::fs::write(&original, format!("native version {version}")).unwrap();
++        queue_axis(&h, version as usize);
++        let job = match target {
++            None => documents.import_owned(original, Arc::new(())).await,
++            Some(id) => documents.replace_owned(id, original, Arc::new(())).await,
++        }
++        .unwrap();
++        assert_eq!(h.wait(job.id).await.status, JobStatus::Succeeded);
++        target = job.object_id;
++        let id = target.unwrap();
++        let mut events = h.h.jobs.subscribe();
++        tokio::time::timeout(std::time::Duration::from_secs(60), async {
++            loop {
++                let ready: bool = h.h.store.transaction(|tx| Ok(tx.query_row(
++                    "SELECT status='ready' AND version=?2 AND NOT EXISTS(SELECT 1 FROM intelligence_jobs WHERE object_id=?1 AND status IN ('queued','running')) FROM documents WHERE id=?1",
++                    rusqlite::params![id.to_string(), version], |row| row.get(0),
++                )?)).unwrap();
++                if ready { break }
++                match events.recv().await {
++                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
++                    Err(error) => panic!("native continuation closed before Ready: {error:?}"),
++                }
++            }
++        }).await.unwrap();
++        imports.push(job);
++    }
++    (h, good, target.unwrap(), imports)
++}
++
++fn original_file(
++    h: &KnowledgeHarness,
++    import: Uuid,
++) -> (String, std::path::PathBuf, std::path::PathBuf) {
++    let (id, name): (String, String) =
++        h.h.store
++            .transaction(|tx| {
++                Ok(tx.query_row(
++                    "SELECT file_id,relative_name FROM knowledge_managed_files WHERE job_id=?1",
++                    [import.to_string()],
++                    |row| Ok((row.get(0)?, row.get(1)?)),
++                )?)
++            })
++            .unwrap();
++    let directory = h.h.temp_dir.path().join("knowledge/documents");
++    (
++        id.clone(),
++        directory.join(name),
++        directory.join(format!("{id}.tmp")),
++    )
++}
++
++fn current_generation(store: &crate::storage::LocalStore) -> crate::knowledge::index::Generation {
++    store.transaction(|tx| {
++        let raw: String = tx.query_row(
++            "SELECT s.seal_json FROM knowledge_index_generation_seals s JOIN knowledge_index_generations g ON g.identity=s.identity AND g.active_generation=s.generation WHERE g.state='active'",
++            [], |row| row.get(0),
++        )?;
++        Ok(crate::knowledge::index::Seal::decode(&raw)?.descriptor)
++    }).unwrap()
++}
++
++struct Reopened {
++    store: Arc<crate::storage::LocalStore>,
++    jobs: Arc<crate::intelligence::jobs::JobScheduler>,
++    service: KnowledgeService,
++    index: crate::knowledge::index::IndexOwner,
++}
++impl Reopened {
++    fn new(h: &KnowledgeHarness, store: Arc<crate::storage::LocalStore>) -> Self {
++        let jobs = Arc::new(crate::intelligence::jobs::JobScheduler::new(store.clone()));
++        let config = Arc::new(crate::intelligence::config::ServiceConfigStore::new(
++            h.h.io.clone(),
++            store.clone(),
++        ));
++        let index = crate::knowledge::index::IndexOwner::new(
++            h.h.temp_dir.path().join("indexes"),
++            store.clone(),
++        );
++        let service = KnowledgeService::new(
++            store.clone(),
++            config.clone(),
++            jobs.clone(),
++            h.embeddings.clone(),
++            index.clone(),
++            h.h.temp_dir.path().to_path_buf(),
++        );
++        let documents = crate::knowledge::documents::DocumentService::new(
++            store.clone(),
++            config,
++            jobs.clone(),
++            Arc::new(FixtureParser),
++            h.h.temp_dir.path().to_path_buf(),
++        );
++        documents.register_import_handler().unwrap();
++        service.register_handlers().unwrap();
++        service.register_continuation().unwrap();
++        Self {
++            store,
++            jobs,
++            service,
++            index,
++        }
++    }
++    async fn close(&self) {
++        self.jobs.shutdown().await.unwrap();
++        self.index.shutdown().await.unwrap();
++    }
++}
++
++fn journal_keys(store: &crate::storage::LocalStore) -> Vec<String> {
++    store.transaction(|tx| {
++        let mut query = tx.prepare("SELECT key FROM intelligence_meta WHERE key LIKE 'knowledge.delete.v1.%' ORDER BY key")?;
++        Ok(query.query_map([], |row| row.get(0))?.collect::<Result<Vec<_>, _>>()?)
++    }).unwrap()
++}
+diff --git a/src-tauri/src/knowledge/index_tests/review_round2/files.rs b/src-tauri/src/knowledge/index_tests/review_round2/files.rs
+new file mode 100644
+index 0000000..6938bc0
+--- /dev/null
++++ b/src-tauri/src/knowledge/index_tests/review_round2/files.rs
+@@ -0,0 +1,165 @@
++use super::*;
++
++fn retained_state(
++    h: &KnowledgeHarness,
++    target: Uuid,
++    source: &crate::knowledge::index::Generation,
++    operation: Uuid,
++) -> serde_json::Value {
++    h.h.store.transaction(|tx| {
++        let raw: String = tx.query_row(
++            "SELECT json_object(\
++            'document',(SELECT json_array(version,sha256,parser_identity,managed_path,status,import_job_id) FROM documents WHERE id=?1),\
++            'imports',(SELECT json_group_array(json_array(document_version,job_id,parser_identity,sha256,file_id)) FROM (SELECT * FROM knowledge_document_imports WHERE document_id=?1 ORDER BY document_version)),\
++            'files',(SELECT json_group_array(json_array(file_id,relative_name,document_id,document_version,job_id,state)) FROM (SELECT * FROM knowledge_managed_files f WHERE document_id=?1 OR EXISTS(SELECT 1 FROM intelligence_jobs j WHERE j.id=f.job_id AND j.kind='import' AND j.object_id=?1) ORDER BY file_id)),\
++            'mappings',(SELECT json_group_array(json_array(vector_id,document_id,document_version,chunk_id,content_hash,published)) FROM (SELECT * FROM knowledge_generation_mappings WHERE identity=?2 AND generation=?3 ORDER BY vector_id,document_id,document_version,chunk_id)),\
++            'work',(SELECT json_group_array(json_array(ordinal,identity,generation,vector_id,document_id,document_version,chunk_id,content_hash,document_fence_json,location_sha256,previous_vector_id)) FROM (SELECT * FROM knowledge_index_work_items WHERE operation_id=?4 ORDER BY ordinal)),\
++            'pointer',(SELECT active_generation FROM knowledge_index_generations WHERE identity=?2),\
++            'dirty',(SELECT dirty FROM knowledge_index_generation_seals WHERE identity=?2 AND generation=?3))",
++            rusqlite::params![target.to_string(), source.key().unwrap(), source.generation.to_string(), operation.to_string()],
++            |row| row.get(0),
++        )?;
++        Ok(serde_json::from_str(&raw).unwrap())
++    }).unwrap()
++}
++
++async fn historical_owner_rejection(fresh: bool) {
++    let (h, good, target, imports) = native_target(2).await;
++    assert_ne!(imports[0].id, imports[1].id);
++    let source = generation(&h).await;
++    let source_path = generation_path(&h, &source);
++    let original = survivor_bits(&h, &source);
++    let (historical, historical_path, historical_tmp) = original_file(&h, imports[0].id);
++    let (_, current_path, current_tmp) = original_file(&h, imports[1].id);
++    assert!(historical_path.is_file() && current_path.is_file());
++    let files_before = (
++        std::fs::read(&historical_path).unwrap(),
++        std::fs::read(&current_path).unwrap(),
++    );
++    let prior = if fresh {
++        Some(cancelled_delete(&h, target).await)
++    } else {
++        None
++    };
++    assert_eq!(h.h.store.transaction(|tx| Ok(tx.execute(
++        "UPDATE knowledge_managed_files SET document_id=NULL WHERE file_id=?1 AND document_id=?2 AND document_version=1 AND job_id=?3",
++        rusqlite::params![historical, target.to_string(), imports[0].id.to_string()],
++    )?)).unwrap(), 1, "the only corruption is the historical nullable document link");
++    let calls = h.embeddings.calls.load(Ordering::SeqCst);
++    let mut serial = Some(h.service.core.serial.lock().await);
++    let job = match prior {
++        Some(job) => job,
++        None => h.service.delete_owned(target, Arc::new(())).await.unwrap(),
++    };
++    let before = retained_state(&h, target, &source, job.id);
++    let before_bytes = std::fs::read(source_path.join("vectors.bin")).unwrap();
++    let failed = if fresh {
++        h.service
++            .core
++            .rebuild_generation(source.clone(), Arc::new(()))
++            .await
++            .is_err()
++    } else {
++        h.wait_running(job.id).await;
++        drop(serial.take());
++        h.wait(job.id).await.status == JobStatus::Failed
++    };
++    // Fresh publication has no handler competing for the held serial owner.
++    // Live deletion releases it above before joining its real terminal result.
++    let after = retained_state(&h, target, &source, job.id);
++    let after_bytes = std::fs::read(source_path.join("vectors.bin")).ok();
++    let after_files = (
++        std::fs::read(&historical_path).ok(),
++        std::fs::read(&current_path).ok(),
++    );
++    let no_certificate =
++        h.h.store
++            .transaction(|tx| {
++                Ok(!tx.query_row(
++                    "SELECT EXISTS(SELECT 1 FROM intelligence_meta WHERE key=?1)",
++                    [format!("knowledge.delete.v1.operation.{}", job.id)],
++                    |row| row.get::<_, bool>(0),
++                )?)
++            })
++            .unwrap();
++    drop(serial.take());
++    // Capture every rejection assertion before removing the localized mutation.
++    // In RED the old producer may already have deleted the domain. Remove that
++    // deliberately omitted test file only for joined fixture teardown; the
++    // captured before/after assertions below still report the real violation.
++    if exists(&h, target) {
++        h.h.store
++            .transaction(|tx| {
++                tx.execute(
++                    "UPDATE knowledge_managed_files SET document_id=?2 WHERE file_id=?1",
++                    rusqlite::params![historical, target.to_string()],
++                )?;
++                Ok(())
++            })
++            .unwrap();
++    } else {
++        h.h.store
++            .transaction(|tx| {
++                tx.execute(
++                    "DELETE FROM knowledge_managed_files WHERE file_id=?1",
++                    [historical.clone()],
++                )?;
++                Ok(())
++            })
++            .unwrap();
++        std::fs::remove_file(&historical_path).unwrap();
++        if historical_tmp.exists() {
++            std::fs::remove_file(&historical_tmp).unwrap();
++        }
++    }
++    if fresh {
++        // Rejected publication retains its unpublished destination. Join the
++        // old owner before local recovery so that both engine slots are free.
++        h.close().await;
++        h.index.start_owned(Arc::new(())).await.unwrap();
++        h.h.jobs.start().unwrap();
++    }
++    h.service.reconcile_owned(Arc::new(())).await.unwrap();
++    assert_eq!(work_count(&h, job.id), 0);
++    assert!(
++        !historical_path.exists()
++            && !historical_tmp.exists()
++            && !current_path.exists()
++            && !current_tmp.exists()
++    );
++    let replacement = generation(&h).await;
++    let recovered_bits = survivor_bits(&h, &replacement);
++    let recovered_calls = h.embeddings.calls.load(Ordering::SeqCst);
++    assert_eq!(h.search("48V").await.unwrap().hits[0].document_id, good);
++    h.close().await;
++    assert!(
++        failed,
++        "localized historical ownership loss must reject the real producer"
++    );
++    assert_eq!(
++        after, before,
++        "preflight/publication must retain the complete native domain/import/file/work/mapping/source association before any deletion, fresh={fresh}"
++    );
++    assert_eq!(
++        after_bytes,
++        Some(before_bytes),
++        "the destructive source operation must not run before complete original file ownership is proved"
++    );
++    assert_eq!(after_files, (Some(files_before.0), Some(files_before.1)));
++    assert!(
++        no_certificate,
++        "an incomplete original file set must never be certified"
++    );
++    assert_eq!(recovered_bits, original);
++    assert_eq!(recovered_calls, calls);
++}
++
++#[tokio::test]
++async fn knowledge_review_round2_historical_native_owner_loss_rejects_live_delete() {
++    historical_owner_rejection(false).await;
++}
++
++#[tokio::test]
++async fn knowledge_review_round2_historical_native_owner_loss_rejects_fresh_publication() {
++    historical_owner_rejection(true).await;
++}
+diff --git a/src-tauri/src/knowledge/index_tests/review_round2/peers.rs b/src-tauri/src/knowledge/index_tests/review_round2/peers.rs
+new file mode 100644
+index 0000000..70e79e8
+--- /dev/null
++++ b/src-tauri/src/knowledge/index_tests/review_round2/peers.rs
+@@ -0,0 +1,195 @@
++use super::*;
++
++#[tokio::test]
++async fn knowledge_review_round2_duplicate_padded_fence_finishes_direct_delete() {
++    let h = KnowledgeHarness::new().await;
++    let good = h.import_text("neighbor", "48V");
++    assert_eq!(h.index(good).await.status, JobStatus::Succeeded);
++    let target = h.import_text("target", "24V");
++    queue_axis(&h, 1);
++    assert_eq!(h.index(target).await.status, JobStatus::Succeeded);
++    let source = generation(&h).await;
++    let original = survivor_bits(&h, &source);
++    let first = cancelled_delete(&h, target).await;
++    assert_eq!(work_count(&h, first.id), 1);
++    pad_original_fence(&h, first.id);
++    let calls = h.embeddings.calls.load(Ordering::SeqCst);
++    let serial = h.service.core.serial.lock().await;
++    let second = h.service.delete_owned(target, Arc::new(())).await.unwrap();
++    assert_ne!(
++        first.id, second.id,
++        "both operations come from real admission"
++    );
++    assert_eq!(work_count(&h, second.id), 1);
++    drop(serial);
++    let finished = h.wait(second.id).await;
++    let remaining = (work_count(&h, first.id), work_count(&h, second.id));
++    if finished.status == JobStatus::Succeeded {
++        assert!(!exists(&h, target));
++        assert_eq!(remaining, (0, 0));
++        let publication =
++            h.h.store
++                .transaction(|tx| {
++                    let certificate = completed::load(tx, first.id)?.unwrap();
++                    completed::read_publication(tx, certificate.header.publication)
++                })
++                .unwrap();
++        assert_eq!((publication.count, publication.batches), (2, 1));
++        assert_eq!(survivor_bits(&h, &source), original);
++        h.service.rebuild_owned(Arc::new(())).await.unwrap();
++        assert!(!generation_path(&h, &source).exists());
++        let replacement = generation(&h).await;
++        assert_eq!(survivor_bits(&h, &replacement), original);
++        for operation in [first.id, second.id] {
++            assert!(
++                h.h.store
++                    .transaction(|tx| completed::load(tx, operation))
++                    .unwrap()
++                    .is_none()
++            );
++        }
++        assert_eq!(h.embeddings.calls.load(Ordering::SeqCst), calls);
++        assert_eq!(h.search("48V").await.unwrap().hits[0].document_id, good);
++    }
++    h.close().await;
++    assert_eq!(
++        finished.status,
++        JobStatus::Succeeded,
++        "valid padded duplicate must acknowledge the exact common mapping and both work sets; actual error={:?}, remaining={remaining:?}",
++        finished.error
++    );
++}
++
++#[tokio::test]
++async fn knowledge_review_round2_duplicate_padded_fence_finishes_pointer_restart() {
++    let h = KnowledgeHarness::new().await;
++    let good = h.import_text("neighbor", "48V");
++    assert_eq!(h.index(good).await.status, JobStatus::Succeeded);
++    let target = h.import_text("target", "24V");
++    queue_axis(&h, 1);
++    assert_eq!(h.index(target).await.status, JobStatus::Succeeded);
++    let source = generation(&h).await;
++    let original = survivor_bits(&h, &source);
++    let first = cancelled_delete(&h, target).await;
++    pad_original_fence(&h, first.id);
++    h.service.crash_at(CommitPoint::AfterVectorPersist);
++    let second = h.service.delete_owned(target, Arc::new(())).await.unwrap();
++    assert_ne!(first.id, second.id);
++    assert_eq!(h.wait(second.id).await.status, JobStatus::Failed);
++    assert_eq!(
++        (work_count(&h, first.id), work_count(&h, second.id)),
++        (1, 1)
++    );
++    let calls = h.embeddings.calls.load(Ordering::SeqCst);
++    h.close().await;
++    let pointer = Reopened::new(&h, h.h.store.clone());
++    pointer.jobs.reconcile().unwrap();
++    pointer.index.start_owned(Arc::new(())).await.unwrap();
++    pointer
++        .service
++        .crash_at(CommitPoint::AfterPointerPublication);
++    assert!(pointer.service.reconcile_owned(Arc::new(())).await.is_err());
++    assert!(!exists(&h, target));
++    assert!(generation_path(&h, &source).exists());
++    for operation in [first.id, second.id] {
++        let certificate = pointer
++            .store
++            .transaction(|tx| completed::load(tx, operation))
++            .unwrap()
++            .unwrap();
++        assert_eq!(certificate.header.input.generation, Some(source.generation));
++        assert!(!certificate.acknowledged);
++    }
++    pointer.close().await;
++    let restarted = Reopened::new(&h, h.h.store.clone());
++    restarted.jobs.reconcile().unwrap();
++    restarted.index.start_owned(Arc::new(())).await.unwrap();
++    let finished = restarted.service.reconcile_owned(Arc::new(())).await;
++    let remaining = (work_count(&h, first.id), work_count(&h, second.id));
++    if finished.is_ok() {
++        assert_eq!(remaining, (0, 0));
++        assert!(!generation_path(&h, &source).exists());
++        for operation in [first.id, second.id] {
++            assert!(
++                restarted
++                    .store
++                    .transaction(|tx| completed::load(tx, operation))
++                    .unwrap()
++                    .is_none()
++            );
++        }
++        let replacement = current_generation(&restarted.store);
++        assert_eq!(survivor_bits(&h, &replacement), original);
++        assert_eq!(h.embeddings.calls.load(Ordering::SeqCst), calls);
++        assert_eq!(
++            restarted
++                .service
++                .search_owned(
++                    KnowledgeSearch {
++                        query: "48V".into(),
++                        selected_segment_ids: vec![],
++                        session_id: None,
++                        limit: 5,
++                    },
++                    Arc::new(())
++                )
++                .await
++                .unwrap()
++                .hits[0]
++                .document_id,
++            good
++        );
++    }
++    restarted.close().await;
++    assert!(
++        finished.is_ok(),
++        "valid padded duplicates must finish exact acknowledgment after a genuine pointer/cleanup restart: {finished:?}, work={remaining:?}"
++    );
++}
++
++#[tokio::test]
++async fn knowledge_review_round2_raw_fence_drift_after_certificate_is_rejected() {
++    let h = KnowledgeHarness::new().await;
++    let target = h.import_text("target", "24V");
++    assert_eq!(h.index(target).await.status, JobStatus::Succeeded);
++    let first = cancelled_delete(&h, target).await;
++    pad_original_fence(&h, first.id);
++    h.service.crash_at(CommitPoint::AfterDeletePublication);
++    let second = h.service.delete_owned(target, Arc::new(())).await.unwrap();
++    assert_eq!(h.wait(second.id).await.status, JobStatus::Failed);
++    assert!(
++        h.h.store
++            .transaction(|tx| completed::load(tx, first.id))
++            .unwrap()
++            .is_some()
++    );
++    let original: String = h.h.store.transaction(|tx| Ok(tx.query_row(
++        "SELECT document_fence_json FROM knowledge_index_work_items WHERE operation_id=?1 AND ordinal=0",
++        [first.id.to_string()], |row| row.get(0),
++    )?)).unwrap();
++    h.h.store.transaction(|tx| {
++        tx.execute("UPDATE knowledge_index_work_items SET document_fence_json=?2 WHERE operation_id=?1 AND ordinal=0",
++            rusqlite::params![first.id.to_string(), original.trim_end()])?;
++        Ok(())
++    }).unwrap();
++    let rejected = h.h.store.transaction(|tx| completed::load(tx, first.id));
++    let recovery_rejected = h.service.reconcile_owned(Arc::new(())).await.is_err();
++    let remaining = (work_count(&h, first.id), work_count(&h, second.id));
++    h.h.store.transaction(|tx| {
++        tx.execute("UPDATE knowledge_index_work_items SET document_fence_json=?2 WHERE operation_id=?1 AND ordinal=0",
++            rusqlite::params![first.id.to_string(), original])?;
++        Ok(())
++    }).unwrap();
++    h.close().await;
++    assert!(
++        matches!(
++            rejected,
++            Err(AppError::Intelligence(
++                IntelligenceErrorCode::IndexRepairRequired
++            ))
++        ),
++        "post-certificate raw evidence remains immutable even when its typed association is equal"
++    );
++    assert!(recovery_rejected);
++    assert_eq!(remaining, (1, 1));
++}
+diff --git a/src-tauri/src/knowledge/index_tests/review_round2/startup.rs b/src-tauri/src/knowledge/index_tests/review_round2/startup.rs
+new file mode 100644
+index 0000000..afc0905
+--- /dev/null
++++ b/src-tauri/src/knowledge/index_tests/review_round2/startup.rs
+@@ -0,0 +1,200 @@
++use super::*;
++
++async fn queued_cleaned_crash(temporary: bool) {
++    let (h, good, target, imports) = native_target(1).await;
++    let source = generation(&h).await;
++    let original = survivor_bits(&h, &source);
++    let (_, final_path, temporary_path) = original_file(&h, imports[0].id);
++    let first = cancelled_delete(&h, target).await;
++    let serial = h.service.core.serial.lock().await;
++    let mut occupied = Vec::new();
++    for label in ["occupied worker one", "occupied worker two"] {
++        let blocker = h.import_text(label, label);
++        let job = h
++            .service
++            .reindex_owned(blocker, Arc::new(()))
++            .await
++            .unwrap();
++        h.wait_running(job.id).await;
++        occupied.push(job.id);
++    }
++    let queued = h.service.delete_owned(target, Arc::new(())).await.unwrap();
++    assert_eq!(
++        h.h.store.get_job(queued.id).unwrap().unwrap().status,
++        JobStatus::Queued
++    );
++    let calls = h.embeddings.calls.load(Ordering::SeqCst);
++    h.service
++        .core
++        .rebuild_generation(source.clone(), Arc::new(()))
++        .await
++        .unwrap();
++    assert!(!final_path.exists() && !temporary_path.exists());
++    assert!(!generation_path(&h, &source).exists());
++    let certificate =
++        h.h.store
++            .transaction(|tx| completed::load(tx, queued.id))
++            .unwrap()
++            .unwrap();
++    assert!(certificate.files_cleaned && certificate.acknowledged && !certificate.consumed);
++    let publication =
++        h.h.store
++            .transaction(|tx| completed::read_publication(tx, certificate.header.publication))
++            .unwrap();
++    assert_eq!((publication.count, publication.batches), (2, 1));
++    assert!(publication.source_removed);
++    assert_eq!(
++        (work_count(&h, first.id), work_count(&h, queued.id)),
++        (0, 0)
++    );
++    assert_eq!(
++        h.h.store.get_job(queued.id).unwrap().unwrap().status,
++        JobStatus::Queued
++    );
++    // Join the actual index owner before the crash snapshot so its final clean
++    // files and seal agree. Both real job workers still wait behind serial.
++    h.index.shutdown().await.unwrap();
++    let snapshot = h.h.temp_dir.path().join("round2-crash-snapshot");
++    std::fs::create_dir(&snapshot).unwrap();
++    let connection =
++        rusqlite::Connection::open(h.h.temp_dir.path().join("vox-bridge.sqlite")).unwrap();
++    connection
++        .execute(
++            "VACUUM main INTO ?1",
++            [snapshot.join("vox-bridge.sqlite").to_str().unwrap()],
++        )
++        .unwrap();
++    drop(connection);
++    let keys = journal_keys(&h.h.store);
++    // Snapshotting the whole genuine database preserves Queued and the real
++    // receipts without forging flags/status. Graceful teardown affects only
++    // the original database, never the independent crash snapshot.
++    h.h.jobs.request_shutdown().unwrap();
++    drop(serial);
++    h.h.jobs.shutdown().await.unwrap();
++    for id in occupied {
++        assert_eq!(
++            h.h.store.get_job(id).unwrap().unwrap().status,
++            JobStatus::Cancelled
++        );
++    }
++    let recreated = if temporary {
++        temporary_path
++    } else {
++        final_path
++    };
++    std::fs::write(&recreated, b"recreated certified original bytes").unwrap();
++    let store = Arc::new(crate::storage::LocalStore::open(&snapshot).unwrap());
++    let restarted = Reopened::new(&h, store);
++    assert_eq!(
++        restarted.store.get_job(queued.id).unwrap().unwrap().status,
++        JobStatus::Queued
++    );
++    // Match application composition: register fresh handlers, then run the
++    // actual scheduler startup reconciliation before owned knowledge work.
++    restarted.jobs.reconcile().unwrap();
++    assert_eq!(
++        restarted.store.get_job(queued.id).unwrap().unwrap().status,
++        JobStatus::Interrupted
++    );
++    let after_startup = journal_keys(&restarted.store);
++    let full_journal_retained = keys.iter().all(|key| after_startup.contains(key));
++    restarted.index.start_owned(Arc::new(())).await.unwrap();
++    let rejected = restarted.service.reconcile_owned(Arc::new(())).await;
++    let after_rejection = journal_keys(&restarted.store);
++    let bytes = std::fs::read(&recreated).unwrap();
++    std::fs::remove_file(&recreated).unwrap();
++    restarted
++        .service
++        .reconcile_owned(Arc::new(()))
++        .await
++        .unwrap();
++    let collected = journal_keys(&restarted.store).is_empty();
++    let replacement = current_generation(&restarted.store);
++    let actual_bits = survivor_bits(&h, &replacement);
++    let actual_calls = h.embeddings.calls.load(Ordering::SeqCst);
++    assert_eq!(
++        restarted
++            .service
++            .search_owned(
++                KnowledgeSearch {
++                    query: "48V".into(),
++                    selected_segment_ids: vec![],
++                    session_id: None,
++                    limit: 5,
++                },
++                Arc::new(())
++            )
++            .await
++            .unwrap()
++            .hits[0]
++            .document_id,
++        good
++    );
++    restarted.close().await;
++    assert!(
++        full_journal_retained,
++        "startup terminal consumption cannot collect a genuine prior file receipt while a certified path exists; before={keys:?}, after={after_startup:?}"
++    );
++    assert!(
++        matches!(
++            rejected,
++            Err(AppError::Intelligence(
++                IntelligenceErrorCode::IndexRepairRequired
++            ))
++        ),
++        "owned cleanup must reject recreated certified bytes: {rejected:?}"
++    );
++    assert!(keys.iter().all(|key| after_rejection.contains(key)));
++    assert_eq!(bytes, b"recreated certified original bytes");
++    assert!(
++        collected,
++        "the complete closed cohort must collect after a fresh owned absence check"
++    );
++    assert_eq!(actual_bits, original);
++    assert_eq!(actual_calls, calls);
++}
++
++#[tokio::test]
++async fn knowledge_review_round2_queued_startup_retains_recreated_final_path() {
++    queued_cleaned_crash(false).await;
++}
++
++#[tokio::test]
++async fn knowledge_review_round2_queued_startup_retains_recreated_temporary_path() {
++    queued_cleaned_crash(true).await;
++}
++
++#[tokio::test]
++async fn knowledge_review_round2_successful_direct_collects_locally_with_active_source() {
++    let (h, good, target, imports) = native_target(1).await;
++    let source = generation(&h).await;
++    let original = survivor_bits(&h, &source);
++    let (_, final_path, temporary_path) = original_file(&h, imports[0].id);
++    let calls = h.embeddings.calls.load(Ordering::SeqCst);
++    let job = h.service.delete_owned(target, Arc::new(())).await.unwrap();
++    assert_eq!(h.wait(job.id).await.status, JobStatus::Succeeded);
++    assert!(!final_path.exists() && !temporary_path.exists());
++    let serial = h.service.core.serial.lock().await;
++    h.service
++        .core
++        .resume_completions(Arc::new(()))
++        .await
++        .unwrap();
++    drop(serial);
++    assert!(
++        h.h.store
++            .transaction(|tx| completed::load(tx, job.id))
++            .unwrap()
++            .is_none()
++    );
++    assert!(
++        generation_path(&h, &source).exists(),
++        "a successful Direct Delete can collect after owned file checks while its source remains active"
++    );
++    assert_eq!(work_count(&h, job.id), 0);
++    assert_eq!(survivor_bits(&h, &source), original);
++    assert_eq!(h.embeddings.calls.load(Ordering::SeqCst), calls);
++    assert_eq!(h.search("48V").await.unwrap().hits[0].document_id, good);
++    h.close().await;
++}
+diff --git a/src-tauri/src/knowledge/service/completion.rs b/src-tauri/src/knowledge/service/completion.rs
+index 4e03415..242e64a 100644
+--- a/src-tauri/src/knowledge/service/completion.rs
++++ b/src-tauri/src/knowledge/service/completion.rs
+@@ -19,27 +19,51 @@ impl Core {
+                 value.header.publication,
+                 publication.authority.source_descriptor()?,
+             ))
+         })?;
+         match source {
+             Some(source) => {
+                 self.finish_source_deletes(&source, owner).await?;
+             }
+             None => {
+                 self.prepare_completion_files(owner.clone()).await?;
+-                self.finish_publication_work(publication_id, owner).await?;
+-                self.store
+-                    .transaction(|tx| completed::settle_local(tx, publication_id, &self.reap))?;
++                self.finish_publication_work(publication_id, owner.clone())
++                    .await?;
++                self.collect_publication(publication_id, owner).await?;
+             }
+         }
+         Ok(())
+     }
++    async fn collect_publication(
++        &self,
++        publication_id: Uuid,
++        owner: OperationLease,
++    ) -> AppResult<()> {
++        let ready = self.store.transaction(|tx| {
++            completed::settle_local(tx, publication_id, &self.reap)?;
++            completed::collection_ready(tx, publication_id)
++        })?;
++        if !ready {
++            return Ok(());
++        }
++        let receipt = completed::check_collection(
++            self.store.clone(),
++            self.data_dir.clone(),
++            publication_id,
++            owner.clone(),
++        )
++        .await?;
++        // No filesystem call occurs while SQLite is held. This single-use
++        // current receipt remains owned through the atomic complete-cohort GC.
++        self.store
++            .transaction(|tx| completed::collect(tx, publication_id, receipt))
++    }
+     pub(super) async fn prepare_completion_files(&self, owner: OperationLease) -> AppResult<()> {
+         let mut after = String::new();
+         loop {
+             let ids = self
+                 .store
+                 .transaction(|tx| completed::scan_operations(tx, &after))?;
+             if ids.is_empty() {
+                 break;
+             }
+             for id in ids {
+@@ -228,43 +252,57 @@ impl Core {
+                 after = id.to_string();
+                 let Some(publication) = self
+                     .store
+                     .transaction(|tx| completed::optional_publication(tx, id))?
+                 else {
+                     continue;
+                 };
+                 if publication.authority.identity.as_deref() == Some(source.key()?.as_str())
+                     && publication.authority.source == Some(source.generation)
+                 {
+-                    self.store
+-                        .transaction(|tx| completed::settle_local(tx, id, &self.reap))?;
++                    self.collect_publication(id, owner.clone()).await?;
+                 }
+             }
+         }
+         Ok(true)
+     }
+     pub(crate) async fn resume_completions(&self, owner: OperationLease) -> AppResult<()> {
+         let mut after = String::new();
+         loop {
+             let inputs = self.store.transaction(|tx| {
+                 completed::scan_operations(tx, &after)?
+                     .into_iter()
+                     .map(|id| Ok((id, completed::resume_input(tx, id)?)))
+                     .collect::<AppResult<Vec<_>>>()
+             })?;
+             if inputs.is_empty() {
+-                return Ok(());
++                break;
+             }
+             for (id, input) in inputs {
+                 after = id.to_string();
+                 let Some(input) = input else { continue };
+                 if self
+                     .store
+                     .transaction(|tx| completed::resume_input(tx, id))?
+                     .is_some()
+                 {
+                     self.finish_completion(&input, owner.clone()).await?;
+                 }
+             }
+         }
++        // Consumed successful Direct Delete may be collectible on an active
++        // source. Scan publications once instead of replaying settled peers.
++        let mut after = String::new();
++        loop {
++            let ids = self
++                .store
++                .transaction(|tx| completed::scan_publications(tx, &after))?;
++            if ids.is_empty() {
++                return Ok(());
++            }
++            for id in ids {
++                after = id.to_string();
++                self.collect_publication(id, owner.clone()).await?;
++            }
++        }
+     }
+ }
+Task5C repair round2; scoped immutable source delta
+PREVIOUS_TREE da23738987e178f23b1f5bda34c9c8250d5f4f4e
+TREE 42ad04b3c5027f0ed7a84c509522502983bf8a84
+
+

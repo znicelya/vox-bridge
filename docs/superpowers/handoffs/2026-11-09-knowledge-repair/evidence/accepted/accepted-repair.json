@@ -1,0 +1,70 @@
+{
+  "source_commit": "3c36bda1b7c7c4c04651b3c419c8c0f0fedb5eae",
+  "source_tree": "42ad04b3c5027f0ed7a84c509522502983bf8a84",
+  "source_paths": 46,
+  "review": {
+    "path": "docs/superpowers/reviews/2026-11-09-task5c-repair-round2.md",
+    "sha256": "519aecce3441c37c17e6fd277bd42f72e808a4107aa450ef58d524f550079cac",
+    "spec": "PASS",
+    "quality": "APPROVED",
+    "N1": "ADDRESSED",
+    "N2": "ADDRESSED",
+    "N3": "ADDRESSED",
+    "new_findings": {
+      "critical": 0,
+      "important": 0,
+      "minor": 0
+    },
+    "no_pending_reviewer_writes_or_processes": true
+  },
+  "all_target_passed": 772,
+  "all_target_failed": 0,
+  "paid_opt_in_ignored": 1,
+  "all_five_final_gates_exit_zero": true,
+  "final_verification": {
+    "path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/round2/final-gates/final-verification.json",
+    "sha256": "fb3200059d1a23a3e58c8a92aa0ce88cc6ee395e3283365ee5f5d5db5782ccf6"
+  },
+  "artifacts": [
+    {
+      "path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/accepted/intelligence-progress.md",
+      "bytes": 152315,
+      "sha256": "13bfdf24131179c8ac29e830d450a68a4eb8af4f7af54060e0b3116ed50a2d4c"
+    },
+    {
+      "path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/accepted/knowledge-repair-progress.md",
+      "bytes": 37720,
+      "sha256": "1c71c7880b445a390c34ce3d7f87806daa79da0b6debc1552dbe70905bd64185"
+    },
+    {
+      "path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/accepted/source-commit-result.json",
+      "bytes": 328,
+      "sha256": "cf9bf56de4a3be318c922ee5f47e8d75ddad33e8fc5a2bb231f7aaa8c2785140"
+    }
+  ],
+  "limits": [
+    "Same-owner immediate recovery may remain Busy after rejected fresh publication; actual joined restart with zero embeddings is verified.",
+    "No comparative latency benchmark.",
+    "Native three-platform audio, paid services, signing and packaging remain external release gates."
+  ],
+  "protected_gitignore_sha256": "1e708ede61f6522d88e4bea58f5c55e70831f404fd00f7a6710d424446e57a3a",
+  "preserve_worktree_and_original_evidence": true,
+  "documentation_whitespace_exception": {
+    "path": "docs/superpowers/reviews/2026-11-09-task5c.md",
+    "sha256": "5121c5cd642793880ce51d56d4a5c8e11692c3d3003f578428e3d207a0afb17e",
+    "line": 180,
+    "reason": "Preserve independently finalized review raw bytes and frozen input hash.",
+    "original_command": [
+      "git",
+      "diff",
+      "--cached",
+      "--check",
+      "--",
+      ":(exclude).gitignore",
+      ":(exclude)docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/**"
+    ],
+    "original_exit_code": 2,
+    "original_stdout": "docs/superpowers/reviews/2026-11-09-task5c.md:180: new blank line at EOF.\n",
+    "original_stderr": ""
+  }
+}

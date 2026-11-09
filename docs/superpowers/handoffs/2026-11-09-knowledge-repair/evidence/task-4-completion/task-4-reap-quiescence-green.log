@@ -1,0 +1,20 @@
+COMMAND: env CARGO_HOME=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106 CARGO_TARGET_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107 TMPDIR=/dev/shm/voxbridge-intelligence-20261109.q7xaof9u PKG_CONFIG_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig PKG_CONFIG_SYSROOT_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot LIBRARY_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib intelligence_reap_ -- --test-threads=1
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 26.31s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 9 tests
+test intelligence::jobs::tests::reap::intelligence_reap_absent_pending_frame_requires_complete_claim_ledger ... ok
+test intelligence::jobs::tests::reap::intelligence_reap_claim_before_handler_entry_is_not_terminal_authority ... ok
+test intelligence::jobs::tests::reap::intelligence_reap_claim_rollback_keeps_ledger_complete_and_allows_retry ... ok
+test intelligence::jobs::tests::reap::intelligence_reap_entered_child_outlives_observer_and_terminal_handler ... ok
+test intelligence::jobs::tests::reap::intelligence_reap_out_of_order_older_claim_cannot_use_newer_completion ... ok
+test intelligence::jobs::tests::reap::intelligence_reap_rejects_matching_live_frame_rowid_and_payload_drift ... ok
+test intelligence::jobs::tests::reap::intelligence_reap_safe_pruning_and_explicit_joined_fresh_rearm_authority ... ok
+test intelligence::jobs::tests::reap::intelligence_reap_shutdown_waits_for_completion_publication_after_slot_release ... ok
+test intelligence::jobs::tests::reap::intelligence_reap_terminal_hook_waits_for_last_actual_child_and_closes_factory ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 738 filtered out; finished in 0.26s
+
+
+ACTUAL_EXIT: 0

@@ -1,0 +1,16 @@
+COMMAND: env CARGO_HOME=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106 CARGO_TARGET_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107 TMPDIR=/dev/shm/voxbridge-intelligence-20261109.q7xaof9u PKG_CONFIG_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig PKG_CONFIG_SYSROOT_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot LIBRARY_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib knowledge::index_tests::review_round2::peers -- --nocapture
+
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 24.73s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 3 tests
+test knowledge::index_tests::review_round2::peers::knowledge_review_round2_raw_fence_drift_after_certificate_is_rejected ... ok
+test knowledge::index_tests::review_round2::peers::knowledge_review_round2_duplicate_padded_fence_finishes_direct_delete ... ok
+test knowledge::index_tests::review_round2::peers::knowledge_review_round2_duplicate_padded_fence_finishes_pointer_restart ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 752 filtered out; finished in 1.25s
+
+
+ACTUAL_EXIT: 0
+DURATION_SECONDS: 26.084

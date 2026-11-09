@@ -1,0 +1,26 @@
+COMMAND: env CARGO_HOME=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106 CARGO_TARGET_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107 TMPDIR=/dev/shm/voxbridge-intelligence-20261109.q7xaof9u PKG_CONFIG_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig PKG_CONFIG_SYSROOT_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot LIBRARY_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib knowledge::index_tests::review_round2::startup -- --nocapture
+
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 29.88s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 3 tests
+
+thread 'knowledge::index_tests::review_round2::startup::knowledge_review_round2_successful_direct_collects_locally_with_active_source' (635358) panicked at src/knowledge/index_tests/review_round2/startup.rs:185:5:
+a successful Direct Delete can collect after owned file checks while its source remains active
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test knowledge::index_tests::review_round2::startup::knowledge_review_round2_successful_direct_collects_locally_with_active_source ... FAILED
+test knowledge::index_tests::review_round2::startup::knowledge_review_round2_queued_startup_retains_recreated_final_path ... ok
+test knowledge::index_tests::review_round2::startup::knowledge_review_round2_queued_startup_retains_recreated_temporary_path ... ok
+
+failures:
+
+failures:
+    knowledge::index_tests::review_round2::startup::knowledge_review_round2_successful_direct_collects_locally_with_active_source
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 753 filtered out; finished in 1.54s
+
+error: test failed, to rerun pass `--lib`
+
+ACTUAL_EXIT: 101
+DURATION_SECONDS: 31.494

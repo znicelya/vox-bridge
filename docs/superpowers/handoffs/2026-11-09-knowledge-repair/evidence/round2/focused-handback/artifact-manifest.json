@@ -1,0 +1,150 @@
+{
+  "state": "explicit handback and source freeze; fresh broad gates running, independent round2 review pending",
+  "tree": "42ad04b3c5027f0ed7a84c509522502983bf8a84",
+  "artifacts": [
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-counterexamples-reviewed-red.log",
+      "archive": "round2-counterexamples-reviewed-red.log",
+      "bytes": 16123,
+      "sha256": "04a2ccda880ca845c3e6fce2b620fe66c2881ba4cbd080780803a18a6f6a4abe"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-final-integrity.log",
+      "archive": "round2-final-integrity.log",
+      "bytes": 22309,
+      "sha256": "cf74e8491e72efd7a0b4ecffd706428b2e76e5f72d5108197384784c6f77d558"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-final-knowledge.log",
+      "archive": "round2-final-knowledge.log",
+      "bytes": 18024,
+      "sha256": "0d3e591aa1cf19926e2fa9bb3cf6f5d5c6d8f58f23f26539b311add70df56d6e"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-final-regressions.log",
+      "archive": "round2-final-regressions.log",
+      "bytes": 2329,
+      "sha256": "2c84038d7082d0727642b9807cbaf81806be36dd839a369e338f8a5b8b7079ac"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-initial-integrity.log",
+      "archive": "round2-initial-integrity.log",
+      "bytes": 498,
+      "sha256": "25056b05b53e4c9e05bbf8e438dced84d7411da026984a377dca4c9cd66f40f5"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-n1-direct-red.log",
+      "archive": "round2-n1-direct-red.log",
+      "bytes": 2252,
+      "sha256": "e375c1ddf0b22dd89eb822e6fada8c72e246273f3e908cd22d331ba89b9f1d66"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-n1-semantic-green.log",
+      "archive": "round2-n1-semantic-green.log",
+      "bytes": 1803,
+      "sha256": "4b8fca1fc366ecdc3a71f5db3797111551c0af44d806a760fd37e5693c966b55"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-n2-original-zero-work-owned-green.log",
+      "archive": "round2-n2-original-zero-work-owned-green.log",
+      "bytes": 1584,
+      "sha256": "b213412612ae43a3ae314d603db583528be630dcf4984714a24ace07a1954e95"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-n2-original-zero-work-timing.log",
+      "archive": "round2-n2-original-zero-work-timing.log",
+      "bytes": 2015,
+      "sha256": "4ee060523ab5580ef4c286b50f6f5d90970e7210bf8feb127c0d08575b7f3d00"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-n2-owned-gc-green.log",
+      "archive": "round2-n2-owned-gc-green.log",
+      "bytes": 2409,
+      "sha256": "f02f554bc3c87667296a962ff0f2dcab4c6081bc77a76fb4b44fd794fef95632"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-n2-owned-gc-verified.log",
+      "archive": "round2-n2-owned-gc-verified.log",
+      "bytes": 1817,
+      "sha256": "8d3e77c4206b1b4a32f141499aac2330c8f7f83e03bfa380b682e972928271a7"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-n3-fresh-recovery-trace-verified.log",
+      "archive": "round2-n3-fresh-recovery-trace-verified.log",
+      "bytes": 2752,
+      "sha256": "795846a01e6a48c270ccf70bc74c8d7e4fe5a2e9c14cf03a29c5cb511941b035"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-n3-fresh-recovery-trace.log",
+      "archive": "round2-n3-fresh-recovery-trace.log",
+      "bytes": 2298,
+      "sha256": "5cef65c6148e0d65045d8667b962eedeb009143612110f7c20b702aab1044601"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-n3-native-owner-green.log",
+      "archive": "round2-n3-native-owner-green.log",
+      "bytes": 2243,
+      "sha256": "30fcd1d8e16f2b959aec5996d8b19d5fcb6d8905d72e1571a968867b1bb5dedc"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-n3-native-owner-verified.log",
+      "archive": "round2-n3-native-owner-verified.log",
+      "bytes": 1685,
+      "sha256": "19f8b9583312cd8bef7d298c975a242a3a596d941bb3ebfdb88cdad3a2f628bd"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-owned-rustfmt.log",
+      "archive": "round2-owned-rustfmt.log",
+      "bytes": 821,
+      "sha256": "8757f07a3fac7e0528a9aaf08ac90af92eb497b01513b3b671cf9a6477a27f1b"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-repair-report.md",
+      "archive": "round2-repair-report.md",
+      "bytes": 26464,
+      "sha256": "91038038de9b4514efc1a7216a6cacdb6df8845d48cc8ebe6192d0029df19c66"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/round2-repair-brief.md",
+      "archive": "round2-repair-brief.md",
+      "bytes": 6896,
+      "sha256": "092aca416f8225eb24449e68c48d9a6931cdccbed5d883a160a10c287d39c1ff"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/complete-repair-round2-review-brief.md",
+      "archive": "complete-repair-round2-review-brief.md",
+      "bytes": 9354,
+      "sha256": "87c89e762079a66dc30681dc7839a2f7c52a984150833d01e8f2763c40bff041"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/controller-gates-round2.py",
+      "archive": "controller-gates-round2.py",
+      "bytes": 10738,
+      "sha256": "e2971db414744929407f0b55ccd72aa2bb4515a2977535ad659cb0fe37671680"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round2/source-freeze.json",
+      "archive": "source-freeze.json",
+      "bytes": 8930,
+      "sha256": "88b72f8a68f725a956bbec638f6284a63f8ddeba872f8f66ef423d4fc1a63e18"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round2/frozen-source-paths.txt",
+      "archive": "frozen-source-paths.txt",
+      "bytes": 2267,
+      "sha256": "9d10a33f7bebac32a16ecc7f6d77a3a6c4817bdd04757a8cc6839674f4019de7"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round2/complete-repair-review.diff",
+      "archive": "complete-repair-review.diff",
+      "bytes": 440871,
+      "sha256": "b2c39970e7c9ceb23cbe42d462882d92ca3f7a94f38763723397951cf26f1e45"
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/final-round2/scoped-round2-review.diff",
+      "archive": "scoped-round2-review.diff",
+      "bytes": 65957,
+      "sha256": "387e005a84d56a15b1dad8c3f20e57c081e4c241541b36ac6d92f3e2c99f4a77"
+    }
+  ]
+}

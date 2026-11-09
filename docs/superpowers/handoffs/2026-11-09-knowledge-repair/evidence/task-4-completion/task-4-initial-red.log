@@ -1,0 +1,68 @@
+COMMAND: env CARGO_HOME="$PWD/.superpowers/toolchain/cargo-writable-20261106" CARGO_TARGET_DIR="$PWD/.superpowers/toolchain/cargo-target-intelligence-20261107" TMPDIR="/dev/shm/voxbridge-intelligence-20261109.q7xaof9u" PKG_CONFIG_PATH="$PWD/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig" PKG_CONFIG_SYSROOT_DIR="$PWD/.superpowers/toolchain/alsa/sysroot" LIBRARY_PATH="$PWD/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu" cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib knowledge_review_ -- --test-threads=1
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+error[E0364]: `mark_source_removed` is private, and cannot be re-exported
+  --> src/knowledge/index/delete_completion.rs:11:16
+   |
+11 | pub(super) use retirement::mark_source_removed;
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: consider marking `mark_source_removed` as `pub` in the imported module
+  --> src/knowledge/index/delete_completion.rs:11:16
+   |
+11 | pub(super) use retirement::mark_source_removed;
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: function import `mark_source_removed` is private
+   --> src/knowledge/index/repository.rs:68:63
+    |
+ 68 |         self.store.transaction(|tx| super::delete_completion::mark_source_removed(tx, source))
+    |                                                               ^^^^^^^^^^^^^^^^^^^ private function import
+    |
+note: the function import `mark_source_removed` is defined here...
+   --> src/knowledge/index/delete_completion.rs:11:16
+    |
+ 11 | pub(super) use retirement::mark_source_removed;
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: ...and refers to the function `mark_source_removed` which is defined here
+   --> src/knowledge/index/delete_completion/retirement.rs:145:1
+    |
+145 | pub(super) fn mark_source_removed(tx: &Transaction<'_>, source: &Generation) -> AppResult<()> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: import `mark_source_removed` directly
+    |
+ 68 -         self.store.transaction(|tx| super::delete_completion::mark_source_removed(tx, source))
+ 68 +         self.store.transaction(|tx| retirement::mark_source_removed(tx, source))
+    |
+
+warning: unused imports: `check_files` and `mark_files_cleaned`
+ --> src/knowledge/index/delete_completion.rs:7:24
+  |
+7 | pub(crate) use files::{check_files, mark_files_cleaned};
+  |                        ^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `CompletionKind`, `load`, `operations`, `optional_publication`, `publication as read_publication`, `scan_operations`, and `scan_publications`
+ --> src/knowledge/index/delete_completion.rs:8:26
+  |
+8 | ...::{load, operations, publication as read_publication, optional_publication, scan_operations, scan_publications, CompletionKind};
+  |       ^^^^  ^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^
+
+warning: unused imports: `preflight`, `publish_delete`, and `publish_fresh`
+ --> src/knowledge/index/delete_completion.rs:9:30
+  |
+9 | pub(crate) use publication::{preflight, publish_delete, publish_fresh};
+  |                              ^^^^^^^^^  ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^
+
+warning: unused imports: `acknowledge`, `consume`, `guard_sql`, `settle_local`, and `validate_complete`
+  --> src/knowledge/index/delete_completion.rs:10:29
+   |
+10 | pub(crate) use retirement::{acknowledge, consume, guard_physical, guard_sql, settle_local, validate_complete};
+   |                             ^^^^^^^^^^^  ^^^^^^^                  ^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^
+
+Some errors have detailed explanations: E0364, E0603.
+For more information about an error, try `rustc --explain E0364`.
+warning: `vox-bridge` (lib test) generated 4 warnings
+error: could not compile `vox-bridge` (lib test) due to 2 previous errors; 4 warnings emitted
+
+ACTUAL_EXIT=101

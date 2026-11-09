@@ -1,0 +1,99 @@
+COMMAND: env CARGO_HOME="$PWD/.superpowers/toolchain/cargo-writable-20261106" CARGO_TARGET_DIR="$PWD/.superpowers/toolchain/cargo-target-intelligence-20261107" TMPDIR="/dev/shm/voxbridge-intelligence-20261109.q7xaof9u" PKG_CONFIG_PATH="$PWD/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig" PKG_CONFIG_SYSROOT_DIR="$PWD/.superpowers/toolchain/alsa/sysroot" LIBRARY_PATH="$PWD/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu" cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib knowledge_ -- --test-threads=1
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.63s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 89 tests
+test app::intelligence::tests::knowledge::knowledge_app_close_and_rearm_wait_for_entered_search_after_observer_loss ... ok
+test app::intelligence::tests::knowledge::knowledge_app_process_lock_outlives_search_observer_until_entered_work_finishes ... ok
+test commands::knowledge::tests::knowledge_commands_dispatch_empty_search_and_validate_exact_boundaries ... ok
+test commands::knowledge::tests::knowledge_commands_selected_partial_multi_row_and_foreign_session_reach_owned_service ... ok
+test knowledge::document_tests::knowledge_migration5_binding_fences_and_reopen_preserve_untrusted_legacy_rows ... ok
+test knowledge::document_tests::wire::knowledge_wire_contract_real_dtos_and_camelcase_args_match_shared_fixture ... ok
+test knowledge::embedding::tests::knowledge_embedding_semantics_bind_endpoint_profile_model_without_actual_dimension ... ok
+test knowledge::embedding::tests::knowledge_embeddings_enforce_json_bytes_and_text_count_before_http ... ok
+test knowledge::embedding::tests::knowledge_embeddings_reject_snapshot_edits_before_http_and_invalid_indexes ... ok
+test knowledge::embedding::tests::knowledge_embeddings_restore_response_order_and_normalize_full_precision ... ok
+test knowledge::embedding_tests::knowledge_embedding_eight_mib_response_limit_is_checked_even_for_a_port_ignoring_the_bound ... ok
+test knowledge::embedding_tests::knowledge_embedding_rejects_dimension_inconsistency_duplicate_missing_nonfinite_and_extremes ... ok
+test knowledge::embedding_tests::knowledge_embedding_shared_four_request_gate_is_held_until_http_finishes ... ok
+test knowledge::index::seal::trigger_tests::knowledge_rebuild_certified_count_and_metadata_threshold_arithmetic ... ok
+test knowledge::index_tests::binding::knowledge_binding_concurrent_first_index_conflicting_actual_dimensions_has_one_winner ... ok
+test knowledge::index_tests::binding::knowledge_binding_none_to_same_dimension_and_profile_endpoint_model_edits ... ok
+test knowledge::index_tests::continuation::knowledge_import_continues_only_committed_success_into_reindex ... ok
+test knowledge::index_tests::continuation::knowledge_import_without_selected_embedding_stays_parsed_with_deferred_reason ... ok
+test knowledge::index_tests::continuation::knowledge_manual_reindex_observer_loss_still_wakes_committed_admission ... ok
+test knowledge::index_tests::knowledge_crash_after_vector_persist_never_exposes_an_uncommitted_document ... ok
+test knowledge::index_tests::knowledge_delete_survives_clean_reopen_and_never_embeds ... ok
+test knowledge::index_tests::knowledge_empty_library_and_broken_readiness_never_embed ... ok
+test knowledge::index_tests::knowledge_rebuild_reclaims_tombstone_ids_and_atomically_repoints_ready_mappings ... ok
+test knowledge::index_tests::knowledge_reconcile_marks_stale_authoritative_hash_without_embedding ... ok
+test knowledge::index_tests::knowledge_reindex_publishes_authoritative_ready_mapping_and_consecutive_searches_reopen_cleanly ... ok
+test knowledge::index_tests::knowledge_reindex_replacement_persists_a_new_vector_id ... ok
+test knowledge::index_tests::knowledge_search_preserves_healthy_hits_and_repairs_the_inverse_owner_of_malformed_metadata ... ok
+test knowledge::index_tests::publication::knowledge_local_copy_freezes_rebuild_associations_before_vector_copy ... ok
+test knowledge::index_tests::publication::knowledge_publication_real_multi_page_ready_and_dense_rebuild ... ok
+test knowledge::index_tests::publication::knowledge_publication_rolls_back_every_page_on_document_location_pointer_or_evidence_change ... ok
+test knowledge::index_tests::publication::knowledge_rebuild_failed_target_keeps_source_clean_searchable_and_reopenable ... ok
+test knowledge::index_tests::publication::knowledge_rebuild_rejects_late_uncovered_survivor_chunk_without_switching_pointer ... ok
+test knowledge::index_tests::publication::knowledge_reconcile_clean_last_document_deletion_rebuilds_to_empty_generation ... ok
+test knowledge::index_tests::publication::knowledge_reconcile_tombstone_pressure_rebuilds_locally_without_explicit_flag ... ok
+test knowledge::index_tests::publication::knowledge_reindex_every_commit_boundary_excludes_unpublished_and_explicit_retry_succeeds ... ok
+test knowledge::index_tests::publication::knowledge_review_evidence_accepts_1024_bytes_and_sqlite_rejects_1025_utf8_bytes ... ok
+test knowledge::index_tests::publication::knowledge_review_evidence_rejects_oversized_retained_ascii_before_publication ... ok
+test knowledge::index_tests::publication::knowledge_review_evidence_rejects_oversized_retained_multibyte_before_publication ... ok
+test knowledge::index_tests::recovery::knowledge_delete_rejects_inconsistent_payload_document_fence ... ok
+test knowledge::index_tests::recovery::knowledge_delete_resume_advances_past_full_page_of_invalid_payload_associations ... ok
+test knowledge::index_tests::recovery::knowledge_dirty_delete_changed_vector_witness_preserves_bytes_and_deleting_work ... ok
+test knowledge::index_tests::recovery::knowledge_dirty_delete_destination_persist_crash_keeps_source_and_retry_finishes ... ok
+test knowledge::index_tests::recovery::knowledge_dirty_delete_last_document_publishes_empty_destination ... ok
+test knowledge::index_tests::recovery::knowledge_dirty_delete_pointer_crash_resumes_retirement_and_work_ack ... ok
+test knowledge::index_tests::recovery::knowledge_dirty_delete_reader_source_lock_is_exclusive_and_release_is_owned ... ok
+test knowledge::index_tests::recovery::knowledge_dirty_delete_recovers_survivor_bits_locally_and_reopen_is_idempotent ... ok
+test knowledge::index_tests::recovery::knowledge_dirty_delete_rejects_unrecognized_or_symlink_source_entries_without_opening_them ... ok
+test knowledge::index_tests::recovery::knowledge_local_copy_freezes_recovery_associations_before_vector_copy ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_keeps_historical_published_mapping_evidence_without_old_chunks ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_first_page_foreign_vector_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_foreign_association_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_foreign_vector_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_later_page_malformed_fence_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_rejects_missing_later_page_work_before_mutation ... ok
+test knowledge::index_tests::review_deletion::knowledge_review_delete_resume_preserves_invalid_target_proof_and_clean_neighbors ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_final_search_recheck_excludes_a_newly_incomplete_document ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_missing_mapping_excludes_the_entire_document ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_oversized_title_repairs_its_owner_and_preserves_neighbors ... ok
+test knowledge::index_tests::review_fixes::knowledge_review_reconcile_audits_missing_mappings_from_current_chunks ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_ready_publication_rechecks_the_durable_job_object ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_runtime_delete_rejects_consistent_input_for_the_wrong_job_object ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_runtime_reindex_cannot_mutate_a_foreign_document ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_stale_terminal_job_cannot_overwrite_a_newer_repair_reason ... ok
+test knowledge::index_tests::review_jobs::knowledge_review_startup_requires_bounded_matching_reindex_ownership ... ok
+test knowledge::index_tests::review_replacement::flags::knowledge_review_completed_file_paths_are_rechecked_before_source_retirement ... ok
+test knowledge::index_tests::review_replacement::flags::knowledge_review_files_cleaned_flag_cannot_hide_retained_final_or_temp_bytes ... ok
+test knowledge::index_tests::review_replacement::flags::knowledge_review_zero_work_terminal_consumption_requires_independent_actual_file_cleanup ... ok
+test knowledge::index_tests::review_replacement::knowledge_review_automatic_rebuild_completes_delete_admitted_before_later_source_page ... ok
+test knowledge::index_tests::review_replacement::knowledge_review_fresh_swap_rejects_unstaged_native_target_record ... ok
+test knowledge::index_tests::review_replacement::knowledge_review_managed_metadata_loss_keeps_bytes_and_settlement_until_actual_cleanup ... ok
+test knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_more_than_200_retained_duplicate_operations ... ok
+test knowledge::index_tests::review_replacement::knowledge_review_recovery_completes_two_retained_same_source_deletes ... ok
+test knowledge::index_tests::review_replacement::knowledge_review_recovery_resumes_both_document_gone_work_sets_after_pointer_crash ... ok
+test knowledge::index_tests::search::knowledge_corruption_repair_does_not_change_indexing_replacement ... ok
+test knowledge::index_tests::search::knowledge_reconcile_half_open_tombstone_and_last_orphan_are_local ... ok
+test knowledge::index_tests::search::knowledge_reconcile_malformed_metadata_repairs_only_current_inverse_owner ... ok
+test knowledge::index_tests::search::knowledge_reconcile_preserves_indexing_with_unfinished_matching_reindex_owner ... ok
+test knowledge::index_tests::search::knowledge_search_actual_escaped_byte_budget_preserves_prefix_without_filling_lower_hits ... ok
+test knowledge::index_tests::search::knowledge_search_during_replacement_preserves_parsing_and_parsed_states ... ok
+test knowledge::index_tests::search::knowledge_search_final_envelope_recheck_trims_only_trailing_whole_hit ... ok
+test knowledge::index_tests::search::knowledge_search_foreign_document_metadata_repairs_inverse_owner_only ... ok
+test knowledge::index_tests::search::knowledge_search_late_loss_of_last_ready_document_returns_repair ... ok
+test knowledge::index_tests::search::knowledge_search_malformed_source_fields_repair_owner_and_preserve_neighbors ... ok
+test knowledge::index_tests::search::knowledge_search_removes_earlier_hits_when_later_candidate_repairs_same_document ... ok
+test knowledge::index_tests::search::knowledge_search_submitted_partial_and_multi_row_selection_is_authoritative ... ok
+test knowledge::index_tests::search::knowledge_search_two_slots_retain_capacity_until_cancelled_entered_work_finishes ... ok
+test knowledge::service::continuation::tests::knowledge_import_continuation_capacity_exclusion_missing_profile_shutdown_defer_parsed ... ok
+test knowledge::service::continuation::tests::knowledge_import_continuation_stale_or_deleted_notice_never_changes_new_association ... ok
+test session::test_support::fixture_audio_tests::dropping_control_does_not_acknowledge_a_delayed_close ... ok
+
+test result: ok. 89 passed; 0 failed; 0 ignored; 0 measured; 632 filtered out; finished in 233.48s
+
+
+ACTUAL_EXIT=0

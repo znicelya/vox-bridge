@@ -1,0 +1,169 @@
+{
+  "status": "repair in progress; independent final gate pending",
+  "byte_identical_items": [
+    {
+      "source": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-delete-association-red.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-5c-repair-delete-association-red.log",
+      "sha256": "040bdf38ecea0235a15ed002fd2330a9a862c36245e704ccd396ef134d663f05",
+      "bytes": 1309,
+      "actual_test_results": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 707 filtered out; finished in 0.94s"
+      ],
+      "final_frozen_source_evidence": false
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-delete-resume-red.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-5c-repair-delete-resume-red.log",
+      "sha256": "8d81c73c25c5bfcc097f3f51485c8c1d6604991a8d723359516b324dcd353ab8",
+      "bytes": 2110,
+      "actual_test_results": [
+        "test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 702 filtered out; finished in 5.52s"
+      ],
+      "final_frozen_source_evidence": false
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-delete-retention-red.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-5c-repair-delete-retention-red.log",
+      "sha256": "ec89d45fb95348775bf34ab0df489625ae9160608e72133a38ee7a2cb5a0e4f5",
+      "bytes": 1368,
+      "actual_test_results": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 708 filtered out; finished in 0.66s"
+      ],
+      "final_frozen_source_evidence": false
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-delete-work-green.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-5c-repair-delete-work-green.log",
+      "sha256": "ae426ad116188ce3615ebc98c8f6e42215ecbf772040a67a6774c3f2ddb17e72",
+      "bytes": 3406,
+      "actual_test_results": [
+        "test result: FAILED. 2 passed; 4 failed; 0 ignored; 0 measured; 702 filtered out; finished in 4.69s"
+      ],
+      "final_frozen_source_evidence": false
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-delete-work-red-all.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-5c-repair-delete-work-red-all.log",
+      "sha256": "b58379768f08a1989df192f541c42ac4691ce11a2ad6ba2aa0473d7239849bfd",
+      "bytes": 4131,
+      "actual_test_results": [
+        "test result: FAILED. 1 passed; 5 failed; 0 ignored; 0 measured; 702 filtered out; finished in 4.53s"
+      ],
+      "final_frozen_source_evidence": false
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-delete-work-red.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-5c-repair-delete-work-red.log",
+      "sha256": "6f2da9358de61778cb717f6a615ffb95b1b7c94aa0875a9461fb7366e5454783",
+      "bytes": 1388,
+      "actual_test_results": [
+        "test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 702 filtered out; finished in 0.96s"
+      ],
+      "final_frozen_source_evidence": false
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-delete-work-resume-green.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-5c-repair-delete-work-resume-green.log",
+      "sha256": "70a5d2273c65e844b4158cb35ee0872539e7649fb838fa734aed5eeb63586659",
+      "bytes": 1358,
+      "actual_test_results": [
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 702 filtered out; finished in 5.85s"
+      ],
+      "final_frozen_source_evidence": false
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-evidence-bytes.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-5c-repair-evidence-bytes.log",
+      "sha256": "191745cd6cfe8fbad9d6f5b9dc8e1727781f727b90451813a3f09bf17c6a73d1",
+      "bytes": 831,
+      "actual_test_results": [
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 709 filtered out; finished in 2.18s"
+      ],
+      "final_frozen_source_evidence": false
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-fresh-coverage-green.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-5c-repair-fresh-coverage-green.log",
+      "sha256": "39e4c2ceb4a1606ad8d1cd28f37baea8d1bce05da8e21bc4bdd91f2dff4cb00e",
+      "bytes": 565,
+      "actual_test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 715 filtered out; finished in 0.52s"
+      ],
+      "final_frozen_source_evidence": false
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-jobs-green.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-5c-repair-jobs-green.log",
+      "sha256": "febf3ccccde6ae8f151a833cc92fbf0df51b453c9879f1a4ddc0df1e8551df15",
+      "bytes": 1531,
+      "actual_test_results": [
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 693 filtered out; finished in 3.49s"
+      ],
+      "final_frozen_source_evidence": false
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-jobs-red.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-5c-repair-jobs-red.log",
+      "sha256": "8d8c1471b59e0de02fed216ad4adc7d0a508bbc4f24cdb16ae12d5f4d6550096",
+      "bytes": 5082,
+      "actual_test_results": [
+        "test result: FAILED. 4 passed; 5 failed; 0 ignored; 0 measured; 693 filtered out; finished in 3.54s"
+      ],
+      "final_frozen_source_evidence": false
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-replacement-cohorts-red.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-5c-repair-replacement-cohorts-red.log",
+      "sha256": "13a88be63eeb95cfe5bc148dc43e1502068700e22d00195e70f6316f190e43c7",
+      "bytes": 6782,
+      "actual_test_results": [
+        "test result: FAILED. 20 passed; 5 failed; 0 ignored; 0 measured; 693 filtered out; finished in 16.86s"
+      ],
+      "final_frozen_source_evidence": false
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-replacement-red.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-5c-repair-replacement-red.log",
+      "sha256": "b7b7fd857c6c3278398ce0719c79187a9e8bfbcf5523fd208d718731581922f6",
+      "bytes": 5737,
+      "actual_test_results": [
+        "test result: FAILED. 19 passed; 4 failed; 0 ignored; 0 measured; 693 filtered out; finished in 15.87s"
+      ],
+      "final_frozen_source_evidence": false
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-search-green.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-5c-repair-search-green.log",
+      "sha256": "b17c8dbf02bf8abab801faa0b5b2810ce592b24e1ede96e19f8b7059e6b7626a",
+      "bytes": 927,
+      "actual_test_results": [
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 693 filtered out; finished in 3.21s"
+      ],
+      "final_frozen_source_evidence": false
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-5c-repair-search-red.log",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-5c-repair-search-red.log",
+      "sha256": "cbceb29547a7333e8752aef6e39cb7e97953cb568030a80efff83c84b92cec85",
+      "bytes": 3054,
+      "actual_test_results": [
+        "test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 693 filtered out; finished in 0.96s"
+      ],
+      "final_frozen_source_evidence": false
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-04-workbench-intelligence/task-6-architecture-checkpoint.md",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-6-architecture-checkpoint.md",
+      "sha256": "603b89424b79904d9b4d4517c156153b3d5f692b00229ee1d24766f6b6de25f5",
+      "bytes": 77371,
+      "implementation_activated": false
+    },
+    {
+      "source": ".superpowers/sdd/2026-11-09-knowledge-review-fixes/task-6-controller-preparation.md",
+      "archive": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-6-controller-preparation.md",
+      "sha256": "bef6313b46c16b3faaa9c11a54d8ee03603783c8a1463e3f3801a25495d10f5d",
+      "bytes": 6161,
+      "implementation_activated": false
+    }
+  ]
+}

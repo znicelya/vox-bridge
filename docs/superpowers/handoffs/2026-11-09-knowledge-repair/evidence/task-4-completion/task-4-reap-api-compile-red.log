@@ -1,0 +1,60 @@
+COMMAND: env CARGO_HOME=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106 CARGO_TARGET_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107 TMPDIR=/dev/shm/voxbridge-intelligence-20261109.q7xaof9u PKG_CONFIG_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig PKG_CONFIG_SYSROOT_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot LIBRARY_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib intelligence_reap_ -- --test-threads=1
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+error[E0433]: cannot find `reap` in `super`
+ --> src/intelligence/jobs/tests/reap.rs:6:25
+  |
+6 |     port: super::super::reap::JobReapPort,
+  |                         ^^^^ could not find `reap` in `super`
+
+error[E0599]: no method named `reap_port` found for struct `ringbuf::Arc<jobs::JobScheduler>` in the current scope
+  --> src/intelligence/jobs/tests/reap.rs:29:22
+   |
+29 |         port: h.jobs.reap_port(), terminal_proved: AtomicBool::new(false) });
+   |                      ^^^^^^^^^ method not found in `ringbuf::Arc<jobs::JobScheduler>`
+
+error[E0599]: no method named `reap_port` found for struct `ringbuf::Arc<jobs::JobScheduler>` in the current scope
+  --> src/intelligence/jobs/tests/reap.rs:38:37
+   |
+38 |     h.store.transaction(|tx| h.jobs.reap_port().prove(tx, id).map(|proof| proof.is_some()))
+   |                                     ^^^^^^^^^ method not found in `ringbuf::Arc<jobs::JobScheduler>`
+
+error[E0609]: no field `reap` on type `ringbuf::Arc<jobs::JobScheduler>`
+   --> src/intelligence/jobs/tests/reap.rs:100:24
+    |
+100 |     let frame = h.jobs.reap.inner.lock().unwrap().frames.remove(&context.id).unwrap();
+    |                        ^^^^ unknown field
+    |
+    = note: available fields are: `store`, `state`, `wake`, `events`, `parser` ... and 3 others
+
+error[E0609]: no field `reap` on type `ringbuf::Arc<jobs::JobScheduler>`
+   --> src/intelligence/jobs/tests/reap.rs:106:12
+    |
+106 |     h.jobs.reap.inner.lock().unwrap().frames.insert(context.id, frame);
+    |            ^^^^ unknown field
+    |
+    = note: available fields are: `store`, `state`, `wake`, `events`, `parser` ... and 3 others
+
+error[E0609]: no field `reap` on type `ringbuf::Arc<jobs::JobScheduler>`
+   --> src/intelligence/jobs/tests/reap.rs:166:20
+    |
+166 |     assert!(h.jobs.reap.inner.lock().unwrap().frames.len() <= 18);
+    |                    ^^^^ unknown field
+    |
+    = note: available fields are: `store`, `state`, `wake`, `events`, `parser` ... and 3 others
+
+error[E0599]: no method named `reap_port` found for struct `jobs::JobScheduler` in the current scope
+   --> src/intelligence/jobs/tests/reap.rs:172:52
+    |
+172 |     let fresh = JobScheduler::new(h.store.clone()).reap_port();
+    |                                                    ^^^^^^^^^ method not found in `jobs::JobScheduler`
+    |
+   ::: src/intelligence/jobs.rs:192:1
+    |
+192 | pub struct JobScheduler {
+    | ----------------------- method `reap_port` not found for this struct
+
+Some errors have detailed explanations: E0433, E0599, E0609.
+For more information about an error, try `rustc --explain E0433`.
+error: could not compile `vox-bridge` (lib test) due to 7 previous errors
+
+ACTUAL_EXIT: 101

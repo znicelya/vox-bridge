@@ -1,0 +1,35 @@
+{
+  "started_utc": "2026-11-09T10:41:32.561943+00:00",
+  "tree": "3afb692d013bbc8e4830b130f504d18fa8f63e33",
+  "environment": {
+    "CARGO_HOME": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106",
+    "CARGO_TARGET_DIR": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107",
+    "TMPDIR": "/dev/shm/voxbridge-intelligence-20261109.q7xaof9u",
+    "PKG_CONFIG_PATH": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig",
+    "PKG_CONFIG_SYSROOT_DIR": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot",
+    "LIBRARY_PATH": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu"
+  },
+  "gates": [
+    {
+      "name": "all-targets",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "src-tauri/Cargo.toml",
+        "--all-targets"
+      ],
+      "exit_code": 101,
+      "duration_seconds": 149.23,
+      "log": "final-all-targets.log",
+      "sha256": "cbfcc54de9012a05925ad93b1b6251afa960808ac3e2e5b1ec2dc621202c3858",
+      "bytes": 84323,
+      "test_results": [
+        "test result: FAILED. 745 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 91.04s"
+      ],
+      "warnings": []
+    }
+  ]
+}

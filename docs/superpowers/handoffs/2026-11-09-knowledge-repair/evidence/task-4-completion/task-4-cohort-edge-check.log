@@ -1,0 +1,28 @@
+COMMAND: env CARGO_HOME=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106 CARGO_TARGET_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107 TMPDIR=/dev/shm/voxbridge-intelligence-20261109.q7xaof9u PKG_CONFIG_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig PKG_CONFIG_SYSROOT_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot LIBRARY_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib knowledge::index_tests::review_replacement::cohorts -- --test-threads=1
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.45s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 4 tests
+test knowledge::index_tests::review_replacement::cohorts::knowledge_review_direct_delete_certifies_202_exact_terminal_peers_and_retains_history ... FAILED
+test knowledge::index_tests::review_replacement::cohorts::knowledge_review_fresh_ready_replacement_completes_retained_source_delete ... ok
+test knowledge::index_tests::review_replacement::cohorts::knowledge_review_fresh_swap_certifies_valid_source_bound_zero_work_member ... ok
+test knowledge::index_tests::review_replacement::cohorts::knowledge_review_retention_authority_fresh_swap_rejects_different_source_target_peer ... ok
+
+failures:
+
+---- knowledge::index_tests::review_replacement::cohorts::knowledge_review_direct_delete_certifies_202_exact_terminal_peers_and_retains_history stdout ----
+
+thread 'knowledge::index_tests::review_replacement::cohorts::knowledge_review_direct_delete_certifies_202_exact_terminal_peers_and_retains_history' (436620) panicked at src/knowledge/index_tests.rs:168:10:
+called `Result::unwrap()` on an `Err` value: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    knowledge::index_tests::review_replacement::cohorts::knowledge_review_direct_delete_certifies_202_exact_terminal_peers_and_retains_history
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 729 filtered out; finished in 20.51s
+
+error: test failed, to rerun pass `--lib`
+
+ACTUAL_EXIT: 101
