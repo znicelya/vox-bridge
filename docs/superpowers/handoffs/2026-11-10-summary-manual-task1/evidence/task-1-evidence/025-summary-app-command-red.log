@@ -1,0 +1,48 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+warning: unused imports: `JsonHttp`, `JsonRequest`, and `JsonResponse`
+ --> src/llm/tests.rs:2:73
+  |
+2 | use crate::{app::CredentialChange,intelligence::{http::{ReqwestJsonHttp,JsonHttp,JsonRequest,JsonResponse},test_support::*,types::*}};
+  |                                                                         ^^^^^^^^ ^^^^^^^^^^^ ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `self`
+ --> src/summary/snapshot.rs:2:48
+  |
+2 | use super::{job_proof::SummaryJobProof,store::{self,text,uuid,storage,error}};
+  |                                                ^^^^
+
+warning: unused import: `SummaryRecoveryFence`
+  --> src/summary/mod.rs:10:40
+   |
+10 | pub(crate) use recovery::{SummaryReady,SummaryRecoveryFence};
+   |                                        ^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `append_summary_version` found for reference `&sqlite::LocalStore` in the current scope
+  --> src/commands/summary/tests.rs:16:23
+   |
+16 | ...   state.store().append_summary_version(&crate::storage::SummaryVersion{id:Uuid::new_v4(),session_id:session,version,created_at:i...
+   |                     ^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: there is a method `create_summary_version` with a similar name
+   |
+16 -         state.store().append_summary_version(&crate::storage::SummaryVersion{id:Uuid::new_v4(),session_id:session,version,created_at:i64::MIN+index as i64,status:"complete-original".into(),structured_json:r#"{"title":"可读旧版本","text":"历史正文"}"#.into()}).unwrap();
+16 +         state.store().create_summary_version(&crate::storage::SummaryVersion{id:Uuid::new_v4(),session_id:session,version,created_at:i64::MIN+index as i64,status:"complete-original".into(),structured_json:r#"{"title":"可读旧版本","text":"历史正文"}"#.into()}).unwrap();
+   |
+
+error[E0599]: no method named `append_summary_version` found for reference `&sqlite::LocalStore` in the current scope
+  --> src/commands/summary/tests.rs:19:23
+   |
+19 | ...   state.store().append_summary_version(&crate::storage::SummaryVersion{id:Uuid::new_v4(),session_id:session,version,created_at:i...
+   |                     ^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: there is a method `create_summary_version` with a similar name
+   |
+19 -         state.store().append_summary_version(&crate::storage::SummaryVersion{id:Uuid::new_v4(),session_id:session,version,created_at:i64::MAX,status:"original".into(),structured_json:r#"{"text":"大版本"}"#.into()}).unwrap();
+19 +         state.store().create_summary_version(&crate::storage::SummaryVersion{id:Uuid::new_v4(),session_id:session,version,created_at:i64::MAX,status:"original".into(),structured_json:r#"{"text":"大版本"}"#.into()}).unwrap();
+   |
+
+For more information about this error, try `rustc --explain E0599`.
+warning: `vox-bridge` (lib test) generated 3 warnings
+error: could not compile `vox-bridge` (lib test) due to 2 previous errors; 3 warnings emitted

@@ -1,0 +1,20 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.17s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 13 tests
+test intelligence::http::tests::bearer_rejects_empty_whitespace_controls_non_ascii_and_oversize ... ok
+test intelligence::http::transport_tests::intelligence_http_constructor_needs_no_global_crypto_provider ... ok
+test intelligence::http::transport_tests::intelligence_http_rejects_remote_cleartext_and_userinfo ... ok
+test intelligence::http::transport_tests::intelligence_http_cancel_drops_blocked_body_and_pre_cancel_makes_no_request ... ok
+test intelligence::http::transport_tests::intelligence_http_compatible_context_errors_require_explicit_exact_bounded_code ... ok
+test intelligence::http::transport_tests::intelligence_http_valid_json_and_status_categories_are_safe ... ok
+test intelligence::http::transport_tests::intelligence_http_tls_trust_and_hostname_are_enforced ... ok
+test intelligence::http::transport_tests::intelligence_http_stream_cap_ignores_content_length ... ok
+test intelligence::http::transport_tests::intelligence_http_valid_retry_after_dates_obey_same_bound ... ok
+test intelligence::http::transport_tests::intelligence_http_retry_is_explicit_once_and_validated ... ok
+test intelligence::http::transport_tests::intelligence_http_original_deadline_and_retry_sleep_cancellation ... ok
+test intelligence::http::transport_tests::intelligence_http_actual_authorization_is_isolated_for_two_profiles ... ok
+test intelligence::http::tests::resolved_credentials_are_isolated_sensitive_headers ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 822 filtered out; finished in 0.06s
+

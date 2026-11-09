@@ -1,0 +1,16 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.64s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 9 tests
+test intelligence::probes::tests::intelligence_translation_probe_handshakes_finishes_joins_without_audio_and_rejects_orphan ... ok
+test intelligence::probes::tests::intelligence_probes_use_minimal_kind_specific_requests_and_persist_safe_results ... ok
+test intelligence::probes::tests::intelligence_probes_global_exclusion_observer_drop_close_and_reopen ... ok
+test intelligence::probes::tests::intelligence_probe_late_http_result_cannot_overwrite_edited_profile ... ok
+test intelligence::probes::tests::intelligence_probes_bad_credentials_make_zero_requests_and_invalid_embedding_fails ... ok
+test intelligence::probes::tests::intelligence_translation_probe_timeout_retains_global_and_process_owner_until_joined ... ok
+test intelligence::probes::tests::intelligence_translation_actual_native_lookup_retains_global_probe_slot_after_timeout ... ok
+test intelligence::probes::tests::intelligence_probes_foreign_missing_or_invalid_secrets_never_reach_http ... ok
+test intelligence::probes::tests::intelligence_translation_probe_bounds_connect_handshake_and_finish ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 827 filtered out; finished in 0.50s
+

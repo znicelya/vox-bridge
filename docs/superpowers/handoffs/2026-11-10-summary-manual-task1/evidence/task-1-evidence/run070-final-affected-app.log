@@ -1,0 +1,60 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.13s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 53 tests
+test app::intelligence::tests::intelligence_app_close_keeps_index_owned_until_job_cleanup_finishes ... ok
+test app::intelligence::tests::intelligence_app_close_fences_a_startup_that_was_waiting_for_admission ... ok
+test app::intelligence::tests::intelligence_app_close_cancels_jobs_and_restarts_only_on_explicit_host_start ... ok
+test app::documents::tests::documents_app_queued_cancel_updates_domain_and_cleans_only_candidate_without_parser ... ok
+test app::documents::tests::documents_completion_cleanup_error_retains_intent_and_marks_repair_without_following_symlink ... ok
+test app::intelligence::tests::intelligence_app_dropping_external_handles_releases_process_after_worker_cleanup ... ok
+test app::documents::tests::documents_app_parser_permit_and_generation_live_until_reap_and_late_success_cannot_commit ... ok
+test app::intelligence::tests::intelligence_app_close_timeout_keeps_index_for_retry_until_jobs_drain ... ok
+test app::intelligence::tests::child_operations::child_operations_app_close_and_rearm_after_observer_drop ... ok
+test app::intelligence::tests::child_operations::child_operations_app_process_lock_after_observer_drop ... ok
+test app::intelligence::tests::intelligence_app_close_waits_for_entered_index_startup_to_join ... ok
+test app::intelligence::tests::child_operations::child_operations_app_close_and_rearm_after_config_timeout ... ok
+test app::intelligence::tests::child_operations::child_operations_app_process_lock_after_config_timeout ... ok
+test app::documents::tests::documents_app_restart_reconciles_already_terminal_association_without_replaying_parser ... ok
+test app::intelligence::tests::intelligence_app_inert_construction_projects_empty_library_directory_and_recovers_jobs ... ok
+test app::intelligence::tests::intelligence_app_reopen_starts_a_fresh_owned_index_generation ... ok
+test app::intelligence::tests::intelligence_app_startup_failure_waits_for_direct_operation_drain ... ok
+test app::intelligence::tests::summary::summary_app_failed_local_recovery_keeps_manual_readiness_closed_until_successful_retry ... ok
+test app::intelligence::tests::summary::summary_app_joined_same_process_close_rearm_recovers_delete_and_opens_only_new_epoch ... ok
+test app::intelligence::tests::summary::summary_app_fresh_process_recovery_interrupts_registered_native_then_recovers_delete_before_manual_admission ... ok
+test app::intelligence::tests::summary::summary_app_repeated_started_startup_preserves_current_ready_epoch_and_owned_index ... ok
+test app::documents::tests::documents_app_copy_observer_loss_retains_process_lock_and_prevents_late_admission ... ok
+test app::intelligence::tests::intelligence_close_stops_capture_while_snapshot_sqlite_is_blocked ... ok
+test app::profiles_tests::compensation_failure_is_explicit_and_never_returns_false_success ... ok
+test app::profiles_tests::clear_config_failure_preserves_key_and_cleanup_failure_leaves_unconfigured_orphan ... ok
+test app::intelligence::tests::knowledge::knowledge_app_process_lock_outlives_search_observer_until_entered_work_finishes ... ok
+test app::profiles_tests::invalid_credential_and_endpoint_make_no_mutation ... ok
+test app::profiles_tests::normalized_reference_without_encrypted_entry_is_not_configured ... ok
+test app::profiles_tests::partial_clear_then_keep_orphan_cannot_authenticate_fresh_volc_launch ... ok
+test app::intelligence::tests::knowledge::knowledge_app_close_and_rearm_wait_for_entered_search_after_observer_loss ... ok
+test app::profiles_tests::replace_keep_clear_reload_never_exposes_synthetic_credentials ... ok
+test app::intelligence::tests::intelligence_app_entered_clear_retains_process_and_close_barrier_after_observer_loss ... ok
+test app::subscription_tests::active_session_delete_rejects_before_cancelling_its_subscription ... ok
+test app::subscription_tests::active_and_restarted_terminal_subscriptions_use_runtime_and_durable_history ... ok
+test app::subscription_tests::cancelled_delete_caller_still_owns_cleanup_before_durable_removal ... ok
+test app::subscription_tests::closing_starting_runtime_cleans_ports_and_blocked_emit_even_when_caller_cancels ... ok
+test app::subscription_tests::deletion_joins_blocked_terminal_delivery_and_evicted_history_gets_fresh_status ... ok
+test app::tests::app_construction_recovers_only_after_process_ownership_without_opening_services ... ok
+test app::subscription_tests::final_fix_close_deadline_covers_subscription_prerequisite_gate ... ok
+test app::subscription_tests::queued_old_window_subscription_cannot_finish_into_new_lifecycle ... ok
+test app::tests::app_state_initializes_the_event_bus_and_data_directory ... ok
+test app::profiles_tests::replacement_rolls_back_existing_and_absent_encrypted_before_images ... ok
+test app::tests::a_completed_window_close_fences_old_commands_until_host_opens_new_window ... ok
+test app::profiles_tests::entered_cancelled_delete_retains_admission_and_process_owner_until_native_cleanup ... ok
+test app::tests::second_process_owner_cannot_touch_database_or_config ... ok
+test app::profiles_tests::final_fix_held_config_close_is_bounded_and_retains_one_cleanup_owner ... ok
+test app::tests::close_cancels_pending_creation_without_opening_resources_and_allows_new_window ... ok
+test app::tests::configured_launch_owns_ports_persists_finals_and_keeps_its_snapshot ... ok
+test app::tests::reserved_creation_wins_delete_race_until_its_session_cleanup ... ok
+test app::tests::disabled_unknown_and_wrong_role_launches_fail_locally ... ok
+test app::tests::stale_endpoint_preflight_never_opens_devices_or_provider ... ok
+test app::subscription_tests::close_observes_registry_barrier_even_when_its_queue_is_full_and_stops_audio_independently ... ok
+test app::subscription_tests::retry_delete_after_registry_admission_failure_preserves_durable_row_until_cleanup ... ok
+
+test result: ok. 53 passed; 0 failed; 0 ignored; 0 measured; 784 filtered out; finished in 6.25s
+

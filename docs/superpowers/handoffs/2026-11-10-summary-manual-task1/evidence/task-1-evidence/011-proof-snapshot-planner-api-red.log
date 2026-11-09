@@ -1,0 +1,25 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+error[E0432]: unresolved import `crate::summary::job_proof`
+ --> src/summary/tests/job_proof.rs:1:100
+  |
+1 | use crate::{intelligence::{test_support::IntelligenceHarness,types::*},summary::{SummaryJobRequest,job_proof::SummaryJobProof}};
+  |                                                                                                    ^^^^^^^^^ could not find `job_proof` in `summary`
+
+error[E0432]: unresolved imports `crate::summary::job_proof`, `crate::summary::snapshot`
+ --> src/summary/tests/snapshot.rs:3:33
+  |
+3 |     summary::{SummaryJobRequest,job_proof::SummaryJobProof,snapshot::FinalSnapshot},
+  |                                 ^^^^^^^^^                  ^^^^^^^^ could not find `snapshot` in `summary`
+  |                                 |
+  |                                 could not find `job_proof` in `summary`
+
+error[E0432]: unresolved imports `crate::summary::planner`, `crate::summary::snapshot`
+ --> src/summary/tests/planner.rs:1:23
+  |
+1 | use crate::{summary::{planner::*,snapshot::{FinalSnapshot,SnapshotRow,SnapshotIdentity},content::SummaryContent},intelligence::types:...
+  |                       ^^^^^^^    ^^^^^^^^ could not find `snapshot` in `summary`
+  |                       |
+  |                       could not find `planner` in `summary`
+
+For more information about this error, try `rustc --explain E0432`.
+error: could not compile `vox-bridge` (lib test) due to 3 previous errors

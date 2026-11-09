@@ -1,0 +1,15 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+error[E0599]: no method named `with_summary_snapshot_owned` found for struct `std::sync::Arc<sqlite::LocalStore>` in the current scope
+  --> src/summary/tests/snapshot_owned.rs:15:45
+   |
+15 |     let work=tokio::spawn(async move {store.with_summary_snapshot_owned(owner,rx,move |tx,scope| {scope.check()?;tx.query_row("SELEC...
+   |                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^ method not found in `std::sync::Arc<sqlite::LocalStore>`
+
+error[E0599]: no method named `with_summary_snapshot_owned` found for struct `std::sync::Arc<sqlite::LocalStore>` in the current scope
+  --> src/summary/tests/snapshot_owned.rs:29:45
+   |
+29 |     let work=tokio::spawn(async move {store.with_summary_snapshot_owned(owner,rx,move |tx,scope|{scope.check()?;tx.query_row("SELECT...
+   |                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^ method not found in `std::sync::Arc<sqlite::LocalStore>`
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `vox-bridge` (lib test) due to 2 previous errors

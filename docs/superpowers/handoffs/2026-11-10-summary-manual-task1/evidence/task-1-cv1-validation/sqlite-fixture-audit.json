@@ -1,0 +1,44 @@
+{
+  "all_checks_pass": true,
+  "counts": {
+    "active_jobs": 0,
+    "all_summaries": 200000,
+    "completed_sessions": 1,
+    "coverage": 0,
+    "deleting_sessions": 0,
+    "deleting_summaries": 0,
+    "jobs": 200000,
+    "native_summaries": 200000,
+    "pending_auto_delivery": 0,
+    "responses": 0,
+    "sessions": 1
+  },
+  "counts_match_expected": true,
+  "database": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/sdd/2026-11-09-session-summary-continuation/task-1-cv1-validation/data/vox-bridge.sqlite",
+  "database_identity": {
+    "bytes": 230780928,
+    "kind": "file",
+    "sha256": "fe6b25571dcbbd2ecf982a4380cbb8c94ea222a14d0a63802df77d543553367a"
+  },
+  "database_unchanged_by_read_only_audit": true,
+  "first_issues": [],
+  "foreign_key_violations": [],
+  "no_recovery_or_provider_call_performed": true,
+  "payload_bytes": {
+    "maximum": 365,
+    "minimum": 365,
+    "total": 73000000
+  },
+  "payload_sequence_matches_actual_seed": true,
+  "payload_sequence_sha256": "175db8004666551d203d013b88466b83506149e593cf554958a58f3ebe45a7b0",
+  "persisted_rows_validated": 200000,
+  "read_mode": "mode=ro&immutable=1",
+  "rows_with_issues": 0,
+  "versions": {
+    "distinct_count": 200000,
+    "durable_counter": 200000,
+    "maximum": 200000,
+    "minimum": 1
+  },
+  "versions_match_expected": true
+}

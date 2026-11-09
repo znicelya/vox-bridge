@@ -1,0 +1,292 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+warning: variant `Automatic` is never constructed
+  --> src/intelligence/config.rs:31:5
+   |
+29 | pub(crate) enum SummarySelection {
+   |                 ---------------- variant in this enum
+30 |     Manual { profile_id: Option<Uuid> },
+31 |     Automatic,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `automatic_summary` and `selection_error` are never read
+  --> src/intelligence/config.rs:34:16
+   |
+33 | pub(crate) struct SummaryConfigSnapshot {
+   |                   --------------------- fields in this struct
+34 |     pub(crate) automatic_summary: bool,
+   |                ^^^^^^^^^^^^^^^^^
+35 |     pub(crate) profile: Option<ModelProfile>,
+36 |     pub(crate) selection_error: Option<IntelligenceErrorCode>,
+   |                ^^^^^^^^^^^^^^^
+
+warning: fields `owner` and `cancel` are never read
+  --> src/llm/mod.rs:14:5
+   |
+13 | pub struct LlmExecution {
+   |            ------------ fields in this struct
+14 |     owner: OperationLease,
+   |     ^^^^^
+15 |     cancel: watch::Receiver<bool>,
+   |     ^^^^^^
+
+warning: associated function `new` is never used
+  --> src/llm/mod.rs:18:19
+   |
+17 | impl LlmExecution {
+   | ----------------- associated function in this implementation
+18 |     pub(crate) fn new(owner: OperationLease, cancel: watch::Receiver<bool>) -> Self { Self { owner, cancel } }
+   |                   ^^^
+
+warning: field `llm` is never read
+  --> src/summary/mod.rs:11:105
+   |
+11 | pub struct SummaryService { store:Arc<LocalStore>,config:Arc<ServiceConfigStore>,jobs:Arc<JobScheduler>,llm:Arc<dyn LlmProvider> }
+   |            -------------- field in this struct                                                          ^^^
+
+warning: fields `core` and `epoch` are never read
+  --> src/summary/mod.rs:12:34
+   |
+12 | pub(crate) struct SummaryReady { core:Uuid,epoch:u64 }
+   |                   ------------   ^^^^      ^^^^^
+   |                   |
+   |                   fields in this struct
+
+warning: field `trusted_job_id` is never read
+ --> src/summary/job_proof.rs:4:37
+  |
+4 | pub(crate) struct SummaryJobProof { trusted_job_id:Uuid }
+  |                   ---------------   ^^^^^^^^^^^^^^
+  |                   |
+  |                   field in this struct
+  |
+  = note: `SummaryJobProof` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: multiple fields are never read
+ --> src/summary/snapshot.rs:8:16
+  |
+7 | ...truct SnapshotIdentity {
+  |          ---------------- fields in this struct
+8 | ...e) provider:Option<String>,pub(crate) provider_config_id:Option<Uuid>,pub(crate) stream_epoch:Option<u64>,pub(crate) sentence_id:Option<String>,pub(crate) local_correlation_id:Option<u64>,pub(crate) provider_timestamp_ms:Option<u64>,pub(crate) start_ms:Option<u64>,pub(crate) end_ms:Op...
+  |       ^^^^^^^^                           ^^^^^^^^^^^^^^^^^^                         ^^^^^^^^^^^^                        ^^^^^^^^^^^                           ^^^^^^^^^^^^^^^^^^^^                        ^^^^^^^^^^^^^^^^^^^^^                        ^^^^^^^^                        ^^^^^^
+  |
+  = note: `SnapshotIdentity` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: fields `rowid`, `occurred_at_seconds`, `language`, and `identity` are never read
+  --> src/summary/snapshot.rs:11:16
+   |
+10 | ...truct SnapshotRow {
+   |          ----------- fields in this struct
+11 | ...e) rowid:i64,pub(crate) id:Uuid,pub(crate) direction:String,pub(crate) sequence:i64,pub(crate) occurred_at_seconds:i64,pub(crate) occurred_at_ms:Option<i64>,pub(crate) language:String,pub(crate) text:String,pub(crate) kind:Option<TranscriptKind>,pub(crate) identity:Sn...
+   |       ^^^^^                                                                                       ^^^^^^^^^^^^^^^^^^^                                                      ^^^^^^^^                                                                                 ^^^^^^^^
+
+warning: fields `session_id` and `last_rowid` are never read
+  --> src/summary/snapshot.rs:14:16
+   |
+13 | pub(crate) struct FinalSnapshot {
+   |                   ------------- fields in this struct
+14 |     pub(crate) session_id:Uuid,pub(crate) last_rowid:Option<i64>,pub(crate) rows:Vec<SnapshotRow>,pub(crate) input_final_count:u32,p...
+   |                ^^^^^^^^^^                 ^^^^^^^^^^
+
+warning: fields `segment_id`, `part_index`, and `part_count` are never read
+ --> src/summary/planner.rs:5:39
+  |
+5 | pub(crate) struct PartKey {pub(crate) segment_id:Uuid,pub(crate) part_index:u32,pub(crate) part_count:u32}
+  |                   -------             ^^^^^^^^^^                 ^^^^^^^^^^                ^^^^^^^^^^
+  |                   |
+  |                   fields in this struct
+
+warning: field `key` is never read
+ --> src/summary/planner.rs:6:104
+  |
+6 | pub(crate) struct PartRef {pub(crate) snapshot_row:usize,pub(crate) byte_range:Range<usize>,pub(crate) key:PartKey}
+  |                   ------- field in this struct                                                         ^^^
+
+warning: variants `Map` and `Reduce` are never constructed
+ --> src/summary/planner.rs:8:24
+  |
+8 | pub(crate) enum Phase {Map,Reduce}
+  |                 -----  ^^^ ^^^^^^
+  |                 |
+  |                 variants in this enum
+
+warning: fields `ordinal`, `level`, `phase`, `input_range`, and `coverage` are never read
+ --> src/summary/planner.rs:9:43
+  |
+9 | ...ct RequestPlan {pub(crate) ordinal:u32,pub(crate) level:u32,pub(crate) phase:Phase,pub(crate) input_range:Range<usize>,pub(crate) coverage:Ra...
+  |       -----------             ^^^^^^^                ^^^^^                ^^^^^                  ^^^^^^^^^^^                         ^^^^^^^^
+  |       |
+  |       fields in this struct
+
+warning: field `content` is never read
+  --> src/summary/planner.rs:10:43
+   |
+10 | pub(crate) struct SummaryNode {pub(crate) content:SummaryContent,pub(crate) coverage:Range<usize>}
+   |                   -----------             ^^^^^^^
+   |                   |
+   |                   field in this struct
+
+warning: field `counters` is never read
+  --> src/summary/planner.rs:12:109
+   |
+12 | pub(crate) struct PlannedMaps {pub(crate) manifest:Manifest,pub(crate) requests:Vec<RequestPlan>,pub(crate) counters:PlannerCounters}
+   |                   ----------- field in this struct                                                          ^^^^^^^^
+
+warning: fields `io` and `dir` are never read
+  --> src/summary/tests/harness.rs:46:9
+   |
+43 | pub(super) struct SummaryHarness {
+   |                   -------------- fields in this struct
+...
+46 |     pub io: ConfigIo,
+   |         ^^
+...
+52 |     pub dir: tempfile::TempDir,
+   |         ^^^
+
+warning: method `coverage` is never used
+   --> src/summary/tests/harness.rs:121:12
+    |
+ 54 | impl SummaryHarness {
+    | ------------------- method in this implementation
+...
+121 |     pub fn coverage(&self, id: Uuid) -> AppResult<Vec<(String,u32,u32)>> {
+    |            ^^^^^^^^
+
+warning: `vox-bridge` (lib test) generated 18 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 24.28s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 31 tests
+test summary::tests::content::summary_content_requires_exact_schema_types_and_rejects_unknown_nested_fields ... ok
+test summary::tests::content::summary_content_bounds_every_action_and_term_and_keeps_all_fields ... ok
+test summary::tests::content::summary_content_rejects_scalar_and_array_overflow_without_truncation ... ok
+test summary::tests::content::summary_legacy_sanitizer_bounds_depth_nodes_and_decoded_bytes_and_rejects_raw ... ok
+test summary::tests::admission::summary_admission_insert_failure_rolls_back_job_version_counter_and_permanent_marker ... ok
+test summary::tests::admission::summary_admission_permanent_existing_survives_missing_rows_and_exhaustion ... ok
+test summary::tests::admission::summary_admission_delete_highest_and_all_versions_never_reuses_counter ... ok
+test summary::tests::job_proof::summary_job_proof_anchors_trusted_id_and_rechecks_the_raw_byte_witness ... FAILED
+test summary::tests::planner::summary_planner_no_pair_and_prospective_call65_level9_fail_without_counter_reset ... ok
+test summary::tests::planner::summary_planner_reductions_carry_singletons_preserve_adjacent_coverage_and_progress ... FAILED
+test summary::tests::planner::summary_planner_reserves_complete_maps_and_rejects_64_maps_before_dispatch ... ok
+test summary::tests::planner::summary_planner_unicode_parts_reconstruct_exact_bytes_and_all_rendered_escaping ... FAILED
+test summary::tests::projection::summary_cursor_rejects_noncanonical_and_out_of_range_wire_values ... ok
+test summary::tests::manual::manual_no_finals_fails_locally_and_later_final_uses_a_new_snapshot ... FAILED
+test summary::tests::manual::manual_explicit_model_switch_and_missing_selection_do_not_rewrite_history ... FAILED
+test summary::tests::manual::manual_retry_preserves_prior_output_and_monotonic_versions ... FAILED
+test summary::tests::migration::summary_migration6_failure_rolls_back_schema_and_original_rows ... ok
+test summary::tests::migration::summary_migration6_preserves_legacy_and_durable_counter_on_reopen ... ok
+test summary::tests::snapshot::summary_snapshot_bundled_sqlite_uses_session_rowid_index_without_scan_or_sort ... FAILED
+test summary::tests::admission::summary_admission_u32_exhaustion_inserts_nothing ... ok
+test summary::tests::projection::summary_projection_invalid_legacy_is_visible_and_raw_fields_fail_safely ... ok
+test summary::tests::projection::summary_projection_unbounded_none_and_exact_signed_keyset_preserve_legacy ... ok
+test summary::tests::migration::summary_migration6_seeds_negative_zero_and_large_signed_exhaustion_without_rewriting ... ok
+test summary::tests::snapshot::summary_snapshot_hash_binds_all_safe_identity_without_raw_metadata ... FAILED
+test summary::tests::snapshot::summary_snapshot_pins_successive_finals_and_preserves_cross_direction_insertion ... FAILED
+test summary::tests::snapshot::summary_snapshot_row100001_and_normalized_16mib_overflow_reject_whole_input ... FAILED
+test summary::tests::snapshot::summary_snapshot_separate_metadata_limit_and_present_invalid_native_types_fail ... FAILED
+test summary::tests::job_proof::summary_job_proof_rejects_each_association_profile_and_claim_drift_before_entry ... ok
+test summary::tests::manual::manual_concurrent_generation_admits_one_native_version ... FAILED
+test summary::tests::manual::manual_delete_waits_for_actual_entered_llm_and_late_result_never_repopulates ... FAILED
+test summary::tests::manual::manual_retry_after_cancelled_and_interrupted_is_new_version ... FAILED
+
+failures:
+
+---- summary::tests::job_proof::summary_job_proof_anchors_trusted_id_and_rechecks_the_raw_byte_witness stdout ----
+
+thread 'summary::tests::job_proof::summary_job_proof_anchors_trusted_id_and_rechecks_the_raw_byte_witness' (727739) panicked at src/summary/tests/job_proof.rs:13:89:
+called `Result::unwrap()` on an `Err` value: Intelligence(Storage)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- summary::tests::planner::summary_planner_reductions_carry_singletons_preserve_adjacent_coverage_and_progress stdout ----
+
+thread 'summary::tests::planner::summary_planner_reductions_carry_singletons_preserve_adjacent_coverage_and_progress' (727762) panicked at src/summary/tests/planner.rs:53:55:
+called `Result::unwrap()` on an `Err` value: ContextTooLarge
+
+---- summary::tests::planner::summary_planner_unicode_parts_reconstruct_exact_bytes_and_all_rendered_escaping stdout ----
+
+thread 'summary::tests::planner::summary_planner_unicode_parts_reconstruct_exact_bytes_and_all_rendered_escaping' (727764) panicked at src/summary/tests/planner.rs:15:35:
+called `Result::unwrap()` on an `Err` value: ContextTooLarge
+
+---- summary::tests::manual::manual_no_finals_fails_locally_and_later_final_uses_a_new_snapshot stdout ----
+
+thread 'summary::tests::manual::manual_no_finals_fails_locally_and_later_final_uses_a_new_snapshot' (727744) panicked at src/summary/tests/manual.rs:115:5:
+assertion `left == right` failed
+  left: Some(Storage)
+ right: Some(NoFinalText)
+
+---- summary::tests::manual::manual_explicit_model_switch_and_missing_selection_do_not_rewrite_history stdout ----
+
+thread 'summary::tests::manual::manual_explicit_model_switch_and_missing_selection_do_not_rewrite_history' (727743) panicked at src/summary/tests/manual.rs:96:5:
+assertion `left == right` failed
+  left: Failed
+ right: Succeeded
+
+---- summary::tests::manual::manual_retry_preserves_prior_output_and_monotonic_versions stdout ----
+
+thread 'summary::tests::manual::manual_retry_preserves_prior_output_and_monotonic_versions' (727746) panicked at src/summary/tests/manual.rs:19:5:
+assertion `left == right` failed
+  left: Failed
+ right: Succeeded
+
+---- summary::tests::snapshot::summary_snapshot_bundled_sqlite_uses_session_rowid_index_without_scan_or_sort stdout ----
+
+thread 'summary::tests::snapshot::summary_snapshot_bundled_sqlite_uses_session_rowid_index_without_scan_or_sort' (727768) panicked at src/summary/tests/snapshot.rs:17:8:
+called `Result::unwrap()` on an `Err` value: Intelligence(Storage)
+
+---- summary::tests::snapshot::summary_snapshot_hash_binds_all_safe_identity_without_raw_metadata stdout ----
+
+thread 'summary::tests::snapshot::summary_snapshot_hash_binds_all_safe_identity_without_raw_metadata' (727770) panicked at src/summary/tests/snapshot.rs:17:8:
+called `Result::unwrap()` on an `Err` value: Intelligence(Storage)
+
+---- summary::tests::snapshot::summary_snapshot_pins_successive_finals_and_preserves_cross_direction_insertion stdout ----
+
+thread 'summary::tests::snapshot::summary_snapshot_pins_successive_finals_and_preserves_cross_direction_insertion' (727771) panicked at src/summary/tests/snapshot.rs:17:8:
+called `Result::unwrap()` on an `Err` value: Intelligence(Storage)
+
+---- summary::tests::snapshot::summary_snapshot_row100001_and_normalized_16mib_overflow_reject_whole_input stdout ----
+
+thread 'summary::tests::snapshot::summary_snapshot_row100001_and_normalized_16mib_overflow_reject_whole_input' (727772) panicked at src/summary/tests/snapshot.rs:17:8:
+called `Result::unwrap()` on an `Err` value: Intelligence(Storage)
+
+---- summary::tests::snapshot::summary_snapshot_separate_metadata_limit_and_present_invalid_native_types_fail stdout ----
+
+thread 'summary::tests::snapshot::summary_snapshot_separate_metadata_limit_and_present_invalid_native_types_fail' (727774) panicked at src/summary/tests/snapshot.rs:17:8:
+called `Result::unwrap()` on an `Err` value: Intelligence(Storage)
+
+---- summary::tests::manual::manual_concurrent_generation_admits_one_native_version stdout ----
+
+thread 'summary::tests::manual::manual_concurrent_generation_admits_one_native_version' (727741) panicked at src/summary/tests/harness.rs:108:9:
+actual summary handler did not enter the LLM within the fixture deadline
+
+---- summary::tests::manual::manual_delete_waits_for_actual_entered_llm_and_late_result_never_repopulates stdout ----
+
+thread 'summary::tests::manual::manual_delete_waits_for_actual_entered_llm_and_late_result_never_repopulates' (727742) panicked at src/summary/tests/harness.rs:108:9:
+actual summary handler did not enter the LLM within the fixture deadline
+
+---- summary::tests::manual::manual_retry_after_cancelled_and_interrupted_is_new_version stdout ----
+
+thread 'summary::tests::manual::manual_retry_after_cancelled_and_interrupted_is_new_version' (727745) panicked at src/summary/tests/harness.rs:108:9:
+actual summary handler did not enter the LLM within the fixture deadline
+
+
+failures:
+    summary::tests::job_proof::summary_job_proof_anchors_trusted_id_and_rechecks_the_raw_byte_witness
+    summary::tests::manual::manual_concurrent_generation_admits_one_native_version
+    summary::tests::manual::manual_delete_waits_for_actual_entered_llm_and_late_result_never_repopulates
+    summary::tests::manual::manual_explicit_model_switch_and_missing_selection_do_not_rewrite_history
+    summary::tests::manual::manual_no_finals_fails_locally_and_later_final_uses_a_new_snapshot
+    summary::tests::manual::manual_retry_after_cancelled_and_interrupted_is_new_version
+    summary::tests::manual::manual_retry_preserves_prior_output_and_monotonic_versions
+    summary::tests::planner::summary_planner_reductions_carry_singletons_preserve_adjacent_coverage_and_progress
+    summary::tests::planner::summary_planner_unicode_parts_reconstruct_exact_bytes_and_all_rendered_escaping
+    summary::tests::snapshot::summary_snapshot_bundled_sqlite_uses_session_rowid_index_without_scan_or_sort
+    summary::tests::snapshot::summary_snapshot_hash_binds_all_safe_identity_without_raw_metadata
+    summary::tests::snapshot::summary_snapshot_pins_successive_finals_and_preserves_cross_direction_insertion
+    summary::tests::snapshot::summary_snapshot_row100001_and_normalized_16mib_overflow_reject_whole_input
+    summary::tests::snapshot::summary_snapshot_separate_metadata_limit_and_present_invalid_native_types_fail
+
+test result: FAILED. 17 passed; 14 failed; 0 ignored; 0 measured; 756 filtered out; finished in 2.43s
+
+error: test failed, to rerun pass `--lib`

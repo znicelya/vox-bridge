@@ -1,0 +1,15 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.63s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 8 tests
+test intelligence::store::tests::manual_collision_and_terminal_release_are_transactional ... ok
+test intelligence::store::tests::manual_scope_is_exact_and_all_document_mutations_share_exclusion ... ok
+test intelligence::store::tests::concurrent_manual_admission_has_one_winner_and_transaction_rollback_has_no_row ... ok
+test intelligence::store::tests::paging_is_exclusive_bounded_and_payload_is_versioned_and_bounded ... ok
+test intelligence::store::tests::snapshot_payload_caps_three_unique_profiles_and_rejects_four_or_duplicates ... ok
+test intelligence::store::tests::automatic_failure_markers_bypass_full_capacity_but_validate_identity_and_error ... ok
+test intelligence::store::tests::automatic_identity_survives_terminal_reopen_and_full_capacity ... ok
+test intelligence::store::tests::every_terminal_status_releases_manual_but_retains_automatic_identity ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 827 filtered out; finished in 0.35s
+

@@ -1,0 +1,89 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+warning: unused imports: `JsonHttp`, `JsonRequest`, and `JsonResponse`
+ --> src/llm/tests.rs:2:73
+  |
+2 | use crate::{app::CredentialChange,intelligence::{http::{ReqwestJsonHttp,JsonHttp,JsonRequest,JsonResponse},test_support::*,types::*}};
+  |                                                                         ^^^^^^^^ ^^^^^^^^^^^ ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `self`
+ --> src/summary/snapshot.rs:2:48
+  |
+2 | use super::{job_proof::SummaryJobProof,store::{self,text,uuid,storage,error}};
+  |                                                ^^^^
+
+warning: unused import: `JobContext`
+  --> src/summary/mod.rs:10:123
+   |
+10 | ...elligence::{config::ServiceConfigStore,jobs::{JobScheduler,JobContext,JobHandler,JobReapPort,OperationLease},types::*},llm::LlmPr...
+   |                                                               ^^^^^^^^^^
+
+warning: unused import: `JobHandler`
+  --> src/summary/mod.rs:10:134
+   |
+10 | ...{config::ServiceConfigStore,jobs::{JobScheduler,JobContext,JobHandler,JobReapPort,OperationLease},types::*},llm::LlmProvider};
+   |                                                               ^^^^^^^^^^
+
+warning: variant `Automatic` is never constructed
+  --> src/intelligence/config.rs:31:5
+   |
+29 | pub(crate) enum SummarySelection {
+   |                 ---------------- variant in this enum
+30 |     Manual { profile_id: Option<Uuid> },
+31 |     Automatic,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `automatic_summary` and `selection_error` are never read
+  --> src/intelligence/config.rs:34:16
+   |
+33 | pub(crate) struct SummaryConfigSnapshot {
+   |                   --------------------- fields in this struct
+34 |     pub(crate) automatic_summary: bool,
+   |                ^^^^^^^^^^^^^^^^^
+35 |     pub(crate) profile: Option<ModelProfile>,
+36 |     pub(crate) selection_error: Option<IntelligenceErrorCode>,
+   |                ^^^^^^^^^^^^^^^
+
+warning: fields `core` and `epoch` are never read
+  --> src/summary/mod.rs:15:34
+   |
+15 | pub(crate) struct SummaryReady { core:Uuid,epoch:u64 }
+   |                   ------------   ^^^^      ^^^^^
+   |                   |
+   |                   fields in this struct
+
+warning: method `with_idle` is never used
+  --> src/summary/operations.rs:27:19
+   |
+17 | impl AttemptRegistry {
+   | -------------------- method in this implementation
+...
+27 |     pub(crate) fn with_idle<T>(&self,jobs:&[Uuid],operation:impl FnOnce()->AppResult<T>)->AppResult<Option<T>> {
+   |                   ^^^^^^^^^
+
+warning: fields `io` and `dir` are never read
+  --> src/summary/tests/harness.rs:46:9
+   |
+43 | pub(super) struct SummaryHarness {
+   |                   -------------- fields in this struct
+...
+46 |     pub io: ConfigIo,
+   |         ^^
+...
+52 |     pub dir: tempfile::TempDir,
+   |         ^^^
+
+warning: `vox-bridge` (lib test) generated 9 warnings (run `cargo fix --lib -p vox-bridge --tests` to apply 3 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 26.02s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 3 tests
+test llm::tests::llm_full_profile_drift_and_pre_cancel_never_dispatch_http ... ok
+test llm::tests::llm_local_http_exact_chat_shape_and_saved_bearer_isolation ... ok
+test llm::tests::llm_local_http_rejects_absent_null_refusal_wrong_types_and_oversize ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 791 filtered out; finished in 1.02s
+

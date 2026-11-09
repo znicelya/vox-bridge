@@ -1,0 +1,26 @@
+{
+  "accepted_environment_sha256": "0293c719b0458056392c42f9233d435e6450b36341ac6c85d719fae4d0c27581",
+  "archive_sha256": "c68cc7d5a6e890c83dd7c21688b107b7cf7d6fbb93342687508e90275f610666",
+  "author_manifest_mismatches": [],
+  "author_manifest_paths_checked": 261,
+  "build_input_mismatches": [],
+  "disk_free_bytes": 810198966272,
+  "environment": {
+    "CARGO_HOME": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106",
+    "CARGO_TARGET_DIR": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107",
+    "LIBRARY_PATH": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu",
+    "PKG_CONFIG_PATH": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig",
+    "PKG_CONFIG_SYSROOT_DIR": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot",
+    "TMPDIR": "/dev/shm/voxbridge-intelligence-20261109.q7xaof9u"
+  },
+  "original_baseline_files": 4615,
+  "original_baseline_sha256": "c4fb44f4e5ec5198e8c0fbc6ff752be0e9b1ea1b61a1aadf9ab3e476856e2bc8",
+  "original_copy_mismatches": [
+    ".gitignore"
+  ],
+  "prepared_utc": "2026-11-09T19:20:28.744001+00:00",
+  "reviewed_tree": "a907fe5b9eb006cba8533ab57831c18cda485b7c",
+  "source_before_fixture_sha256": "35e032a19efff1798508e21a08030c5feb5efe11e3cd3f4b2303b224c42cea1e",
+  "source_bytes": 12468626,
+  "source_files": 720
+}

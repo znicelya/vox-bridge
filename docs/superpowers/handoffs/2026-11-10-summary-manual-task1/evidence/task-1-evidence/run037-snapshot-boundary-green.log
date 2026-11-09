@@ -1,0 +1,64 @@
+warning: unused imports: `JsonHttp`, `JsonRequest`, and `JsonResponse`
+ --> src/llm/tests.rs:2:73
+  |
+2 | use crate::{app::CredentialChange,intelligence::{http::{ReqwestJsonHttp,JsonHttp,JsonRequest,JsonResponse},test_support::*,types::*}};
+  |                                                                         ^^^^^^^^ ^^^^^^^^^^^ ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `SummaryRecoveryFence`
+  --> src/summary/mod.rs:10:40
+   |
+10 | pub(crate) use recovery::{SummaryReady,SummaryRecoveryFence};
+   |                                        ^^^^^^^^^^^^^^^^^^^^
+
+warning: variant `Automatic` is never constructed
+  --> src/intelligence/config.rs:31:5
+   |
+29 | pub(crate) enum SummarySelection {
+   |                 ---------------- variant in this enum
+30 |     Manual { profile_id: Option<Uuid> },
+31 |     Automatic,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `automatic_summary` and `selection_error` are never read
+  --> src/intelligence/config.rs:34:16
+   |
+33 | pub(crate) struct SummaryConfigSnapshot {
+   |                   --------------------- fields in this struct
+34 |     pub(crate) automatic_summary: bool,
+   |                ^^^^^^^^^^^^^^^^^
+35 |     pub(crate) profile: Option<ModelProfile>,
+36 |     pub(crate) selection_error: Option<IntelligenceErrorCode>,
+   |                ^^^^^^^^^^^^^^^
+
+warning: fields `io` and `dir` are never read
+  --> src/summary/tests/harness.rs:46:9
+   |
+43 | pub(super) struct SummaryHarness {
+   |                   -------------- fields in this struct
+...
+46 |     pub io: ConfigIo,
+   |         ^^
+...
+52 |     pub dir: tempfile::TempDir,
+   |         ^^^
+
+warning: `vox-bridge` (lib test) generated 5 warnings (run `cargo fix --lib -p vox-bridge --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.63s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 8 tests
+test summary::tests::snapshot_owned::summary_snapshot_dropped_observer_retains_entered_sql_owner_and_slot ... ok
+test summary::tests::snapshot::summary_snapshot_pins_successive_finals_and_preserves_cross_direction_insertion ... ok
+test summary::tests::snapshot::summary_snapshot_bundled_sqlite_uses_session_rowid_index_without_scan_or_sort ... ok
+test summary::tests::snapshot::summary_snapshot_hash_binds_all_safe_identity_without_raw_metadata ... ok
+test summary::tests::snapshot::summary_snapshot_separate_metadata_limit_and_present_invalid_native_types_fail ... ok
+test summary::tests::snapshot::summary_snapshot_oversize_direction_and_language_are_whole_input_context_failures ... ok
+test summary::tests::snapshot_owned::summary_snapshot_five_second_observation_timeout_keeps_actual_entered_sql_owned ... ok
+test summary::tests::snapshot::summary_snapshot_row100001_and_normalized_16mib_overflow_reject_whole_input ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 804 filtered out; finished in 6.54s
+

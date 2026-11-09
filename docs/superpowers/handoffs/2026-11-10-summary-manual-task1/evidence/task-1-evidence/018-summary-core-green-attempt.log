@@ -1,0 +1,137 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+warning: unused import: `self`
+ --> src/summary/snapshot.rs:2:48
+  |
+2 | use super::{job_proof::SummaryJobProof,store::{self,text,uuid,storage,error}};
+  |                                                ^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `JobContext`
+  --> src/summary/mod.rs:10:123
+   |
+10 | ...elligence::{config::ServiceConfigStore,jobs::{JobScheduler,JobContext,JobHandler,JobReapPort,OperationLease},types::*},llm::LlmPr...
+   |                                                               ^^^^^^^^^^
+
+warning: unused import: `JobHandler`
+  --> src/summary/mod.rs:10:134
+   |
+10 | ...{config::ServiceConfigStore,jobs::{JobScheduler,JobContext,JobHandler,JobReapPort,OperationLease},types::*},llm::LlmProvider};
+   |                                                               ^^^^^^^^^^
+
+warning: variant `Automatic` is never constructed
+  --> src/intelligence/config.rs:31:5
+   |
+29 | pub(crate) enum SummarySelection {
+   |                 ---------------- variant in this enum
+30 |     Manual { profile_id: Option<Uuid> },
+31 |     Automatic,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `automatic_summary` and `selection_error` are never read
+  --> src/intelligence/config.rs:34:16
+   |
+33 | pub(crate) struct SummaryConfigSnapshot {
+   |                   --------------------- fields in this struct
+34 |     pub(crate) automatic_summary: bool,
+   |                ^^^^^^^^^^^^^^^^^
+35 |     pub(crate) profile: Option<ModelProfile>,
+36 |     pub(crate) selection_error: Option<IntelligenceErrorCode>,
+   |                ^^^^^^^^^^^^^^^
+
+warning: fields `owner` and `cancel` are never read
+  --> src/llm/mod.rs:14:5
+   |
+13 | pub struct LlmExecution {
+   |            ------------ fields in this struct
+14 |     owner: OperationLease,
+   |     ^^^^^
+15 |     cancel: watch::Receiver<bool>,
+   |     ^^^^^^
+
+warning: fields `core` and `epoch` are never read
+  --> src/summary/mod.rs:15:34
+   |
+15 | pub(crate) struct SummaryReady { core:Uuid,epoch:u64 }
+   |                   ------------   ^^^^      ^^^^^
+   |                   |
+   |                   fields in this struct
+
+warning: method `with_idle` is never used
+  --> src/summary/operations.rs:27:19
+   |
+17 | impl AttemptRegistry {
+   | -------------------- method in this implementation
+...
+27 |     pub(crate) fn with_idle<T>(&self,jobs:&[Uuid],operation:impl FnOnce()->AppResult<T>)->AppResult<Option<T>> {
+   |                   ^^^^^^^^^
+
+warning: fields `io` and `dir` are never read
+  --> src/summary/tests/harness.rs:46:9
+   |
+43 | pub(super) struct SummaryHarness {
+   |                   -------------- fields in this struct
+...
+46 |     pub io: ConfigIo,
+   |         ^^
+...
+52 |     pub dir: tempfile::TempDir,
+   |         ^^^
+
+warning: `vox-bridge` (lib test) generated 9 warnings (run `cargo fix --lib -p vox-bridge --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.83s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 34 tests
+test summary::tests::content::summary_content_requires_exact_schema_types_and_rejects_unknown_nested_fields ... ok
+test summary::tests::content::summary_content_bounds_every_action_and_term_and_keeps_all_fields ... ok
+test summary::tests::content::summary_content_rejects_scalar_and_array_overflow_without_truncation ... ok
+test summary::tests::content::summary_legacy_sanitizer_bounds_depth_nodes_and_decoded_bytes_and_rejects_raw ... ok
+test summary::tests::admission::summary_admission_insert_failure_rolls_back_job_version_counter_and_permanent_marker ... ok
+test summary::tests::admission::summary_admission_permanent_existing_survives_missing_rows_and_exhaustion ... ok
+test summary::tests::job_proof::summary_job_proof_anchors_trusted_id_and_rechecks_the_raw_byte_witness ... ok
+test summary::tests::admission::summary_admission_delete_highest_and_all_versions_never_reuses_counter ... ok
+test summary::tests::manual::manual_delete_waits_for_actual_entered_llm_and_late_result_never_repopulates ... FAILED
+test summary::tests::manual::manual_entered_llm_retains_raw_and_exact_supplied_map_coverage_before_parse ... ok
+test summary::tests::planner::summary_planner_no_pair_and_prospective_call65_level9_fail_without_counter_reset ... ok
+test summary::tests::planner::summary_planner_reductions_carry_singletons_preserve_adjacent_coverage_and_progress ... ok
+test summary::tests::manual::manual_concurrent_generation_admits_one_native_version ... ok
+test summary::tests::projection::summary_cursor_rejects_noncanonical_and_out_of_range_wire_values ... ok
+test summary::tests::manual::manual_no_finals_fails_locally_and_later_final_uses_a_new_snapshot ... ok
+test summary::tests::manual::manual_explicit_model_switch_and_missing_selection_do_not_rewrite_history ... ok
+test summary::tests::planner::summary_planner_unicode_parts_reconstruct_exact_bytes_and_all_rendered_escaping ... ok
+test summary::tests::manual::manual_retry_after_cancelled_and_interrupted_is_new_version ... ok
+test summary::tests::migration::summary_migration6_failure_rolls_back_schema_and_original_rows ... ok
+test summary::tests::admission::summary_admission_u32_exhaustion_inserts_nothing ... ok
+test summary::tests::migration::summary_migration6_preserves_legacy_and_durable_counter_on_reopen ... ok
+test summary::tests::projection::summary_projection_invalid_legacy_is_visible_and_raw_fields_fail_safely ... ok
+test summary::tests::manual::manual_retry_preserves_prior_output_and_monotonic_versions ... ok
+test summary::tests::migration::summary_migration6_seeds_negative_zero_and_large_signed_exhaustion_without_rewriting ... ok
+test summary::tests::projection::summary_projection_unbounded_none_and_exact_signed_keyset_preserve_legacy ... ok
+test summary::tests::snapshot::summary_snapshot_bundled_sqlite_uses_session_rowid_index_without_scan_or_sort ... ok
+test summary::tests::snapshot::summary_snapshot_hash_binds_all_safe_identity_without_raw_metadata ... ok
+test summary::tests::snapshot::summary_snapshot_pins_successive_finals_and_preserves_cross_direction_insertion ... ok
+test summary::tests::snapshot_owned::summary_snapshot_dropped_observer_retains_entered_sql_owner_and_slot ... ok
+test summary::tests::snapshot::summary_snapshot_separate_metadata_limit_and_present_invalid_native_types_fail ... ok
+test summary::tests::job_proof::summary_job_proof_rejects_each_association_profile_and_claim_drift_before_entry ... ok
+test summary::tests::planner::summary_planner_reserves_complete_maps_and_rejects_64_maps_before_dispatch ... ok
+test summary::tests::snapshot_owned::summary_snapshot_five_second_observation_timeout_keeps_actual_entered_sql_owned ... ok
+test summary::tests::snapshot::summary_snapshot_row100001_and_normalized_16mib_overflow_reject_whole_input ... ok
+
+failures:
+
+---- summary::tests::manual::manual_delete_waits_for_actual_entered_llm_and_late_result_never_repopulates stdout ----
+
+thread 'summary::tests::manual::manual_delete_waits_for_actual_entered_llm_and_late_result_never_repopulates' (744444) panicked at src/summary/tests/harness.rs:127:55:
+`async fn` resumed after completion
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    summary::tests::manual::manual_delete_waits_for_actual_entered_llm_and_late_result_never_repopulates
+
+test result: FAILED. 33 passed; 1 failed; 0 ignored; 0 measured; 756 filtered out; finished in 7.31s
+
+error: test failed, to rerun pass `--lib`

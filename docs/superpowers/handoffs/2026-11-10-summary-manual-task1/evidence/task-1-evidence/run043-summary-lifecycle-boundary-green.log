@@ -1,0 +1,90 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 23.29s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 69 tests
+test storage::sqlite_tests::deleting_session_removes_segments_and_summary ... ok
+test storage::sqlite_tests::summary_versions_are_transactionally_persisted_and_listed ... ok
+test export::export_tests::export_native_summary_contains_every_field_safe_metadata_and_no_raw_response ... ok
+test app::intelligence::tests::summary::summary_app_repeated_started_startup_preserves_current_ready_epoch_and_owned_index ... ok
+test app::intelligence::tests::summary::summary_app_failed_local_recovery_keeps_manual_readiness_closed_until_successful_retry ... ok
+test app::intelligence::tests::summary::summary_app_joined_same_process_close_rearm_recovers_delete_and_opens_only_new_epoch ... ok
+test app::intelligence::tests::summary::summary_app_fresh_process_recovery_interrupts_registered_native_then_recovers_delete_before_manual_admission ... ok
+test llm::openai_compatible::owned_tests::llm_real_summary_terminal_after_entered_resolver_timeout_cannot_reap_or_delete_before_actual_key_release ... ok
+test summary::tests::content::summary_content_bounds_every_action_and_term_and_keeps_all_fields ... ok
+test summary::tests::content::summary_content_rejects_scalar_and_array_overflow_without_truncation ... ok
+test summary::tests::content::summary_content_requires_exact_schema_types_and_rejects_unknown_nested_fields ... ok
+test summary::tests::admission::summary_admission_delete_highest_and_all_versions_never_reuses_counter ... ok
+test summary::tests::deletion::summary_attempt_registry_bound_and_last_clone_require_actual_slot_release ... ok
+test summary::tests::admission::summary_admission_insert_failure_rolls_back_job_version_counter_and_permanent_marker ... ok
+test commands::summary::tests::summary_commands_startup_opens_real_manual_readiness_and_native_terminal_projection ... ok
+test summary::tests::admission::summary_admission_permanent_existing_survives_missing_rows_and_exhaustion ... ok
+test summary::tests::config_selection::summary_selection_freezes_complete_profile_and_automatic_flag_without_reading_missing_keys ... ok
+test commands::summary::tests::summary_commands_exact_signed_cursor_tagged_page_default_limit_and_validation ... ok
+test summary::tests::config_selection::summary_selection_completion_runs_only_after_actual_admission_commit_and_never_after_rollback ... ok
+test summary::tests::content::summary_legacy_sanitizer_bounds_depth_nodes_and_decoded_bytes_and_rejects_raw ... ok
+test intelligence::jobs::tests::reap::summary_reap_claim_before_handler_entry_keeps_delete_and_recovery_fenced_until_actual_factory_close ... ok
+test summary::tests::admission::summary_admission_u32_exhaustion_inserts_nothing ... ok
+test summary::tests::job_proof::summary_job_proof_anchors_trusted_id_and_rechecks_the_raw_byte_witness ... ok
+test summary::tests::manual::manual_entered_llm_retains_raw_and_exact_supplied_map_coverage_before_parse ... ok
+test summary::tests::manual::manual_concurrent_generation_admits_one_native_version ... ok
+test summary::tests::deletion::summary_session_guard_fences_all_versions_waits_actual_work_and_rechecks_matching_session ... ok
+test summary::tests::deletion::summary_delete_dropped_observer_keeps_owned_cleanup_and_automatic_existing_counter_marker ... ok
+test summary::tests::manual::manual_delete_waits_for_actual_entered_llm_and_late_result_never_repopulates ... ok
+test summary::tests::manual::manual_explicit_model_switch_and_missing_selection_do_not_rewrite_history ... ok
+test summary::tests::migration::summary_migration6_failure_rolls_back_schema_and_original_rows ... ok
+test summary::tests::manual::manual_no_finals_fails_locally_and_later_final_uses_a_new_snapshot ... ok
+test summary::tests::manual::manual_retry_after_cancelled_and_interrupted_is_new_version ... ok
+test summary::tests::manual::manual_retry_preserves_prior_output_and_monotonic_versions ... ok
+test summary::tests::migration::summary_migration6_preserves_legacy_and_durable_counter_on_reopen ... ok
+test summary::tests::migration::summary_migration6_seeds_negative_zero_and_large_signed_exhaustion_without_rewriting ... ok
+test summary::tests::planner::summary_planner_no_pair_and_prospective_call65_level9_fail_without_counter_reset ... ok
+test summary::tests::planner::summary_planner_reductions_carry_singletons_preserve_adjacent_coverage_and_progress ... ok
+test summary::tests::pipeline::summary_pipeline_all_maps_and_invalid_reduce_keep_raw_hash_and_complete_actual_coverage ... ok
+test summary::tests::planner::summary_planner_unicode_parts_reconstruct_exact_bytes_and_all_rendered_escaping ... ok
+test summary::tests::projection::summary_cursor_rejects_noncanonical_and_out_of_range_wire_values ... ok
+test summary::tests::pipeline::summary_pipeline_middle_part_omission_cannot_succeed_with_equal_distinct_segment_count ... ok
+test summary::tests::pipeline::summary_pipeline_growing_children_fail_before_no_pair_dispatch_without_trimming ... ok
+test summary::tests::boundaries::summary_boundaries_each_domain_and_full_profile_mutation_fail_closed_without_foreign_or_legacy_effects ... FAILED
+test summary::tests::pipeline::summary_pipeline_success_reconstructs_every_unicode_part_and_retains_exact_map_tuples ... ok
+test summary::tests::projection::summary_projection_escaped_legacy_status_is_bounded_and_native_invalid_content_never_falls_back ... ok
+test summary::tests::projection::summary_projection_invalid_legacy_is_visible_and_raw_fields_fail_safely ... ok
+test summary::tests::projection::summary_projection_unbounded_none_and_exact_signed_keyset_preserve_legacy ... ok
+test summary::tests::pipeline::summary_pipeline_storage_failures_preserve_prior_response_and_prevent_root ... ok
+test summary::tests::recovery::summary_local_recovery_finishes_durable_delete_with_joined_prior_job_ownership ... ok
+test summary::tests::recovery::summary_readiness_cannot_be_inferred_from_started_jobs_without_local_recovery ... ok
+test summary::tests::snapshot::summary_snapshot_bundled_sqlite_uses_session_rowid_index_without_scan_or_sort ... ok
+test summary::tests::snapshot::summary_snapshot_hash_binds_all_safe_identity_without_raw_metadata ... ok
+test summary::tests::snapshot::summary_snapshot_pins_successive_finals_and_preserves_cross_direction_insertion ... ok
+test summary::tests::snapshot_owned::summary_snapshot_dropped_observer_retains_entered_sql_owner_and_slot ... ok
+test summary::tests::snapshot::summary_snapshot_separate_metadata_limit_and_present_invalid_native_types_fail ... ok
+test summary::tests::snapshot::summary_snapshot_oversize_direction_and_language_are_whole_input_context_failures ... ok
+test summary::tests::terminal::summary_terminal_missing_native_is_noop_and_changed_kind_bypass_never_writes_foreign_or_legacy ... ok
+test summary::tests::terminal::summary_terminal_real_malformed_witness_rolls_back_cancel_and_startup_transition_without_lure_writes ... ok
+test summary::tests::terminal::summary_terminal_real_queued_cancel_and_startup_interrupt_copy_only_exact_status_error_on_deleting_native ... ok
+test export::export_tests::export_32mib_summary_projection_cap_preserves_destination ... ok
+test summary::tests::job_proof::summary_job_proof_rejects_each_association_profile_and_claim_drift_before_entry ... ok
+test summary::tests::planner::summary_planner_reserves_complete_maps_and_rejects_64_maps_before_dispatch ... ok
+test summary::tests::projection::summary_projection_page_accounts_for_full_signed_cursor_framing_and_continues_without_loss ... ok
+test summary::tests::pipeline::summary_pipeline_64_maps_and_whole_snapshot_overflow_make_zero_calls ... ok
+test summary::tests::pipeline::summary_pipeline_single_raw_and_total_raw_breaches_keep_prior_committed_rows_only ... ok
+test summary::tests::snapshot_owned::summary_snapshot_five_second_observation_timeout_keeps_actual_entered_sql_owned ... ok
+test summary::tests::snapshot::summary_snapshot_row100001_and_normalized_16mib_overflow_reject_whole_input ... ok
+test summary::tests::deletion::summary_delete_ten_second_timeout_retains_fence_after_actual_release_until_explicit_retry ... ok
+test summary::tests::recovery::summary_recovery_sql_acquisition_timeout_keeps_readiness_closed_and_owner_until_database_release ... ok
+
+failures:
+
+---- summary::tests::boundaries::summary_boundaries_each_domain_and_full_profile_mutation_fail_closed_without_foreign_or_legacy_effects stdout ----
+
+thread 'summary::tests::boundaries::summary_boundaries_each_domain_and_full_profile_mutation_fail_closed_without_foreign_or_legacy_effects' (812596) panicked at src/summary/tests/boundaries.rs:81:161:
+called `Result::unwrap()` on an `Err` value: Storage(SqliteFailure(Error { code: ConstraintViolation, extended_code: 2067 }, Some("UNIQUE constraint failed: intelligence_jobs.exclusion_key")))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    summary::tests::boundaries::summary_boundaries_each_domain_and_full_profile_mutation_fail_closed_without_foreign_or_legacy_effects
+
+test result: FAILED. 68 passed; 1 failed; 0 ignored; 0 measured; 766 filtered out; finished in 12.28s
+
+error: test failed, to rerun pass `--lib`

@@ -1,0 +1,109 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+warning: unused imports: `JsonHttp`, `JsonRequest`, and `JsonResponse`
+ --> src/llm/tests.rs:2:73
+  |
+2 | use crate::{app::CredentialChange,intelligence::{http::{ReqwestJsonHttp,JsonHttp,JsonRequest,JsonResponse},test_support::*,types::*}};
+  |                                                                         ^^^^^^^^ ^^^^^^^^^^^ ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `self`
+ --> src/summary/snapshot.rs:2:48
+  |
+2 | use super::{job_proof::SummaryJobProof,store::{self,text,uuid,storage,error}};
+  |                                                ^^^^
+
+warning: unused import: `SummaryRecoveryFence`
+  --> src/summary/mod.rs:10:40
+   |
+10 | pub(crate) use recovery::{SummaryReady,SummaryRecoveryFence};
+   |                                        ^^^^^^^^^^^^^^^^^^^^
+
+warning: variant `Automatic` is never constructed
+  --> src/intelligence/config.rs:31:5
+   |
+29 | pub(crate) enum SummarySelection {
+   |                 ---------------- variant in this enum
+30 |     Manual { profile_id: Option<Uuid> },
+31 |     Automatic,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `automatic_summary` and `selection_error` are never read
+  --> src/intelligence/config.rs:34:16
+   |
+33 | pub(crate) struct SummaryConfigSnapshot {
+   |                   --------------------- fields in this struct
+34 |     pub(crate) automatic_summary: bool,
+   |                ^^^^^^^^^^^^^^^^^
+35 |     pub(crate) profile: Option<ModelProfile>,
+36 |     pub(crate) selection_error: Option<IntelligenceErrorCode>,
+   |                ^^^^^^^^^^^^^^^
+
+warning: fields `io` and `dir` are never read
+  --> src/summary/tests/harness.rs:46:9
+   |
+43 | pub(super) struct SummaryHarness {
+   |                   -------------- fields in this struct
+...
+46 |     pub io: ConfigIo,
+   |         ^^
+...
+52 |     pub dir: tempfile::TempDir,
+   |         ^^^
+
+warning: `vox-bridge` (lib test) generated 6 warnings (run `cargo fix --lib -p vox-bridge --tests` to apply 3 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.40s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 9 tests
+test app::subscription_tests::queued_old_window_subscription_cannot_finish_into_new_lifecycle ... ok
+test app::subscription_tests::retry_delete_after_registry_admission_failure_preserves_durable_row_until_cleanup ... FAILED
+test app::subscription_tests::active_session_delete_rejects_before_cancelling_its_subscription ... FAILED
+test app::subscription_tests::final_fix_close_deadline_covers_subscription_prerequisite_gate ... ok
+test app::subscription_tests::closing_starting_runtime_cleans_ports_and_blocked_emit_even_when_caller_cancels ... ok
+test app::subscription_tests::deletion_joins_blocked_terminal_delivery_and_evicted_history_gets_fresh_status ... FAILED
+test app::subscription_tests::active_and_restarted_terminal_subscriptions_use_runtime_and_durable_history ... FAILED
+test app::subscription_tests::cancelled_delete_caller_still_owns_cleanup_before_durable_removal ... FAILED
+test app::subscription_tests::close_observes_registry_barrier_even_when_its_queue_is_full_and_stops_audio_independently ... ok
+
+failures:
+
+---- app::subscription_tests::retry_delete_after_registry_admission_failure_preserves_durable_row_until_cleanup stdout ----
+
+thread 'app::subscription_tests::retry_delete_after_registry_admission_failure_preserves_durable_row_until_cleanup' (779753) panicked at src/app/subscription_tests.rs:459:5:
+assertion failed: first.to_string().contains("close admission timed out")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- app::subscription_tests::active_session_delete_rejects_before_cancelling_its_subscription stdout ----
+
+thread 'app::subscription_tests::active_session_delete_rejects_before_cancelling_its_subscription' (779746) panicked at src/app/subscription_tests.rs:515:5:
+assertion failed: matches!(result, Err(AppError::InvalidRequest(_)))
+
+---- app::subscription_tests::deletion_joins_blocked_terminal_delivery_and_evicted_history_gets_fresh_status stdout ----
+
+thread 'app::subscription_tests::deletion_joins_blocked_terminal_delivery_and_evicted_history_gets_fresh_status' (779750) panicked at src/app/subscription_tests.rs:339:42:
+called `Result::unwrap()` on an `Err` value: Intelligence(Interrupted)
+
+---- app::subscription_tests::active_and_restarted_terminal_subscriptions_use_runtime_and_durable_history stdout ----
+
+thread 'app::subscription_tests::active_and_restarted_terminal_subscriptions_use_runtime_and_durable_history' (779745) panicked at src/app/subscription_tests.rs:74:41:
+called `Result::unwrap()` on an `Err` value: Intelligence(Interrupted)
+
+---- app::subscription_tests::cancelled_delete_caller_still_owns_cleanup_before_durable_removal stdout ----
+
+thread 'app::subscription_tests::cancelled_delete_caller_still_owns_cleanup_before_durable_removal' (779747) panicked at src/app/subscription_tests.rs:560:26:
+called `Result::unwrap_err()` on an `Ok` value: Err(Intelligence(Interrupted))
+
+
+failures:
+    app::subscription_tests::active_and_restarted_terminal_subscriptions_use_runtime_and_durable_history
+    app::subscription_tests::active_session_delete_rejects_before_cancelling_its_subscription
+    app::subscription_tests::cancelled_delete_caller_still_owns_cleanup_before_durable_removal
+    app::subscription_tests::deletion_joins_blocked_terminal_delivery_and_evicted_history_gets_fresh_status
+    app::subscription_tests::retry_delete_after_registry_admission_failure_preserves_durable_row_until_cleanup
+
+test result: FAILED. 4 passed; 5 failed; 0 ignored; 0 measured; 802 filtered out; finished in 3.65s
+
+error: test failed, to rerun pass `--lib`

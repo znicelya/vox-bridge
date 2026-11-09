@@ -1,0 +1,9 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.87s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 1 test
+test summary::tests::deletion::summary_session_guard_sql_timeout_retains_actual_owner_and_fence_until_retry ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 836 filtered out; finished in 10.04s
+

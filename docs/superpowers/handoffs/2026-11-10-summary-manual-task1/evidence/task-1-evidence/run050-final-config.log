@@ -1,0 +1,28 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.47s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 21 tests
+test intelligence::config::tests::intelligence_scoped_config_retains_owner_after_entered_observer_cancellation ... ok
+test intelligence::config::tests::profile_round_trip_never_returns_saved_key_and_defaults_settings ... ok
+test intelligence::config::tests::clear_cleanup_failure_and_keep_cannot_resurrect_an_orphan ... ok
+test intelligence::config::tests::embedding_and_tavily_validate_fields_and_tavily_defaults_endpoint ... ok
+test intelligence::config::tests::compensation_failure_is_safe_and_clear_write_failure_preserves_reference ... ok
+test intelligence::config::tests::replace_restores_encrypted_before_image_when_profile_write_fails ... ok
+test intelligence::config::tests::missing_invalid_utf8_and_corrupt_encrypted_credentials_are_local_errors ... ok
+test intelligence::config::tests::intelligence_embedding_probe_cannot_change_an_admitted_dimension_identity ... ok
+test intelligence::config::tests::profile_validation_rejects_unsafe_urls_and_kind_limits_without_writing ... ok
+test intelligence::config::tests::service_endpoint_preserves_base_path_and_appends_once ... ok
+test intelligence::config::tests::profile_file_count_and_bytes_are_bounded_without_partial_mutation ... ok
+test intelligence::config::tests::service_file_reopens_and_preserves_legacy_provider_fields_byte_for_byte ... ok
+test intelligence::config::tests::missing_foreign_and_malformed_reference_are_gated_before_secret_access ... ok
+test intelligence::config::tests::settings_validate_kinds_and_selected_profiles_cannot_change_kind_or_delete ... ok
+test intelligence::config::tests::snapshot_credentials::snapshot_credentials_missing_profile_and_invalid_references_never_enter_secret_get ... ok
+test intelligence::config::tests::snapshot_admission_holds_config_lock_through_sqlite_commit_and_edits_keep_snapshot ... ok
+test intelligence::config::tests::snapshot_credentials::snapshot_credentials_reject_mismatches_before_secret_entry ... ok
+test intelligence::config::tests::terminal_jobs_release_profile_use_and_corrupt_unfinished_jobs_fail_closed ... ok
+test intelligence::config::tests::snapshot_credentials::snapshot_credentials_require_every_admitted_public_field ... ok
+test intelligence::config::tests::snapshot_credentials::snapshot_credentials_validate_and_read_before_an_already_queued_profile_clear ... ok
+test intelligence::config::tests::intelligence_probe_revision_fences_edits_credential_changes_and_deletion ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 814 filtered out; finished in 0.85s
+

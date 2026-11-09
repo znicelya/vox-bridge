@@ -1,0 +1,22 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.84s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 1 test
+test summary::tests::projection::summary_projection_legacy_inline_audio_stays_out_of_wire_and_every_export ... FAILED
+
+failures:
+
+---- summary::tests::projection::summary_projection_legacy_inline_audio_stays_out_of_wire_and_every_export stdout ----
+
+thread 'summary::tests::projection::summary_projection_legacy_inline_audio_stays_out_of_wire_and_every_export' (825321) panicked at src/summary/tests/projection.rs:272:13:
+legacy projection exposed inline-audio-sentinel
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    summary::tests::projection::summary_projection_legacy_inline_audio_stays_out_of_wire_and_every_export
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 835 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `--lib`

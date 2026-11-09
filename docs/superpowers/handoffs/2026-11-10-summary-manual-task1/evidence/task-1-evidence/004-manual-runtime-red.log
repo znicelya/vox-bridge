@@ -1,0 +1,154 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+warning: fields `owner` and `cancel` are never read
+  --> src/llm/mod.rs:14:5
+   |
+13 | pub struct LlmExecution {
+   |            ------------ fields in this struct
+14 |     owner: OperationLease,
+   |     ^^^^^
+15 |     cancel: watch::Receiver<bool>,
+   |     ^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: associated function `new` is never used
+  --> src/llm/mod.rs:18:19
+   |
+17 | impl LlmExecution {
+   | ----------------- associated function in this implementation
+18 |     pub(crate) fn new(owner: OperationLease, cancel: watch::Receiver<bool>) -> Self { Self { owner, cancel } }
+   |                   ^^^
+
+warning: fields `config` and `llm` are never read
+ --> src/summary/mod.rs:8:51
+  |
+8 | pub struct SummaryService { store:Arc<LocalStore>,config:Arc<ServiceConfigStore>,jobs:Arc<JobScheduler>,llm:Arc<dyn LlmProvider> }
+  |            -------------- fields in this struct   ^^^^^^                                                ^^^
+
+warning: fields `core` and `epoch` are never read
+ --> src/summary/mod.rs:9:34
+  |
+9 | pub(crate) struct SummaryReady { core:Uuid,epoch:u64 }
+  |                   ------------   ^^^^      ^^^^^
+  |                   |
+  |                   fields in this struct
+
+warning: fields `session_id`, `profile`, `automatic`, and `initial_failure` are never read
+ --> src/summary/store.rs:3:43
+  |
+3 | pub(crate) struct SummaryJobRequest { pub session_id:Uuid,pub profile:Option<ModelProfile>,pub automatic:bool,pub initial_failure:Opt...
+  |                   -----------------       ^^^^^^^^^^          ^^^^^^^                          ^^^^^^^^^          ^^^^^^^^^^^^^^^
+  |                   |
+  |                   fields in this struct
+
+warning: fields `io` and `dir` are never read
+  --> src/summary/tests/harness.rs:46:9
+   |
+43 | pub(super) struct SummaryHarness {
+   |                   -------------- fields in this struct
+...
+46 |     pub io: ConfigIo,
+   |         ^^
+...
+52 |     pub dir: tempfile::TempDir,
+   |         ^^^
+
+warning: method `coverage` is never used
+   --> src/summary/tests/harness.rs:113:12
+    |
+ 54 | impl SummaryHarness {
+    | ------------------- method in this implementation
+...
+113 |     pub fn coverage(&self, id: Uuid) -> AppResult<Vec<(String,u32,u32)>> {
+    |            ^^^^^^^^
+
+warning: `vox-bridge` (lib test) generated 7 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 23s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 15 tests
+test summary::tests::manual::manual_no_finals_fails_locally_and_later_final_uses_a_new_snapshot ... FAILED
+test summary::tests::admission::summary_admission_delete_highest_and_all_versions_never_reuses_counter ... FAILED
+test summary::tests::admission::summary_admission_insert_failure_rolls_back_job_version_counter_and_permanent_marker ... FAILED
+test summary::tests::admission::summary_admission_u32_exhaustion_inserts_nothing ... FAILED
+test summary::tests::manual::manual_retry_after_cancelled_and_interrupted_is_new_version ... FAILED
+test summary::tests::manual::manual_delete_waits_for_actual_entered_llm_and_late_result_never_repopulates ... FAILED
+test summary::tests::manual::manual_concurrent_generation_admits_one_native_version ... FAILED
+test summary::tests::admission::summary_admission_permanent_existing_survives_missing_rows_and_exhaustion ... FAILED
+test storage::sqlite_tests::deleting_session_removes_segments_and_summary ... ok
+test summary::tests::manual::manual_explicit_model_switch_and_missing_selection_do_not_rewrite_history ... FAILED
+test storage::sqlite_tests::summary_versions_are_transactionally_persisted_and_listed ... ok
+test summary::tests::manual::manual_retry_preserves_prior_output_and_monotonic_versions ... FAILED
+test summary::tests::migration::summary_migration6_failure_rolls_back_schema_and_original_rows ... ok
+test summary::tests::migration::summary_migration6_preserves_legacy_and_durable_counter_on_reopen ... ok
+test summary::tests::migration::summary_migration6_seeds_negative_zero_and_large_signed_exhaustion_without_rewriting ... ok
+
+failures:
+
+---- summary::tests::manual::manual_no_finals_fails_locally_and_later_final_uses_a_new_snapshot stdout ----
+
+thread 'summary::tests::manual::manual_no_finals_fails_locally_and_later_final_uses_a_new_snapshot' (710169) panicked at src/summary/tests/manual.rs:108:46:
+called `Result::unwrap()` on an `Err` value: Intelligence(Storage)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- summary::tests::admission::summary_admission_delete_highest_and_all_versions_never_reuses_counter stdout ----
+
+thread 'summary::tests::admission::summary_admission_delete_highest_and_all_versions_never_reuses_counter' (710162) panicked at src/summary/tests/admission.rs:12:61:
+called `Result::unwrap()` on an `Err` value: Intelligence(Storage)
+
+---- summary::tests::admission::summary_admission_insert_failure_rolls_back_job_version_counter_and_permanent_marker stdout ----
+
+thread 'summary::tests::admission::summary_admission_insert_failure_rolls_back_job_version_counter_and_permanent_marker' (710163) panicked at src/summary/tests/admission.rs:44:50:
+called `Result::unwrap()` on an `Err` value: Intelligence(Storage)
+
+---- summary::tests::admission::summary_admission_u32_exhaustion_inserts_nothing stdout ----
+
+thread 'summary::tests::admission::summary_admission_u32_exhaustion_inserts_nothing' (710165) panicked at src/summary/tests/admission.rs:54:9:
+assertion failed: matches!(result,Err(crate::error::AppError::Intelligence(IntelligenceErrorCode::ResourceLimit)))
+
+---- summary::tests::manual::manual_retry_after_cancelled_and_interrupted_is_new_version stdout ----
+
+thread 'summary::tests::manual::manual_retry_after_cancelled_and_interrupted_is_new_version' (710170) panicked at src/summary/tests/manual.rs:53:46:
+called `Result::unwrap()` on an `Err` value: Intelligence(Storage)
+
+---- summary::tests::manual::manual_delete_waits_for_actual_entered_llm_and_late_result_never_repopulates stdout ----
+
+thread 'summary::tests::manual::manual_delete_waits_for_actual_entered_llm_and_late_result_never_repopulates' (710167) panicked at src/summary/tests/manual.rs:126:44:
+called `Result::unwrap()` on an `Err` value: Intelligence(Storage)
+
+---- summary::tests::manual::manual_concurrent_generation_admits_one_native_version stdout ----
+
+thread 'summary::tests::manual::manual_concurrent_generation_admits_one_native_version' (710166) panicked at src/summary/tests/manual.rs:42:42:
+called `Result::unwrap()` on an `Err` value: Intelligence(Storage)
+
+---- summary::tests::admission::summary_admission_permanent_existing_survives_missing_rows_and_exhaustion stdout ----
+
+thread 'summary::tests::admission::summary_admission_permanent_existing_survives_missing_rows_and_exhaustion' (710164) panicked at src/summary/tests/admission.rs:26:60:
+called `Result::unwrap()` on an `Err` value: Intelligence(Storage)
+
+---- summary::tests::manual::manual_explicit_model_switch_and_missing_selection_do_not_rewrite_history stdout ----
+
+thread 'summary::tests::manual::manual_explicit_model_switch_and_missing_selection_do_not_rewrite_history' (710168) panicked at src/summary/tests/manual.rs:85:46:
+called `Result::unwrap()` on an `Err` value: Intelligence(Storage)
+
+---- summary::tests::manual::manual_retry_preserves_prior_output_and_monotonic_versions stdout ----
+
+thread 'summary::tests::manual::manual_retry_preserves_prior_output_and_monotonic_versions' (710171) panicked at src/summary/tests/manual.rs:11:48:
+called `Result::unwrap()` on an `Err` value: Intelligence(Storage)
+
+
+failures:
+    summary::tests::admission::summary_admission_delete_highest_and_all_versions_never_reuses_counter
+    summary::tests::admission::summary_admission_insert_failure_rolls_back_job_version_counter_and_permanent_marker
+    summary::tests::admission::summary_admission_permanent_existing_survives_missing_rows_and_exhaustion
+    summary::tests::admission::summary_admission_u32_exhaustion_inserts_nothing
+    summary::tests::manual::manual_concurrent_generation_admits_one_native_version
+    summary::tests::manual::manual_delete_waits_for_actual_entered_llm_and_late_result_never_repopulates
+    summary::tests::manual::manual_explicit_model_switch_and_missing_selection_do_not_rewrite_history
+    summary::tests::manual::manual_no_finals_fails_locally_and_later_final_uses_a_new_snapshot
+    summary::tests::manual::manual_retry_after_cancelled_and_interrupted_is_new_version
+    summary::tests::manual::manual_retry_preserves_prior_output_and_monotonic_versions
+
+test result: FAILED. 5 passed; 10 failed; 0 ignored; 0 measured; 754 filtered out; finished in 0.56s
+
+error: test failed, to rerun pass `--lib`

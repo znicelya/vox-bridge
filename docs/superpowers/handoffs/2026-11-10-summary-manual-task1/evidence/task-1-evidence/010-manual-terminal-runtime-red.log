@@ -1,0 +1,100 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+warning: variant `Automatic` is never constructed
+  --> src/intelligence/config.rs:31:5
+   |
+29 | pub(crate) enum SummarySelection {
+   |                 ---------------- variant in this enum
+30 |     Manual { profile_id: Option<Uuid> },
+31 |     Automatic,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `automatic_summary` and `selection_error` are never read
+  --> src/intelligence/config.rs:34:16
+   |
+33 | pub(crate) struct SummaryConfigSnapshot {
+   |                   --------------------- fields in this struct
+34 |     pub(crate) automatic_summary: bool,
+   |                ^^^^^^^^^^^^^^^^^
+35 |     pub(crate) profile: Option<ModelProfile>,
+36 |     pub(crate) selection_error: Option<IntelligenceErrorCode>,
+   |                ^^^^^^^^^^^^^^^
+
+warning: fields `owner` and `cancel` are never read
+  --> src/llm/mod.rs:14:5
+   |
+13 | pub struct LlmExecution {
+   |            ------------ fields in this struct
+14 |     owner: OperationLease,
+   |     ^^^^^
+15 |     cancel: watch::Receiver<bool>,
+   |     ^^^^^^
+
+warning: associated function `new` is never used
+  --> src/llm/mod.rs:18:19
+   |
+17 | impl LlmExecution {
+   | ----------------- associated function in this implementation
+18 |     pub(crate) fn new(owner: OperationLease, cancel: watch::Receiver<bool>) -> Self { Self { owner, cancel } }
+   |                   ^^^
+
+warning: field `llm` is never read
+ --> src/summary/mod.rs:8:105
+  |
+8 | pub struct SummaryService { store:Arc<LocalStore>,config:Arc<ServiceConfigStore>,jobs:Arc<JobScheduler>,llm:Arc<dyn LlmProvider> }
+  |            -------------- field in this struct                                                          ^^^
+
+warning: fields `core` and `epoch` are never read
+ --> src/summary/mod.rs:9:34
+  |
+9 | pub(crate) struct SummaryReady { core:Uuid,epoch:u64 }
+  |                   ------------   ^^^^      ^^^^^
+  |                   |
+  |                   fields in this struct
+
+warning: fields `io` and `dir` are never read
+  --> src/summary/tests/harness.rs:46:9
+   |
+43 | pub(super) struct SummaryHarness {
+   |                   -------------- fields in this struct
+...
+46 |     pub io: ConfigIo,
+   |         ^^
+...
+52 |     pub dir: tempfile::TempDir,
+   |         ^^^
+
+warning: method `coverage` is never used
+   --> src/summary/tests/harness.rs:121:12
+    |
+ 54 | impl SummaryHarness {
+    | ------------------- method in this implementation
+...
+121 |     pub fn coverage(&self, id: Uuid) -> AppResult<Vec<(String,u32,u32)>> {
+    |            ^^^^^^^^
+
+warning: `vox-bridge` (lib test) generated 8 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.81s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 1 test
+test summary::tests::manual::manual_retry_preserves_prior_output_and_monotonic_versions ... FAILED
+
+failures:
+
+---- summary::tests::manual::manual_retry_preserves_prior_output_and_monotonic_versions stdout ----
+
+thread 'summary::tests::manual::manual_retry_preserves_prior_output_and_monotonic_versions' (722792) panicked at src/summary/tests/manual.rs:19:5:
+assertion `left == right` failed
+  left: Failed
+ right: Succeeded
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    summary::tests::manual::manual_retry_preserves_prior_output_and_monotonic_versions
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 775 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `--lib`

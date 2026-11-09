@@ -1,0 +1,172 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+warning: unused import: `SummaryRecoveryFence`
+  --> src/summary/mod.rs:10:40
+   |
+10 | pub(crate) use recovery::{SummaryReady,SummaryRecoveryFence};
+   |                                        ^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0282]: type annotations needed
+  --> src/summary/tests/recovery.rs:34:76
+   |
+34 | ...e)=std::sync::mpsc::channel();let blocked_store=h.store.clone();let blocker=std::thread::spawn(move ||blocked_store.transaction(|_| {let _=entered.send(());let _=gate.recv();Ok...
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^ cannot infer type of the type parameter `T` declared on the function `channel`                                                        ----------- type must be known at this point
+   |
+help: consider specifying a concrete type for the type parameter `T`
+   |
+34 |     let (entered,entry)=tokio::sync::oneshot::channel();let (release,gate)=std::sync::mpsc::channel::</* Type */>();let blocked_store=h.store.clone();let blocker=std::thread::spawn(move ||blocked_store.transaction(|_| {let _=entered.send(());let _=gate.recv();Ok(())}));tokio::time::timeout(Duration::from_secs(2),entry).await.unwrap().unwrap();
+   |                                                                                                    ++++++++++++++
+
+error[E0277]: the trait bound `SummaryVersion: serde::Serialize` is not satisfied
+   --> src/summary/tests/terminal.rs:31:41
+    |
+ 31 | ...   assert_eq!(serde_json::to_value(h.store.list_summary_versions(other).unwrap()).unwrap(),serde_json::to_value(before).unwrap());
+    |                  -------------------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+    |                  |
+    |                  required by a bound introduced by this call
+    |
+help: the trait `app::_::_serde::Serialize` is not implemented for `SummaryVersion`
+   --> src/storage/models.rs:52:1
+    |
+ 52 | pub struct SummaryVersion {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^
+    = note: for local types consider adding `#[derive(serde::Serialize)]` to your `SummaryVersion` type
+    = note: for types from other crates check whether the crate offers a `serde` feature flag
+    = help: the following other types implement trait `app::_::_serde::Serialize`:
+              &'a T
+              &'a mut T
+              ()
+              (T,)
+              (T0, T1)
+              (T0, T1, T2)
+              (T0, T1, T2, T3)
+              (T0, T1, T2, T3, T4)
+            and 717 others
+    = note: required for `Vec<SummaryVersion>` to implement `app::_::_serde::Serialize`
+note: required by a bound in `to_value`
+   --> /mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106/registry/src/index.crates.io-1949cf8c6b5b557f/serde_json-1.0.154/src/value/mod.rs:997:8
+    |
+995 | pub fn to_value<T>(value: T) -> Result<Value, Error>
+    |        -------- required by a bound in this function
+996 | where
+997 |     T: Serialize,
+    |        ^^^^^^^^^ required by this bound in `to_value`
+    = note: the full name for the type has been written to '/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a.long-type-13220882495353775492.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: the trait bound `SummaryVersion: serde::Serialize` is not satisfied
+   --> src/summary/tests/terminal.rs:31:118
+    |
+ 31 | ...sions(other).unwrap()).unwrap(),serde_json::to_value(before).unwrap());
+    |                                    -------------------- ^^^^^^ unsatisfied trait bound
+    |                                    |
+    |                                    required by a bound introduced by this call
+    |
+help: the trait `app::_::_serde::Serialize` is not implemented for `SummaryVersion`
+   --> src/storage/models.rs:52:1
+    |
+ 52 | pub struct SummaryVersion {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^
+    = note: for local types consider adding `#[derive(serde::Serialize)]` to your `SummaryVersion` type
+    = note: for types from other crates check whether the crate offers a `serde` feature flag
+    = help: the following other types implement trait `app::_::_serde::Serialize`:
+              &'a T
+              &'a mut T
+              ()
+              (T,)
+              (T0, T1)
+              (T0, T1, T2)
+              (T0, T1, T2, T3)
+              (T0, T1, T2, T3, T4)
+            and 717 others
+    = note: required for `Vec<SummaryVersion>` to implement `app::_::_serde::Serialize`
+note: required by a bound in `to_value`
+   --> /mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106/registry/src/index.crates.io-1949cf8c6b5b557f/serde_json-1.0.154/src/value/mod.rs:997:8
+    |
+995 | pub fn to_value<T>(value: T) -> Result<Value, Error>
+    |        -------- required by a bound in this function
+996 | where
+997 |     T: Serialize,
+    |        ^^^^^^^^^ required by this bound in `to_value`
+    = note: the full name for the type has been written to '/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a.long-type-13220882495353775492.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: the trait bound `SummaryVersion: serde::Serialize` is not satisfied
+   --> src/summary/tests/terminal.rs:42:226
+    |
+ 42 | ...nwrap();let before=serde_json::to_value(h.store.list_summary_versions(other).unwrap()).unwrap();
+    |                       -------------------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+    |                       |
+    |                       required by a bound introduced by this call
+    |
+help: the trait `app::_::_serde::Serialize` is not implemented for `SummaryVersion`
+   --> src/storage/models.rs:52:1
+    |
+ 52 | pub struct SummaryVersion {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^
+    = note: for local types consider adding `#[derive(serde::Serialize)]` to your `SummaryVersion` type
+    = note: for types from other crates check whether the crate offers a `serde` feature flag
+    = help: the following other types implement trait `app::_::_serde::Serialize`:
+              &'a T
+              &'a mut T
+              ()
+              (T,)
+              (T0, T1)
+              (T0, T1, T2)
+              (T0, T1, T2, T3)
+              (T0, T1, T2, T3, T4)
+            and 717 others
+    = note: required for `Vec<SummaryVersion>` to implement `app::_::_serde::Serialize`
+note: required by a bound in `to_value`
+   --> /mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106/registry/src/index.crates.io-1949cf8c6b5b557f/serde_json-1.0.154/src/value/mod.rs:997:8
+    |
+995 | pub fn to_value<T>(value: T) -> Result<Value, Error>
+    |        -------- required by a bound in this function
+996 | where
+997 |     T: Serialize,
+    |        ^^^^^^^^^ required by this bound in `to_value`
+    = note: the full name for the type has been written to '/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a.long-type-13220882495353775492.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: the trait bound `SummaryVersion: serde::Serialize` is not satisfied
+   --> src/summary/tests/terminal.rs:45:41
+    |
+ 45 | ...   assert_eq!(serde_json::to_value(h.store.list_summary_versions(other).unwrap()).unwrap(),before);assert!(h.raw_responses(nativ...
+    |                  -------------------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+    |                  |
+    |                  required by a bound introduced by this call
+    |
+help: the trait `app::_::_serde::Serialize` is not implemented for `SummaryVersion`
+   --> src/storage/models.rs:52:1
+    |
+ 52 | pub struct SummaryVersion {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^
+    = note: for local types consider adding `#[derive(serde::Serialize)]` to your `SummaryVersion` type
+    = note: for types from other crates check whether the crate offers a `serde` feature flag
+    = help: the following other types implement trait `app::_::_serde::Serialize`:
+              &'a T
+              &'a mut T
+              ()
+              (T,)
+              (T0, T1)
+              (T0, T1, T2)
+              (T0, T1, T2, T3)
+              (T0, T1, T2, T3, T4)
+            and 717 others
+    = note: required for `Vec<SummaryVersion>` to implement `app::_::_serde::Serialize`
+note: required by a bound in `to_value`
+   --> /mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106/registry/src/index.crates.io-1949cf8c6b5b557f/serde_json-1.0.154/src/value/mod.rs:997:8
+    |
+995 | pub fn to_value<T>(value: T) -> Result<Value, Error>
+    |        -------- required by a bound in this function
+996 | where
+997 |     T: Serialize,
+    |        ^^^^^^^^^ required by this bound in `to_value`
+    = note: the full name for the type has been written to '/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a.long-type-13220882495353775492.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+Some errors have detailed explanations: E0277, E0282.
+For more information about an error, try `rustc --explain E0277`.
+warning: `vox-bridge` (lib test) generated 1 warning
+error: could not compile `vox-bridge` (lib test) due to 5 previous errors; 1 warning emitted

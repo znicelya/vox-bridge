@@ -1,0 +1,66 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.07s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 59 tests
+test commands::driver::lease_tests::dropped_maintenance_keeps_uncertain_ownership ... ok
+test commands::driver::lease_tests::maintenance_rejects_active_and_quarantined_audio_ownership ... ok
+test commands::driver::lease_tests::maintenance_denies_direct_open_and_invalidates_pre_mutation_inventory ... ok
+test commands::driver::runner_tests::successful_utility_keeps_exit_code_and_stdout_but_no_stderr ... ok
+test commands::driver::runner_tests::termination_error_does_not_substitute_for_a_later_exit_acknowledgement ... ok
+test commands::driver::runner_tests::real_linux_manager_uses_bounded_runner_and_keeps_the_shared_lease_until_reaped ... ok
+test commands::driver::runner_tests::utility_output_is_capped_and_termination_requires_exit_acknowledgement ... ok
+test commands::driver::runner_tests::stalled_spawn_is_owned_and_late_child_is_terminated_before_return ... ok
+test commands::driver::runner_tests::utility_read_timeout_terminates_and_overall_deadline_prevents_another_spawn ... ok
+test commands::driver::runner_tests::multi_command_manager_shares_one_operation_deadline ... ok
+test commands::driver::tests::linux_module_properties_keep_both_parser_levels_of_quoting ... ok
+test commands::driver::tests::operation_tags_preserve_existing_driver_status_wire_shape ... ok
+test commands::driver::tests::non_send_manager_lives_on_one_owner_and_cancelled_caller_cannot_replace_it ... ok
+test commands::driver::tests::public_driver_results_exclude_raw_process_output_and_keep_platform_package_gates ... ok
+test commands::driver::tests::uninstall_removes_dependent_source_before_backing_sink_and_keeps_similarly_named_devices ... ok
+test commands::driver::script_tests::setup_scripts_stop_after_failed_inventory_or_unload_without_loading_modules ... ok
+test commands::driver::script_tests::setup_scripts_order_dependencies_and_preserve_property_quotes ... ok
+test commands::driver::tests::terminal_but_quarantined_backend_rejects_app_maintenance_as_busy_without_manager_calls ... ok
+test commands::driver::app_tests::stopping_audio_remains_busy_until_the_native_close_acknowledgement ... ok
+test commands::driver::app_tests::maintenance_timeout_observes_without_releasing_the_operation ... ok
+test commands::subscriptions::tests::abandoning_successfully_sent_ticket_cancels_unclaimed_forwarder ... ok
+test commands::driver::app_tests::starting_reservation_rejects_driver_before_audio_open ... ok
+test commands::subscriptions::tests::cancellation_interrupts_blocked_receive_and_emit ... ok
+test commands::subscriptions::tests::cancelled_accepted_replacement_joins_old_and_does_not_keep_new ... ok
+test commands::subscriptions::tests::cancelled_replacement_during_old_join_finishes_owned_cleanup ... ok
+test commands::subscriptions::tests::cancelling_close_all_caller_does_not_detach_cleanup ... ok
+test commands::subscriptions::tests::close_all_drains_prebarrier_subscriptions_and_allows_fresh_generation ... ok
+test commands::driver::app_tests::uninstall_completion_does_not_replace_actual_inventory_readiness ... ok
+test commands::subscriptions::tests::closed_mutation_owner_returns_error_without_owning_receiver ... ok
+test commands::subscriptions::tests::close_session_isolates_subscribers_and_close_all_can_be_reused ... ok
+test commands::subscriptions::tests::closed_ticket_reply_after_precheck_cancels_unclaimed_generation ... ok
+test commands::subscriptions::tests::dropping_last_registry_owner_drains_forwarders ... ok
+test commands::subscriptions::tests::dropping_old_response_guard_does_not_cancel_claimed_replacement ... ok
+test commands::subscriptions::tests::independent_subscribers_receive_both_directions_and_unsubscribe_isolated ... ok
+test commands::subscriptions::tests::late_old_generation_completion_cannot_remove_replacement ... ok
+test commands::subscriptions::tests::mutation_admission_is_bounded_and_rejected_receiver_is_dropped ... ok
+test commands::subscriptions::tests::opaque_subscriber_token_is_bounded_and_absent_from_ticket_name ... ok
+test commands::subscriptions::tests::prequeued_terminal_receiver_delivers_then_releases_ticket ... ok
+test commands::subscriptions::tests::registry_constructs_outside_tokio ... ok
+test commands::subscriptions::tests::replacement_joins_previous_forwarder_and_old_unsubscribe_is_harmless ... ok
+test commands::subscriptions::tests::seventeenth_distinct_ticket_rejects_and_replacement_works_at_capacity ... ok
+test commands::subscriptions::tests::terminal_closed_stream_and_emit_failure_release_owned_slots ... ok
+test commands::subscriptions::tests::terminal_status_finishes_even_when_sender_remains_open ... ok
+test commands::driver::app_tests::admitted_work_retains_process_lock_after_all_caller_app_handles_are_dropped ... ok
+test commands::driver::app_tests::cancelled_maintenance_observer_keeps_create_and_close_fenced_until_ack ... ok
+test commands::tests::command_wire_fixtures_pin_envelopes_mixed_audio_serde_and_safe_capabilities ... ok
+test commands::tests::credential_actions_have_explicit_tags_and_no_implicit_keep ... ok
+test commands::wire_contract_tests::wire_contract_real_runtime_dtos_match_shared_json ... ok
+test commands::intelligence::tests::intelligence_commands_dispatch_all_thirteen_and_project_injected_empty_directory ... ok
+test commands::knowledge::tests::documents_commands_real_dispatch_preserves_legacy_dtos_and_exact_camelcase_arguments ... ok
+test commands::knowledge::tests::documents_commands_real_import_replace_and_duplicate_use_registered_document_service ... ok
+test commands::knowledge::tests::knowledge_commands_dispatch_empty_search_and_validate_exact_boundaries ... ok
+test commands::subscriptions::tests::lag_emits_resync_continues_to_final_and_recovers_sqlite_pages_by_id ... ok
+test commands::driver::app_tests::active_live_and_call_sessions_reject_all_driver_actions_without_invoking_port ... ok
+test commands::driver::app_tests::paused_direction_still_excludes_maintenance_while_peer_can_keep_running ... ok
+test commands::summary::tests::summary_commands_exact_signed_cursor_tagged_page_default_limit_and_validation ... ok
+test commands::summary::tests::summary_commands_startup_opens_real_manual_readiness_and_native_terminal_projection ... ok
+test commands::knowledge::tests::knowledge_commands_selected_partial_multi_row_and_foreign_session_reach_owned_service ... ok
+test commands::subscriptions::tests::blocked_emit_is_bounded_to_one_second ... ok
+
+test result: ok. 59 passed; 0 failed; 0 ignored; 0 measured; 777 filtered out; finished in 1.81s
+

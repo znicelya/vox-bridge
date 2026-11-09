@@ -1,0 +1,16 @@
+{
+  "baseline": {
+    "bytes": 49554,
+    "kind": "file",
+    "sha256": "487d76aaa99c7e211efde7a18f51163fbbe6f23881e25ea146c6cc6588caaa04"
+  },
+  "captured_utc": "2026-11-09T19:37:20.234922+00:00",
+  "current": {
+    "bytes": 50002,
+    "kind": "file",
+    "sha256": "744959b33638ac321848f0b3fdabb50557b6c1be796c49e211ba712b9f006b4e"
+  },
+  "current_mtime_utc": "2026-11-09T19:32:25.082150+00:00",
+  "path": ".superpowers/sdd/2026-11-09-session-summary-continuation/progress.md",
+  "validation_author_wrote_this_original_file": false
+}

@@ -1,0 +1,115 @@
+{
+  "started_utc": "2026-11-09T18:00:50.962265+00:00",
+  "tree": "a907fe5b9eb006cba8533ab57831c18cda485b7c",
+  "environment": {
+    "CARGO_HOME": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106",
+    "CARGO_TARGET_DIR": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107",
+    "TMPDIR": "/dev/shm/voxbridge-intelligence-20261109.q7xaof9u",
+    "PKG_CONFIG_PATH": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig",
+    "PKG_CONFIG_SYSROOT_DIR": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot",
+    "LIBRARY_PATH": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu"
+  },
+  "gates": [
+    {
+      "name": "all-targets",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "src-tauri/Cargo.toml",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 157.79,
+      "log": "final-all-targets.log",
+      "sha256": "fa9d582b8f57e538cd0227917432e8f2089824b1dd83001385d9bcb3b3e82196",
+      "bytes": 95686,
+      "test_results": [
+        "test result: ok. 837 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 98.49s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s",
+        "test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "warnings": []
+    },
+    {
+      "name": "production-check",
+      "command": [
+        "cargo",
+        "check",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "src-tauri/Cargo.toml",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.69,
+      "log": "final-production-check.log",
+      "sha256": "8ff208724cf0c04081c037b021a39dac4e914bed652a41bbea2f278fdd6433e0",
+      "bytes": 72,
+      "test_results": [],
+      "warnings": []
+    },
+    {
+      "name": "desktop-build",
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "src-tauri/Cargo.toml",
+        "--bin",
+        "vox-bridge"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 41.23,
+      "log": "final-desktop-build.log",
+      "sha256": "7cff4dfc7d5757d2492d54dc158e8b681cd87a7e4ff4a0c751b5fd87c0846fd8",
+      "bytes": 191,
+      "test_results": [],
+      "warnings": []
+    },
+    {
+      "name": "rustfmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--manifest-path",
+        "src-tauri/Cargo.toml",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 1.09,
+      "log": "final-rustfmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "test_results": [],
+      "warnings": []
+    },
+    {
+      "name": "frozen-diff-check",
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "73760d609a050eaddcd8002cec572fbc73c65164",
+        "a907fe5b9eb006cba8533ab57831c18cda485b7c"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.12,
+      "log": "final-frozen-diff-check.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "test_results": [],
+      "warnings": []
+    }
+  ],
+  "finished_utc": "2026-11-09T18:04:11.965267+00:00",
+  "all_required_gates_exit_zero": true
+}

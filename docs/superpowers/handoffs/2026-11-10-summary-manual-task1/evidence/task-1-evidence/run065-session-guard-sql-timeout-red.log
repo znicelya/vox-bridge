@@ -1,0 +1,22 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.79s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 1 test
+test summary::tests::deletion::summary_session_guard_sql_timeout_retains_actual_owner_and_fence_until_retry ... FAILED
+
+failures:
+
+---- summary::tests::deletion::summary_session_guard_sql_timeout_retains_actual_owner_and_fence_until_retry stdout ----
+
+thread 'summary::tests::deletion::summary_session_guard_sql_timeout_retains_actual_owner_and_fence_until_retry' (842368) panicked at src/summary/tests/deletion.rs:251:5:
+the final session DELETE observer must return its own 10s Timeout while SQLite remains owned
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    summary::tests::deletion::summary_session_guard_sql_timeout_retains_actual_owner_and_fence_until_retry
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 836 filtered out; finished in 11.04s
+
+error: test failed, to rerun pass `--lib`

@@ -1,0 +1,94 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+warning: fields `owner` and `cancel` are never read
+  --> src/llm/mod.rs:14:5
+   |
+13 | pub struct LlmExecution {
+   |            ------------ fields in this struct
+14 |     owner: OperationLease,
+   |     ^^^^^
+15 |     cancel: watch::Receiver<bool>,
+   |     ^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: associated function `new` is never used
+  --> src/llm/mod.rs:18:19
+   |
+17 | impl LlmExecution {
+   | ----------------- associated function in this implementation
+18 |     pub(crate) fn new(owner: OperationLease, cancel: watch::Receiver<bool>) -> Self { Self { owner, cancel } }
+   |                   ^^^
+
+warning: fields `config` and `llm` are never read
+ --> src/summary/mod.rs:8:51
+  |
+8 | pub struct SummaryService { store:Arc<LocalStore>,config:Arc<ServiceConfigStore>,jobs:Arc<JobScheduler>,llm:Arc<dyn LlmProvider> }
+  |            -------------- fields in this struct   ^^^^^^                                                ^^^
+
+warning: fields `core` and `epoch` are never read
+ --> src/summary/mod.rs:9:34
+  |
+9 | pub(crate) struct SummaryReady { core:Uuid,epoch:u64 }
+  |                   ------------   ^^^^      ^^^^^
+  |                   |
+  |                   fields in this struct
+
+warning: fields `session_id`, `profile`, `automatic`, and `initial_failure` are never read
+ --> src/summary/store.rs:3:43
+  |
+3 | pub(crate) struct SummaryJobRequest { pub session_id:Uuid,pub profile:Option<ModelProfile>,pub automatic:bool,pub initial_failure:Opt...
+  |                   -----------------       ^^^^^^^^^^          ^^^^^^^                          ^^^^^^^^^          ^^^^^^^^^^^^^^^
+  |                   |
+  |                   fields in this struct
+
+warning: fields `io` and `dir` are never read
+  --> src/summary/tests/harness.rs:46:9
+   |
+43 | pub(super) struct SummaryHarness {
+   |                   -------------- fields in this struct
+...
+46 |     pub io: ConfigIo,
+   |         ^^
+...
+52 |     pub dir: tempfile::TempDir,
+   |         ^^^
+
+warning: method `coverage` is never used
+   --> src/summary/tests/harness.rs:113:12
+    |
+ 54 | impl SummaryHarness {
+    | ------------------- method in this implementation
+...
+113 |     pub fn coverage(&self, id: Uuid) -> AppResult<Vec<(String,u32,u32)>> {
+    |            ^^^^^^^^
+
+warning: `vox-bridge` (lib test) generated 7 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.56s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 3 tests
+test summary::tests::content::summary_content_requires_exact_schema_types_and_rejects_unknown_nested_fields ... ok
+test summary::tests::content::summary_content_bounds_every_action_and_term_and_keeps_all_fields ... FAILED
+test summary::tests::content::summary_content_rejects_scalar_and_array_overflow_without_truncation ... FAILED
+
+failures:
+
+---- summary::tests::content::summary_content_bounds_every_action_and_term_and_keeps_all_fields stdout ----
+
+thread 'summary::tests::content::summary_content_bounds_every_action_and_term_and_keeps_all_fields' (714630) panicked at src/summary/tests/content.rs:37:73:
+unbounded action text
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- summary::tests::content::summary_content_rejects_scalar_and_array_overflow_without_truncation stdout ----
+
+thread 'summary::tests::content::summary_content_rejects_scalar_and_array_overflow_without_truncation' (714631) panicked at src/summary/tests/content.rs:10:52:
+summary cannot publish a 20001-scalar response
+
+
+failures:
+    summary::tests::content::summary_content_bounds_every_action_and_term_and_keeps_all_fields
+    summary::tests::content::summary_content_rejects_scalar_and_array_overflow_without_truncation
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 772 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--lib`

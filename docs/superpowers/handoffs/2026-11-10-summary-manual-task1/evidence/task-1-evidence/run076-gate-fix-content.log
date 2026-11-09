@@ -1,0 +1,11 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.61s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 4 tests
+test summary::tests::content::summary_content_requires_exact_schema_types_and_rejects_unknown_nested_fields ... ok
+test summary::tests::content::summary_content_bounds_every_action_and_term_and_keeps_all_fields ... ok
+test summary::tests::content::summary_content_rejects_scalar_and_array_overflow_without_truncation ... ok
+test summary::tests::content::summary_legacy_sanitizer_bounds_depth_nodes_and_decoded_bytes_and_rejects_raw ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 833 filtered out; finished in 0.13s
+

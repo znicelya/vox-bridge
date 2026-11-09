@@ -1,0 +1,451 @@
+--- a/src-tauri/src/summary/recovery.rs
++++ b/src-tauri/src/summary/recovery.rs
+@@ -205,3 +205,7 @@
+         }
+     }
+ }
++
++#[cfg(test)]
++#[path = "recovery/cv1_validation.rs"]
++mod cv1_validation;
+--- /dev/null
++++ b/src-tauri/src/summary/recovery/cv1_validation.rs
+@@ -0,0 +1,438 @@
++//! Temporary CV-1 fixture. Only the frozen source COPY contains this module.
++use crate::{
++    config::{ConfigIo, ConfigStore, SecretStore},
++    error::{AppError, AppResult},
++    intelligence::{
++        config::{ServiceConfigStore, validate_profile},
++        jobs::{JobReapPort, JobScheduler, OperationLease},
++        types::{IntelligenceErrorCode, JobPayload, ModelProfile},
++    },
++    llm::{LlmExecution, LlmProvider, LlmRequest, LlmResponse},
++    storage::{LocalStore, StoredSession, StoredSessionLifecycle},
++    summary::{SummaryService, job_proof::SummaryJobProof},
++};
++use fs2::FileExt;
++use rusqlite::params;
++use serde_json::{Value, json};
++use sha2::{Digest, Sha256};
++use std::{
++    fs::File,
++    path::{Path, PathBuf},
++    sync::{
++        Arc, Mutex,
++        atomic::{AtomicUsize, Ordering},
++    },
++    time::{Duration, Instant},
++};
++use tokio::sync::{OwnedSemaphorePermit, Semaphore};
++use uuid::Uuid;
++
++const ROWS: u32 = 200_000;
++const EPOCH: u64 = 1;
++
++fn session_id() -> Uuid {
++    Uuid::from_u128(0x10000000000000000000000000000001)
++}
++fn summary_id(version: u32) -> Uuid {
++    Uuid::from_u128(0x20000000000000000000000000000000 | u128::from(version))
++}
++fn job_id(version: u32) -> Uuid {
++    Uuid::from_u128(0x30000000000000000000000000000000 | u128::from(version))
++}
++fn ns(duration: Duration) -> u64 {
++    u64::try_from(duration.as_nanos()).unwrap()
++}
++fn safe_code<T>(result: &AppResult<T>) -> String {
++    match result {
++        Ok(_) => "Ok".into(),
++        Err(AppError::Intelligence(code)) => format!("{code:?}"),
++        Err(_) => "OtherAppError".into(),
++    }
++}
++fn write_json(dir: &Path, name: &str, value: &Value) {
++    let mut bytes = serde_json::to_vec_pretty(value).unwrap();
++    bytes.push(b'\n');
++    std::fs::write(dir.join(name), bytes).unwrap();
++}
++
++#[derive(Default)]
++struct CountingLlm {
++    calls: AtomicUsize,
++}
++#[async_trait::async_trait]
++impl LlmProvider for CountingLlm {
++    async fn complete(
++        &self,
++        _profile: &ModelProfile,
++        _request: LlmRequest,
++        _execution: LlmExecution,
++    ) -> Result<LlmResponse, IntelligenceErrorCode> {
++        self.calls.fetch_add(1, Ordering::SeqCst);
++        Err(IntelligenceErrorCode::Interrupted)
++    }
++}
++
++#[derive(Clone, serde::Serialize)]
++struct OwnerRelease {
++    elapsed_ns_from_measurement_start: u64,
++    file_closed: bool,
++    direct_permit_released: bool,
++    direct_slots_before_release: usize,
++    direct_slots_after_release: usize,
++    actual_slots_before_owner_release: usize,
++    actual_slots_after_owner_release: usize,
++}
++struct ObservedLease {
++    file: Option<File>,
++    direct_permit: Option<OwnedSemaphorePermit>,
++    direct: Arc<Semaphore>,
++    actual: Arc<Semaphore>,
++    timer: Arc<Mutex<Option<Instant>>>,
++    release: Arc<Mutex<Option<OwnerRelease>>>,
++}
++impl Drop for ObservedLease {
++    fn drop(&mut self) {
++        let direct_before = self.direct.available_permits();
++        let actual_before = self.actual.available_permits();
++        let file = self.file.take();
++        let file_closed = file.is_some();
++        drop(file);
++        let permit = self.direct_permit.take();
++        let direct_permit_released = permit.is_some();
++        drop(permit);
++        let released = OwnerRelease {
++            elapsed_ns_from_measurement_start: self
++                .timer
++                .lock()
++                .unwrap()
++                .as_ref()
++                .map(|start| ns(start.elapsed()))
++                .unwrap_or(0),
++            file_closed,
++            direct_permit_released,
++            direct_slots_before_release: direct_before,
++            direct_slots_after_release: self.direct.available_permits(),
++            actual_slots_before_owner_release: actual_before,
++            actual_slots_after_owner_release: self.actual.available_permits(),
++        };
++        *self.release.lock().unwrap() = Some(released);
++    }
++}
++
++fn seed(store: &LocalStore, profile: &ModelProfile) -> AppResult<Value> {
++    validate_profile(profile)?;
++    let start = Instant::now();
++    let session = session_id();
++    store.create_session(&StoredSession {
++        id: session,
++        started_at: 1_800_000_000,
++        mode: "live".into(),
++        direction: "source_to_target".into(),
++        source_language: "en".into(),
++        target_language: "zh".into(),
++    })?;
++    store.update_session_lifecycle(&StoredSessionLifecycle {
++        session_id: session,
++        status: "completed".into(),
++        ended_at: Some(1_800_000_600),
++    })?;
++    let payload_sequence_sha256 = store.transaction(|tx| {
++        let mut jobs = tx.prepare(
++            "INSERT INTO intelligence_jobs(id,kind,status,session_id,object_id,exclusion_key,permanent_key,payload_json,completed_units,total_units,error_code,created_at_ms,updated_at_ms) VALUES(?1,'summary','interrupted',?2,?3,?4,NULL,?5,0,NULL,'interrupted',?6,?7)",
++        )?;
++        let mut summaries = tx.prepare(
++            "INSERT INTO session_summaries(id,session_id,version,created_at,status,structured_json,profile_id,model,error_code,origin,job_id,created_at_ms,job_payload_hash) VALUES(?1,?2,?3,?4,'interrupted','null',?5,?6,'interrupted','native',?7,?8,?9)",
++        )?;
++        let mut payloads = Sha256::new();
++        let session = session.to_string();
++        let exclusion = format!("summary:{session}");
++        let profile_id = profile.id.to_string();
++        for version in 1..=ROWS {
++            let summary = summary_id(version).to_string();
++            let job = job_id(version).to_string();
++            let raw = serde_json::to_string(&JobPayload {
++                version: 1,
++                profiles: vec![profile.clone()],
++                input: json!({"summary_id":summary,"session_id":session}),
++            })
++            .unwrap();
++            // Hash the exact serialized string bound into the matching job SQL.
++            let witness = format!("{:x}", Sha256::digest(raw.as_bytes()));
++            payloads.update(u64::try_from(raw.len()).unwrap().to_le_bytes());
++            payloads.update(raw.as_bytes());
++            let created_ms = 1_800_000_600_000_i64 + i64::from(version);
++            jobs.execute(params![
++                job,
++                session,
++                summary,
++                exclusion,
++                raw,
++                created_ms,
++                created_ms + 1,
++            ])?;
++            summaries.execute(params![
++                summary,
++                session,
++                version,
++                created_ms / 1000,
++                profile_id,
++                profile.model,
++                job,
++                created_ms,
++                witness,
++            ])?;
++        }
++        drop(jobs);
++        drop(summaries);
++        tx.execute(
++            "INSERT INTO summary_version_counters(session_id,last_version) VALUES(?1,?2) ON CONFLICT(session_id) DO UPDATE SET last_version=excluded.last_version",
++            params![session, ROWS],
++        )?;
++        Ok(format!("{:x}", payloads.finalize()))
++    })?;
++    Ok(json!({
++        "rows":ROWS,
++        "sessions":1,
++        "terminal_state":"Interrupted / Interrupted; no model execution",
++        "session_id":session,
++        "profile":profile,
++        "seeding_elapsed_ns":ns(start.elapsed()),
++        "seeding_excluded_from_recovery_interval":true,
++        "payload_sequence_sha256":payload_sequence_sha256,
++        "payload_sequence_hash_encoding":"version ascending; u64 little-endian raw length followed by exact UTF-8 raw bytes",
++    }))
++}
++
++fn preflight(store: &LocalStore, profile: &ModelProfile, reap: &JobReapPort) -> AppResult<Value> {
++    let start = Instant::now();
++    let result = store.transaction(|tx| {
++        let count = |sql: &str| -> rusqlite::Result<i64> {
++            tx.query_row(sql, [], |row| row.get(0))
++        };
++        let summaries = count("SELECT count(*) FROM session_summaries WHERE origin='native'")?;
++        let jobs = count("SELECT count(*) FROM intelligence_jobs")?;
++        let coherent: i64 = tx.query_row(
++            "SELECT count(*) FROM session_summaries s JOIN intelligence_jobs j ON j.id=s.job_id WHERE s.origin='native' AND s.session_id=?1 AND s.profile_id=?2 AND s.model=?3 AND s.status='interrupted' AND s.error_code='interrupted' AND s.structured_json='null' AND s.deleting=0 AND s.input_hash IS NULL AND s.input_final_count IS NULL AND s.snapshot_last_rowid IS NULL AND s.raw_response_hash IS NULL AND s.raw_response_bytes=0 AND s.created_at=s.created_at_ms/1000 AND j.kind='summary' AND j.session_id=s.session_id AND j.object_id=s.id AND j.exclusion_key='summary:'||s.session_id AND j.permanent_key IS NULL AND j.status=s.status AND j.error_code=s.error_code AND j.completed_units=0 AND j.total_units IS NULL AND j.created_at_ms=s.created_at_ms AND j.updated_at_ms=j.created_at_ms+1",
++            params![session_id().to_string(),profile.id.to_string(),profile.model],
++            |row| row.get(0),
++        )?;
++        let (min_version, max_version, distinct_versions): (i64,i64,i64) = tx.query_row(
++            "SELECT min(version),max(version),count(DISTINCT version) FROM session_summaries",
++            [],|row| Ok((row.get(0)?,row.get(1)?,row.get(2)?)),
++        )?;
++        let counter:i64=tx.query_row("SELECT last_version FROM summary_version_counters WHERE session_id=?1",[session_id().to_string()],|row|row.get(0))?;
++        let active = count("SELECT count(*) FROM intelligence_jobs WHERE status IN ('queued','running')")?;
++        let deleting = count("SELECT count(*) FROM session_summaries WHERE deleting<>0")?;
++        let session_deleting=count("SELECT count(*) FROM session_lifecycle WHERE summary_session_deleting<>0")?;
++        let response_rows=count("SELECT count(*) FROM summary_responses")?;
++        let coverage_rows=count("SELECT count(*) FROM summary_coverage")?;
++        let sessions=count("SELECT count(*) FROM sessions")?;
++        let completed_sessions=count("SELECT count(*) FROM session_lifecycle WHERE status='completed'")?;
++        let legacy=count("SELECT count(*) FROM session_summaries WHERE origin<>'native'")?;
++        let mut foreign_keys=tx.prepare("PRAGMA foreign_key_check")?;
++        let mut foreign_rows=foreign_keys.query([])?;
++        assert!(foreign_rows.next()?.is_none(),"fixture has a foreign-key violation");
++        assert_eq!((summaries,jobs,coherent,distinct_versions,counter,max_version),(i64::from(ROWS),i64::from(ROWS),i64::from(ROWS),i64::from(ROWS),i64::from(ROWS),i64::from(ROWS)));
++        assert_eq!(min_version,1);
++        assert_eq!((active,deleting,session_deleting,response_rows,coverage_rows,legacy),(0,0,0,0,0,0));
++        assert_eq!((sessions,completed_sessions),(1,1));
++        let mut samples=Vec::new();
++        for version in [1,ROWS] {
++            let anchored=SummaryJobProof::anchored_in_tx(tx,job_id(version))?.expect("seed sample needs real anchored Native proof");
++            assert_eq!(anchored.summary_id(),summary_id(version));
++            assert_eq!(anchored.session_id(),session_id());
++            assert_eq!(anchored.profile(),Some(profile));
++            let actual=reap.prove(tx,job_id(version))?.expect("seed sample needs actual fresh scheduler/reap proof");
++            samples.push(serde_json::to_value(actual.evidence()).unwrap());
++        }
++        Ok(json!({
++            "native_rows":summaries,"jobs":jobs,"coherent_joined_rows":coherent,
++            "versions":{"min":min_version,"max":max_version,"distinct":distinct_versions,"durable_counter":counter},
++            "active_jobs":active,"deleting_summaries":deleting,"deleting_sessions":session_deleting,
++            "raw_response_rows":response_rows,"coverage_rows":coverage_rows,"legacy_rows":legacy,
++            "sessions":sessions,"completed_sessions":completed_sessions,"foreign_key_violations":0,
++            "actual_reap_samples":samples,
++            "preflight_excluded_from_recovery_interval":true,
++        }))
++    })?;
++    let mut result = result;
++    result["preflight_elapsed_ns"] = json!(ns(start.elapsed()));
++    Ok(result)
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn cv1_recovery_near_200000_native_history_one_measurement() {
++    let data = PathBuf::from(std::env::var_os("VOXBRIDGE_CV1_DATA_DIR").unwrap());
++    let artifacts = PathBuf::from(std::env::var_os("VOXBRIDGE_CV1_ARTIFACT_DIR").unwrap());
++    std::fs::create_dir(&data).expect("fixture must use a new preserved data directory");
++    let store = Arc::new(LocalStore::open(&data).unwrap());
++    let secrets = Arc::new(SecretStore::for_tests(&data).unwrap());
++    let config_slots = Arc::new(Semaphore::new(2));
++    let io = ConfigIo::with_runtime_for_tests(
++        ConfigStore::new(&data, secrets).unwrap(),
++        config_slots.clone(),
++        Duration::from_secs(10),
++    );
++    let config = Arc::new(ServiceConfigStore::new(io.clone(), store.clone()));
++    let mut profile = crate::intelligence::test_support::test_llm_profile();
++    profile.id = Uuid::from_u128(0x40000000000000000000000000000001);
++    let seeded = seed(&store, &profile).unwrap();
++    write_json(&artifacts, "seed.json", &seeded);
++    println!("CV1_SEED {}", seeded);
++    let llm = Arc::new(CountingLlm::default());
++    let jobs = Arc::new(JobScheduler::new(store.clone()));
++    let service = SummaryService::new(store.clone(), config.clone(), jobs.clone(), llm.clone());
++    service.register_handler().unwrap();
++    jobs.reconcile().unwrap();
++    // The real new registry is Fresh; no worker generation or active claim exists.
++    let reap = jobs.reap_port();
++    let preflight = preflight(&store, &profile, &reap).unwrap();
++    write_json(&artifacts, "preflight.json", &preflight);
++    println!("CV1_PREFLIGHT {}", preflight);
++    assert!(service.require_epoch(EPOCH).is_err());
++    assert_eq!(llm.calls.load(Ordering::SeqCst), 0);
++    let actual = service.core.recovery.actual.clone();
++    let direct = Arc::new(Semaphore::new(16));
++    let timer = Arc::new(Mutex::new(None));
++    let release = Arc::new(Mutex::new(None));
++    let lock_path = data.join("cv1-process.lock");
++    let file = File::options()
++        .read(true)
++        .write(true)
++        .create_new(true)
++        .open(&lock_path)
++        .unwrap();
++    FileExt::try_lock_exclusive(&file).unwrap();
++    let lock_probe = File::options()
++        .read(true)
++        .write(true)
++        .open(&lock_path)
++        .unwrap();
++    assert!(FileExt::try_lock_exclusive(&lock_probe).is_err());
++    let owner: OperationLease = Arc::new(ObservedLease {
++        file: Some(file),
++        direct_permit: Some(direct.clone().try_acquire_owned().unwrap()),
++        direct: direct.clone(),
++        actual: actual.clone(),
++        timer: timer.clone(),
++        release: release.clone(),
++    });
++    let weak = Arc::downgrade(&owner);
++    assert_eq!(
++        (direct.available_permits(), actual.available_permits()),
++        (15, 1)
++    );
++    println!(
++        "CV1_MEASUREMENT_BEGIN rows={} production_deadline_seconds=10 outer_seconds=15",
++        ROWS
++    );
++    let start = Instant::now();
++    *timer.lock().unwrap() = Some(start);
++    let returned = tokio::time::timeout(
++        Duration::from_secs(15),
++        service.reconcile_local_owned(owner, EPOCH, reap),
++    )
++    .await;
++    let ready_at_return = service.require_epoch(EPOCH);
++    let elapsed_ns = ns(start.elapsed());
++    let returned_code = match &returned {
++        Ok(Ok(_)) => "Ready".into(),
++        Ok(result) => safe_code(result),
++        Err(_) => "OuterTimeout".into(),
++    };
++    let owner_live_at_return = weak.strong_count() > 0;
++    let direct_at_return = direct.available_permits();
++    let actual_at_return = actual.available_permits();
++    let release_at_return = release.lock().unwrap().clone();
++    let lock_free_at_return = FileExt::try_lock_exclusive(&lock_probe).is_ok();
++    if lock_free_at_return {
++        FileExt::unlock(&lock_probe).unwrap();
++    }
++    println!(
++        "CV1_MEASUREMENT_RETURN code={} elapsed_ns={} ready={} provider_calls={} owner_live={} actual_slots={} direct_slots={}",
++        returned_code,
++        elapsed_ns,
++        ready_at_return.is_ok(),
++        llm.calls.load(Ordering::SeqCst),
++        owner_live_at_return,
++        actual_at_return,
++        direct_at_return
++    );
++    // This is actual completion collection, outside the single timed interval.
++    let cleanup_start = Instant::now();
++    let bounded_drain = tokio::time::timeout(Duration::from_secs(15), service.drain_actual()).await;
++    let drain_within_bound = matches!(&bounded_drain, Ok(Ok(())));
++    let drain_code = match &bounded_drain {
++        Ok(result) => safe_code(result),
++        Err(_) => "OuterTimeout".into(),
++    };
++    if !drain_within_bound {
++        service.drain_actual().await.unwrap();
++    }
++    let shutdown = jobs.shutdown().await;
++    let ready_after_drain = service.require_epoch(EPOCH);
++    drop(returned);
++    drop(service);
++    drop(jobs);
++    drop(config);
++    drop(io);
++    drop(store);
++    let owner_release = release.lock().unwrap().clone();
++    let owner_gone = weak.strong_count() == 0;
++    let direct_after = direct.available_permits();
++    let actual_after = actual.available_permits();
++    let config_after = config_slots.available_permits();
++    let lock_reacquired = FileExt::try_lock_exclusive(&lock_probe).is_ok();
++    if lock_reacquired {
++        FileExt::unlock(&lock_probe).unwrap();
++    }
++    drop(lock_probe);
++    let provider_calls = llm.calls.load(Ordering::SeqCst);
++    let release_order = owner_release.as_ref().is_some_and(|event| {
++        event.file_closed
++            && event.direct_permit_released
++            && event.direct_slots_before_release == 15
++            && event.direct_slots_after_release == 16
++            && event.actual_slots_before_owner_release == 0
++            && event.actual_slots_after_owner_release == 0
++    });
++    let outcome_consistent = match returned_code.as_str() {
++        "Ready" => {
++            ready_at_return.is_ok() && ready_after_drain.is_ok() && elapsed_ns < 10_000_000_000
++        }
++        "Timeout" => ready_at_return.is_err() && ready_after_drain.is_err(),
++        _ => false,
++    };
++    let measurement = json!({
++        "fixture":"summary::recovery::cv1_validation::cv1_recovery_near_200000_native_history_one_measurement",
++        "completed_timed_measurements":1,"rows":ROWS,"epoch":EPOCH,
++        "production_deadline_ns":10_000_000_000_u64,"outer_observation_ns":15_000_000_000_u64,
++        "timed_scope":"one actual reconcile_local_owned call through require_epoch readiness observation",
++        "returned_code":returned_code,"elapsed_ns":elapsed_ns,
++        "ready_at_return":ready_at_return.is_ok(),"readiness_code_at_return":safe_code(&ready_at_return),
++        "ready_after_actual_drain":ready_after_drain.is_ok(),"readiness_code_after_actual_drain":safe_code(&ready_after_drain),
++        "provider_calls":provider_calls,
++        "return_observations":{"owner_live":owner_live_at_return,"direct_slots":direct_at_return,"actual_slots":actual_at_return,"release":release_at_return,"process_lock_free":lock_free_at_return},
++        "owner_release":owner_release,
++        "cleanup":{"bounded_actual_drain_code":drain_code,"actual_drain_within_15s":drain_within_bound,"actual_drain_joined":true,"scheduler_shutdown_ok":shutdown.is_ok(),"scheduler_shutdown_code":safe_code(&shutdown),"owner_gone":owner_gone,"direct_slots":direct_after,"actual_slots":actual_after,"config_slots":config_after,"process_lock_reacquired":lock_reacquired,"elapsed_ns":ns(cleanup_start.elapsed())},
++        "checks":{"outcome_and_readiness_consistent":outcome_consistent,"actual_owner_release_order":release_order,"zero_provider_calls":provider_calls==0},
++        "availability_established":returned_code=="Ready" && outcome_consistent,
++        "seed":seeded,"preflight":preflight,
++    });
++    write_json(&artifacts, "measurement.json", &measurement);
++    println!("CV1_MEASUREMENT_JSON {}", measurement);
++    assert!(
++        outcome_consistent,
++        "actual measurement returned an unexpected code/readiness/latency result; see preserved JSON"
++    );
++    assert!(
++        drain_within_bound && shutdown.is_ok(),
++        "actual cleanup exceeded its bound or shutdown failed"
++    );
++    assert!(
++        owner_gone && lock_reacquired && release_order,
++        "actual owner/lock release failed"
++    );
++    assert_eq!((direct_after, actual_after, config_after), (16, 1, 2));
++    assert_eq!(provider_calls, 0);
++}

@@ -1,0 +1,22 @@
+{
+  "added_fixture_paths": [
+    "src-tauri/src/summary/recovery/cv1_validation.rs"
+  ],
+  "changed_frozen_paths": [
+    "src-tauri/src/summary/recovery.rs"
+  ],
+  "fixture_diff_sha256": "a3b276f59fc6a39c3e33136462caaf1f2605d5b583bd2c93f5e725d24bca5957",
+  "frozen_recovery_sha256": "78912b6779951f05952e97030021b18fdda258cd6423a58deeea6339aabe9dd3",
+  "production_function_bytes_preserved": true,
+  "recovery_with_test_wiring": {
+    "bytes": 6197,
+    "kind": "file",
+    "sha256": "72b44b96fbe69c33a4088fd9847240fa4a332a5bc88e12ca794c787aac7bcaf6"
+  },
+  "source_at_cargo_start_sha256": "e50e2fd4986763aa975f4215fe7f951f548a24c1884546f3bdf409677b51bbfb",
+  "temporary_test": {
+    "bytes": 20288,
+    "kind": "file",
+    "sha256": "54d3f240ce79e8dd8c8d8abc01f552c9a823038808be76cc7dfad33291d2f076"
+  }
+}

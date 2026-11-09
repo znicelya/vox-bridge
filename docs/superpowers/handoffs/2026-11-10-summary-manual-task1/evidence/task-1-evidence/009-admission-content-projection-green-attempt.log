@@ -1,0 +1,107 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+warning: variant `Automatic` is never constructed
+  --> src/intelligence/config.rs:31:5
+   |
+29 | pub(crate) enum SummarySelection {
+   |                 ---------------- variant in this enum
+30 |     Manual { profile_id: Option<Uuid> },
+31 |     Automatic,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `automatic_summary` and `selection_error` are never read
+  --> src/intelligence/config.rs:34:16
+   |
+33 | pub(crate) struct SummaryConfigSnapshot {
+   |                   --------------------- fields in this struct
+34 |     pub(crate) automatic_summary: bool,
+   |                ^^^^^^^^^^^^^^^^^
+35 |     pub(crate) profile: Option<ModelProfile>,
+36 |     pub(crate) selection_error: Option<IntelligenceErrorCode>,
+   |                ^^^^^^^^^^^^^^^
+
+warning: fields `owner` and `cancel` are never read
+  --> src/llm/mod.rs:14:5
+   |
+13 | pub struct LlmExecution {
+   |            ------------ fields in this struct
+14 |     owner: OperationLease,
+   |     ^^^^^
+15 |     cancel: watch::Receiver<bool>,
+   |     ^^^^^^
+
+warning: associated function `new` is never used
+  --> src/llm/mod.rs:18:19
+   |
+17 | impl LlmExecution {
+   | ----------------- associated function in this implementation
+18 |     pub(crate) fn new(owner: OperationLease, cancel: watch::Receiver<bool>) -> Self { Self { owner, cancel } }
+   |                   ^^^
+
+warning: field `llm` is never read
+ --> src/summary/mod.rs:8:105
+  |
+8 | pub struct SummaryService { store:Arc<LocalStore>,config:Arc<ServiceConfigStore>,jobs:Arc<JobScheduler>,llm:Arc<dyn LlmProvider> }
+  |            -------------- field in this struct                                                          ^^^
+
+warning: fields `core` and `epoch` are never read
+ --> src/summary/mod.rs:9:34
+  |
+9 | pub(crate) struct SummaryReady { core:Uuid,epoch:u64 }
+  |                   ------------   ^^^^      ^^^^^
+  |                   |
+  |                   fields in this struct
+
+warning: fields `io` and `dir` are never read
+  --> src/summary/tests/harness.rs:46:9
+   |
+43 | pub(super) struct SummaryHarness {
+   |                   -------------- fields in this struct
+...
+46 |     pub io: ConfigIo,
+   |         ^^
+...
+52 |     pub dir: tempfile::TempDir,
+   |         ^^^
+
+warning: method `coverage` is never used
+   --> src/summary/tests/harness.rs:113:12
+    |
+ 54 | impl SummaryHarness {
+    | ------------------- method in this implementation
+...
+113 |     pub fn coverage(&self, id: Uuid) -> AppResult<Vec<(String,u32,u32)>> {
+    |            ^^^^^^^^
+
+warning: `vox-bridge` (lib test) generated 8 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 33.39s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 22 tests
+test summary::tests::content::summary_content_requires_exact_schema_types_and_rejects_unknown_nested_fields ... ok
+test summary::tests::content::summary_content_bounds_every_action_and_term_and_keeps_all_fields ... ok
+test summary::tests::content::summary_content_rejects_scalar_and_array_overflow_without_truncation ... ok
+test summary::tests::content::summary_legacy_sanitizer_bounds_depth_nodes_and_decoded_bytes_and_rejects_raw ... ok
+test summary::tests::admission::summary_admission_permanent_existing_survives_missing_rows_and_exhaustion ... ok
+test summary::tests::manual::manual_concurrent_generation_admits_one_native_version ... FAILED
+test storage::sqlite_tests::summary_versions_are_transactionally_persisted_and_listed ... ok
+test summary::tests::admission::summary_admission_delete_highest_and_all_versions_never_reuses_counter ... ok
+test summary::tests::projection::summary_cursor_rejects_noncanonical_and_out_of_range_wire_values ... ok
+test summary::tests::admission::summary_admission_insert_failure_rolls_back_job_version_counter_and_permanent_marker ... ok
+test storage::sqlite_tests::deleting_session_removes_segments_and_summary ... ok
+test summary::tests::manual::manual_explicit_model_switch_and_missing_selection_do_not_rewrite_history ... FAILED
+test summary::tests::manual::manual_no_finals_fails_locally_and_later_final_uses_a_new_snapshot ... FAILED
+test summary::tests::manual::manual_retry_preserves_prior_output_and_monotonic_versions ... FAILED
+test summary::tests::migration::summary_migration6_failure_rolls_back_schema_and_original_rows ... ok
+test summary::tests::admission::summary_admission_u32_exhaustion_inserts_nothing ... ok
+test summary::tests::projection::summary_projection_invalid_legacy_is_visible_and_raw_fields_fail_safely ... ok
+test summary::tests::projection::summary_projection_unbounded_none_and_exact_signed_keyset_preserve_legacy ... ok
+test summary::tests::migration::summary_migration6_preserves_legacy_and_durable_counter_on_reopen ... ok
+test summary::tests::migration::summary_migration6_seeds_negative_zero_and_large_signed_exhaustion_without_rewriting ... ok
+test summary::tests::manual::manual_delete_waits_for_actual_entered_llm_and_late_result_never_repopulates has been running for over 60 seconds
+test summary::tests::manual::manual_retry_after_cancelled_and_interrupted_is_new_version has been running for over 60 seconds
+error: test failed, to rerun pass `--lib`
+
+Caused by:
+  process didn't exit successfully: `/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a summary` (signal: 2, SIGINT: terminal interrupt signal)

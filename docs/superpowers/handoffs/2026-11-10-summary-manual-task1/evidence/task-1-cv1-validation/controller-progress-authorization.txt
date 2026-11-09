@@ -1,0 +1,5 @@
+Sender: /root
+Recipient: /root/summary_manual_task1_impl
+Scope: one Root-owned controller progress.md append; no source/evidence repair.
+
+已接收补充审计。progress.md 的 49554→50002 byte 追加确为 Root 的合法账本更新；这是唯一允许的 controller-owned bookkeeping 例外，不是作者改动。请原失败 audit/log 保持 byte-identical，按这一窄例外完成独立最终 preservation 审计／CV-1 报告及正式 handback（显式无 Cargo/child PID、zero calls、shutdown、原输入/ref/index不变）。不重复测量、不改 production。完成后只返回报告路径、哈希、实际 Timeout/availability=false、owner/direct/actual时序限度与明确所有权交回。Root 暂不启动 Cargo。

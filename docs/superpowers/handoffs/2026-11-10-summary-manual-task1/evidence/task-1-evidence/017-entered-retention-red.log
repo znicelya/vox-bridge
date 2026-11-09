@@ -1,0 +1,156 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+warning: unused import: `self`
+ --> src/summary/snapshot.rs:2:48
+  |
+2 | use super::{job_proof::SummaryJobProof,store::{self,text,uuid,storage,error}};
+  |                                                ^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `self`
+ --> src/summary/handler.rs:2:92
+  |
+2 | use super::{SummaryCore,job_proof::SummaryJobProof,snapshot::FinalSnapshot,planner,store::{self,error,storage}};
+  |                                                                                            ^^^^
+
+warning: unused import: `uuid::Uuid`
+ --> src/summary/handler.rs:5:5
+  |
+5 | use uuid::Uuid;
+  |     ^^^^^^^^^^
+
+warning: unused import: `JobContext`
+  --> src/summary/mod.rs:10:123
+   |
+10 | ...elligence::{config::ServiceConfigStore,jobs::{JobScheduler,JobContext,JobHandler,JobReapPort,OperationLease},types::*},llm::LlmPr...
+   |                                                               ^^^^^^^^^^
+
+warning: unused import: `JobHandler`
+  --> src/summary/mod.rs:10:134
+   |
+10 | ...{config::ServiceConfigStore,jobs::{JobScheduler,JobContext,JobHandler,JobReapPort,OperationLease},types::*},llm::LlmProvider};
+   |                                                               ^^^^^^^^^^
+
+warning: variant `Automatic` is never constructed
+  --> src/intelligence/config.rs:31:5
+   |
+29 | pub(crate) enum SummarySelection {
+   |                 ---------------- variant in this enum
+30 |     Manual { profile_id: Option<Uuid> },
+31 |     Automatic,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `automatic_summary` and `selection_error` are never read
+  --> src/intelligence/config.rs:34:16
+   |
+33 | pub(crate) struct SummaryConfigSnapshot {
+   |                   --------------------- fields in this struct
+34 |     pub(crate) automatic_summary: bool,
+   |                ^^^^^^^^^^^^^^^^^
+35 |     pub(crate) profile: Option<ModelProfile>,
+36 |     pub(crate) selection_error: Option<IntelligenceErrorCode>,
+   |                ^^^^^^^^^^^^^^^
+
+warning: fields `owner` and `cancel` are never read
+  --> src/llm/mod.rs:14:5
+   |
+13 | pub struct LlmExecution {
+   |            ------------ fields in this struct
+14 |     owner: OperationLease,
+   |     ^^^^^
+15 |     cancel: watch::Receiver<bool>,
+   |     ^^^^^^
+
+warning: fields `core` and `epoch` are never read
+  --> src/summary/mod.rs:15:34
+   |
+15 | pub(crate) struct SummaryReady { core:Uuid,epoch:u64 }
+   |                   ------------   ^^^^      ^^^^^
+   |                   |
+   |                   fields in this struct
+
+warning: fields `status` and `error` are never read
+  --> src/summary/job_proof.rs:38:58
+   |
+38 | struct Domain { proof:SummaryJobProof,payload:JobPayload,status:JobStatus,error:Option<IntelligenceErrorCode> }
+   |        ------ fields in this struct                      ^^^^^^           ^^^^^
+
+warning: associated items `terminal_in_tx` and `job_id` are never used
+  --> src/summary/job_proof.rs:90:19
+   |
+76 | impl SummaryJobProof {
+   | -------------------- associated items in this implementation
+...
+90 |     pub(crate) fn terminal_in_tx(tx:&Transaction<'_>,trusted_job_id:Uuid,status:JobStatus,error:Option<IntelligenceErrorCode>)->AppR...
+   |                   ^^^^^^^^^^^^^^
+...
+95 |     pub(crate) fn job_id(&self)->Uuid {self.trusted_job_id}
+   |                   ^^^^^^
+
+warning: method `as_str` is never used
+  --> src/summary/planner.rs:15:27
+   |
+15 | impl Phase {pub(crate) fn as_str(self)->&'static str {match self {Self::Map=>"map",Self::Reduce=>"reduce"}}}
+   | ----------                ^^^^^^
+   | |
+   | method in this implementation
+
+warning: field `counters` is never read
+  --> src/summary/planner.rs:19:109
+   |
+19 | pub(crate) struct PlannedMaps {pub(crate) manifest:Manifest,pub(crate) requests:Vec<RequestPlan>,pub(crate) counters:PlannerCounters}
+   |                   ----------- field in this struct                                                          ^^^^^^^^
+
+warning: function `render_reduce` is never used
+   --> src/summary/planner.rs:181:15
+    |
+181 | pub(crate) fn render_reduce(frontier:&[SummaryNode],plan:&RequestPlan,profile:&ModelProfile)->Result<LlmRequest,Code> {
+    |               ^^^^^^^^^^^^^
+
+warning: method `with_idle` is never used
+  --> src/summary/operations.rs:27:19
+   |
+17 | impl AttemptRegistry {
+   | -------------------- method in this implementation
+...
+27 |     pub(crate) fn with_idle<T>(&self,jobs:&[Uuid],operation:impl FnOnce()->AppResult<T>)->AppResult<Option<T>> {
+   |                   ^^^^^^^^^
+
+warning: fields `io` and `dir` are never read
+  --> src/summary/tests/harness.rs:46:9
+   |
+43 | pub(super) struct SummaryHarness {
+   |                   -------------- fields in this struct
+...
+46 |     pub io: ConfigIo,
+   |         ^^
+...
+52 |     pub dir: tempfile::TempDir,
+   |         ^^^
+
+warning: `vox-bridge` (lib test) generated 16 warnings (run `cargo fix --lib -p vox-bridge --tests` to apply 4 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.35s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 1 test
+test summary::tests::manual::manual_entered_llm_retains_raw_and_exact_supplied_map_coverage_before_parse ... FAILED
+
+failures:
+
+---- summary::tests::manual::manual_entered_llm_retains_raw_and_exact_supplied_map_coverage_before_parse stdout ----
+
+thread 'summary::tests::manual::manual_entered_llm_retains_raw_and_exact_supplied_map_coverage_before_parse' (742781) panicked at src/summary/tests/manual.rs:26:5:
+assertion `left == right` failed: entered invalid response must be durable before strict parsing
+  left: []
+ right: ["{invalid"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    summary::tests::manual::manual_entered_llm_retains_raw_and_exact_supplied_map_coverage_before_parse
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 789 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `--lib`

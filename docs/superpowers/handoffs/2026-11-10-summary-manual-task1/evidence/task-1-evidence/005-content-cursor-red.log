@@ -1,0 +1,10 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+error: no rules expected `"x"`
+  --> src/summary/tests/content.rs:14:31
+   |
+14 |         content[field]=json!(["x"; 101]);
+   |                               ^^^ no rules expected this token in macro call
+   |
+   = note: while trying to match end of macro
+
+error: could not compile `vox-bridge` (lib test) due to 1 previous error

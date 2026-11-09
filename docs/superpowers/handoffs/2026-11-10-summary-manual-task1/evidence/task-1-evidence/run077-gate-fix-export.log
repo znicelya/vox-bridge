@@ -1,0 +1,25 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.60s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 18 tests
+test export::export_tests::export_writes_complete_output_to_destination ... ok
+test export::export_tests::export_rejects_missing_sessions ... ok
+test export::export_tests::json_export_has_stable_fields_and_only_final_segments ... ok
+test export::export_tests::export_can_replace_an_existing_destination ... ok
+test export::export_tests::export_legacy_signed_values_remain_numeric_without_fabricated_milliseconds ... ok
+test export::export_tests::json_export_identifies_legacy_rows_and_includes_diagnostics_and_context ... ok
+test export::export_tests::export_rejects_unknown_or_mismatched_extensions_and_directories ... ok
+test export::export_tests::export_rejects_read_only_existing_destination ... ok
+test export::export_tests::export_native_summary_contains_every_field_safe_metadata_and_no_raw_response ... ok
+test export::export_tests::markdown_export_contains_direction_timestamp_and_final_content ... ok
+test storage::sqlite_tests::export_reads_persisted_context_and_deletion_cascades_it ... ok
+test export::export_tests::legacy_role_mapping_uses_each_rows_direction_and_marks_ambiguity ... ok
+test export::export_tests::plain_text_export_uses_timestamped_direction_source_and_translation_lines ... ok
+test storage::sqlite_tests::diagnostic_pages_and_exports_persist_safe_payloads_and_cascade_delete ... ok
+test summary::tests::projection::summary_projection_legacy_inline_audio_stays_out_of_wire_and_every_export ... ok
+test export::export_tests::export_invalid_reserved_raw_and_overlarge_status_fail_whole_preserving_destination ... ok
+test export::export_tests::export_32mib_summary_projection_cap_preserves_destination ... ok
+test export::export_tests::export_128mib_escaped_artifact_cap_preserves_destination ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 819 filtered out; finished in 3.37s
+

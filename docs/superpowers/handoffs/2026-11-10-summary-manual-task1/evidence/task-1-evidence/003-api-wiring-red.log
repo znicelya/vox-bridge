@@ -1,0 +1,26 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+error[E0432]: unresolved imports `super::super::SummaryService`, `super::super::SummaryJobRequest`, `super::super::types`
+ --> src/summary/tests/harness.rs:1:20
+  |
+1 | use super::super::{SummaryService, SummaryJobRequest, types::{NativeSummaryView, SummaryView}};
+  |                    ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^ could not find `types` in `super`
+  |                    |               |
+  |                    |               no `SummaryJobRequest` in `summary`
+  |                    no `SummaryService` in `summary`
+
+error[E0432]: unresolved import `crate::llm`
+ --> src/summary/tests/harness.rs:7:5
+  |
+7 |     llm::{LlmExecution, LlmProvider, LlmRequest, LlmResponse},
+  |     ^^^ could not find `llm` in the crate root
+
+error[E0432]: unresolved import `crate::summary::SummaryJobRequest`
+ --> src/summary/tests/admission.rs:1:74
+  |
+1 | use crate::{intelligence::{test_support::IntelligenceHarness, types::*}, summary::SummaryJobRequest};
+  |                                                                          ^^^^^^^^^-----------------
+  |                                                                                   |
+  |                                                                                   no `SummaryJobRequest` in `summary`
+
+For more information about this error, try `rustc --explain E0432`.
+error: could not compile `vox-bridge` (lib test) due to 3 previous errors

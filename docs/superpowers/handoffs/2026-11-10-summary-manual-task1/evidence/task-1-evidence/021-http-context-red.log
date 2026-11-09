@@ -1,0 +1,120 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+warning: unused imports: `JsonHttp`, `JsonRequest`, and `JsonResponse`
+ --> src/llm/tests.rs:2:73
+  |
+2 | use crate::{app::CredentialChange,intelligence::{http::{ReqwestJsonHttp,JsonHttp,JsonRequest,JsonResponse},test_support::*,types::*}};
+  |                                                                         ^^^^^^^^ ^^^^^^^^^^^ ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `self`
+ --> src/summary/snapshot.rs:2:48
+  |
+2 | use super::{job_proof::SummaryJobProof,store::{self,text,uuid,storage,error}};
+  |                                                ^^^^
+
+warning: unused import: `JobContext`
+  --> src/summary/mod.rs:10:123
+   |
+10 | ...elligence::{config::ServiceConfigStore,jobs::{JobScheduler,JobContext,JobHandler,JobReapPort,OperationLease},types::*},llm::LlmPr...
+   |                                                               ^^^^^^^^^^
+
+warning: unused import: `JobHandler`
+  --> src/summary/mod.rs:10:134
+   |
+10 | ...{config::ServiceConfigStore,jobs::{JobScheduler,JobContext,JobHandler,JobReapPort,OperationLease},types::*},llm::LlmProvider};
+   |                                                               ^^^^^^^^^^
+
+warning: variant `Automatic` is never constructed
+  --> src/intelligence/config.rs:31:5
+   |
+29 | pub(crate) enum SummarySelection {
+   |                 ---------------- variant in this enum
+30 |     Manual { profile_id: Option<Uuid> },
+31 |     Automatic,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `automatic_summary` and `selection_error` are never read
+  --> src/intelligence/config.rs:34:16
+   |
+33 | pub(crate) struct SummaryConfigSnapshot {
+   |                   --------------------- fields in this struct
+34 |     pub(crate) automatic_summary: bool,
+   |                ^^^^^^^^^^^^^^^^^
+35 |     pub(crate) profile: Option<ModelProfile>,
+36 |     pub(crate) selection_error: Option<IntelligenceErrorCode>,
+   |                ^^^^^^^^^^^^^^^
+
+warning: fields `owner` and `cancel` are never read
+  --> src/llm/mod.rs:18:5
+   |
+17 | pub struct LlmExecution {
+   |            ------------ fields in this struct
+18 |     owner: OperationLease,
+   |     ^^^^^
+19 |     cancel: watch::Receiver<bool>,
+   |     ^^^^^^
+
+warning: fields `config`, `http`, and `requests` are never read
+ --> src/llm/openai_compatible.rs:5:5
+  |
+4 | pub(crate) struct OpenAiCompatibleLlm {
+  |                   ------------------- fields in this struct
+5 |     config:Arc<ServiceConfigStore>,http:Arc<dyn JsonHttp>,requests:Arc<tokio::sync::Semaphore>,
+  |     ^^^^^^                         ^^^^                   ^^^^^^^^
+
+warning: fields `core` and `epoch` are never read
+  --> src/summary/mod.rs:15:34
+   |
+15 | pub(crate) struct SummaryReady { core:Uuid,epoch:u64 }
+   |                   ------------   ^^^^      ^^^^^
+   |                   |
+   |                   fields in this struct
+
+warning: method `with_idle` is never used
+  --> src/summary/operations.rs:27:19
+   |
+17 | impl AttemptRegistry {
+   | -------------------- method in this implementation
+...
+27 |     pub(crate) fn with_idle<T>(&self,jobs:&[Uuid],operation:impl FnOnce()->AppResult<T>)->AppResult<Option<T>> {
+   |                   ^^^^^^^^^
+
+warning: fields `io` and `dir` are never read
+  --> src/summary/tests/harness.rs:46:9
+   |
+43 | pub(super) struct SummaryHarness {
+   |                   -------------- fields in this struct
+...
+46 |     pub io: ConfigIo,
+   |         ^^
+...
+52 |     pub dir: tempfile::TempDir,
+   |         ^^^
+
+warning: `vox-bridge` (lib test) generated 11 warnings (run `cargo fix --lib -p vox-bridge --tests` to apply 3 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 36.73s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 1 test
+test intelligence::http::transport_tests::intelligence_http_compatible_context_errors_require_explicit_exact_bounded_code ... FAILED
+
+failures:
+
+---- intelligence::http::transport_tests::intelligence_http_compatible_context_errors_require_explicit_exact_bounded_code stdout ----
+
+thread 'intelligence::http::transport_tests::intelligence_http_compatible_context_errors_require_explicit_exact_bounded_code' (750074) panicked at src/intelligence/http_tests.rs:66:9:
+assertion `left == right` failed
+  left: Some(Network)
+ right: Some(ContextTooLarge)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    intelligence::http::transport_tests::intelligence_http_compatible_context_errors_require_explicit_exact_bounded_code
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 793 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`

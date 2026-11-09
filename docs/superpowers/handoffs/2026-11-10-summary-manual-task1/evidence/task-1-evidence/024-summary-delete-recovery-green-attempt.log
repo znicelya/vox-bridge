@@ -1,0 +1,164 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+warning: unused imports: `JsonHttp`, `JsonRequest`, and `JsonResponse`
+ --> src/llm/tests.rs:2:73
+  |
+2 | use crate::{app::CredentialChange,intelligence::{http::{ReqwestJsonHttp,JsonHttp,JsonRequest,JsonResponse},test_support::*,types::*}};
+  |                                                                         ^^^^^^^^ ^^^^^^^^^^^ ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `self`
+ --> src/summary/snapshot.rs:2:48
+  |
+2 | use super::{job_proof::SummaryJobProof,store::{self,text,uuid,storage,error}};
+  |                                                ^^^^
+
+warning: unused import: `SummaryRecoveryFence`
+  --> src/summary/mod.rs:10:40
+   |
+10 | pub(crate) use recovery::{SummaryReady,SummaryRecoveryFence};
+   |                                        ^^^^^^^^^^^^^^^^^^^^
+
+warning: variant `Automatic` is never constructed
+  --> src/intelligence/config.rs:31:5
+   |
+29 | pub(crate) enum SummarySelection {
+   |                 ---------------- variant in this enum
+30 |     Manual { profile_id: Option<Uuid> },
+31 |     Automatic,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `automatic_summary` and `selection_error` are never read
+  --> src/intelligence/config.rs:34:16
+   |
+33 | pub(crate) struct SummaryConfigSnapshot {
+   |                   --------------------- fields in this struct
+34 |     pub(crate) automatic_summary: bool,
+   |                ^^^^^^^^^^^^^^^^^
+35 |     pub(crate) profile: Option<ModelProfile>,
+36 |     pub(crate) selection_error: Option<IntelligenceErrorCode>,
+   |                ^^^^^^^^^^^^^^^
+
+warning: methods `require_epoch`, `signal_closing`, `drain_actual`, and `prepare_session_delete_owned` are never used
+  --> src/summary/mod.rs:22:19
+   |
+18 | impl SummaryService {
+   | ------------------- methods in this implementation
+...
+22 |     pub(crate) fn require_epoch(&self,epoch:u64)->AppResult<()> {self.core.recovery.ready()?.require_epoch(epoch)}
+   |                   ^^^^^^^^^^^^^
+23 |     pub(crate) fn signal_closing(&self)->AppResult<()> {self.core.recovery.close()}
+   |                   ^^^^^^^^^^^^^^
+24 |     pub(crate) async fn drain_actual(&self)->AppResult<()> {self.core.recovery.drain().await?;self.core.attempts.drain().await}
+   |                         ^^^^^^^^^^^^
+...
+33 |     pub(crate) async fn prepare_session_delete_owned(&self,session_id:Uuid,owner:OperationLease)->AppResult<SummarySessionDeleteGuar...
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `SummarySessionDeleteGuard` is never constructed
+   --> src/summary/operations.rs:194:19
+    |
+194 | pub(crate) struct SummarySessionDeleteGuard {core:Arc<SummaryCore>,scope:Scope,reap:Arc<JobReapPort>,fence:DeleteFence,owner:Operat...
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `delete_owned` is never used
+   --> src/summary/operations.rs:196:25
+    |
+195 | impl SummarySessionDeleteGuard {
+    | ------------------------------ method in this implementation
+196 |     pub(crate) async fn delete_owned(self)->AppResult<()> {
+    |                         ^^^^^^^^^^^^
+
+warning: function `prepare_session_delete` is never used
+   --> src/summary/operations.rs:200:21
+    |
+200 | pub(super) async fn prepare_session_delete(core:Arc<SummaryCore>,jobs:Arc<JobScheduler>,session:Uuid,owner:OperationLease,ready:Sum...
+    |                     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variant `Closing` is never constructed
+ --> src/summary/recovery.rs:9:37
+  |
+9 | enum Stage {Closed,Recovering,Ready,Closing}
+  |      ----- variant in this enum     ^^^^^^^
+  |
+  = note: `Stage` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: methods `close` and `drain` are never used
+  --> src/summary/recovery.rs:30:19
+   |
+16 | impl RecoveryControl {
+   | -------------------- methods in this implementation
+...
+30 |     pub(super) fn close(&self)->AppResult<()> {self.state.lock().map_err(|_|storage())?.stage=Stage::Closing;Ok(())}
+   |                   ^^^^^
+31 |     fn fail(&self,key:Key) {if let Ok(mut state)=self.state.lock() {if state.key==Some(key)&&state.stage==Stage::Recovering {state.s...
+32 |     pub(super) async fn drain(&self)->AppResult<()> {let _all=self.actual.clone().acquire_owned().await.map_err(|_|error(Code::Inter...
+   |                         ^^^^^
+
+warning: method `require_epoch` is never used
+  --> src/summary/recovery.rs:39:19
+   |
+34 | impl SummaryReady {
+   | ----------------- method in this implementation
+...
+39 |     pub(crate) fn require_epoch(&self,epoch:u64)->AppResult<()> {self.run(||if self.key.epoch==epoch {Ok(())}else {Err(error(Code::I...
+   |                   ^^^^^^^^^^^^^
+
+warning: fields `io` and `dir` are never read
+  --> src/summary/tests/harness.rs:46:9
+   |
+43 | pub(super) struct SummaryHarness {
+   |                   -------------- fields in this struct
+...
+46 |     pub io: ConfigIo,
+   |         ^^
+...
+52 |     pub dir: tempfile::TempDir,
+   |         ^^^
+
+warning: `vox-bridge` (lib test) generated 13 warnings (run `cargo fix --lib -p vox-bridge --tests` to apply 3 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 38.56s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 36 tests
+test summary::tests::content::summary_content_requires_exact_schema_types_and_rejects_unknown_nested_fields ... ok
+test summary::tests::content::summary_content_bounds_every_action_and_term_and_keeps_all_fields ... ok
+test summary::tests::content::summary_content_rejects_scalar_and_array_overflow_without_truncation ... ok
+test summary::tests::content::summary_legacy_sanitizer_bounds_depth_nodes_and_decoded_bytes_and_rejects_raw ... ok
+test summary::tests::admission::summary_admission_insert_failure_rolls_back_job_version_counter_and_permanent_marker ... ok
+test summary::tests::admission::summary_admission_delete_highest_and_all_versions_never_reuses_counter ... ok
+test summary::tests::job_proof::summary_job_proof_anchors_trusted_id_and_rechecks_the_raw_byte_witness ... ok
+test summary::tests::admission::summary_admission_permanent_existing_survives_missing_rows_and_exhaustion ... ok
+test summary::tests::manual::manual_entered_llm_retains_raw_and_exact_supplied_map_coverage_before_parse ... ok
+test summary::tests::planner::summary_planner_no_pair_and_prospective_call65_level9_fail_without_counter_reset ... ok
+test summary::tests::planner::summary_planner_reductions_carry_singletons_preserve_adjacent_coverage_and_progress ... ok
+test summary::tests::manual::manual_concurrent_generation_admits_one_native_version ... ok
+test summary::tests::manual::manual_explicit_model_switch_and_missing_selection_do_not_rewrite_history ... ok
+test summary::tests::projection::summary_cursor_rejects_noncanonical_and_out_of_range_wire_values ... ok
+test summary::tests::manual::manual_no_finals_fails_locally_and_later_final_uses_a_new_snapshot ... ok
+test summary::tests::planner::summary_planner_unicode_parts_reconstruct_exact_bytes_and_all_rendered_escaping ... ok
+test summary::tests::manual::manual_delete_waits_for_actual_entered_llm_and_late_result_never_repopulates ... ok
+test summary::tests::manual::manual_retry_after_cancelled_and_interrupted_is_new_version ... ok
+test summary::tests::migration::summary_migration6_failure_rolls_back_schema_and_original_rows ... ok
+test summary::tests::admission::summary_admission_u32_exhaustion_inserts_nothing ... ok
+test summary::tests::migration::summary_migration6_preserves_legacy_and_durable_counter_on_reopen ... ok
+test summary::tests::migration::summary_migration6_seeds_negative_zero_and_large_signed_exhaustion_without_rewriting ... ok
+test summary::tests::manual::manual_retry_preserves_prior_output_and_monotonic_versions ... ok
+test summary::tests::projection::summary_projection_invalid_legacy_is_visible_and_raw_fields_fail_safely ... ok
+test summary::tests::projection::summary_projection_unbounded_none_and_exact_signed_keyset_preserve_legacy ... ok
+test summary::tests::recovery::summary_local_recovery_finishes_durable_delete_with_joined_prior_job_ownership ... ok
+test summary::tests::recovery::summary_readiness_cannot_be_inferred_from_started_jobs_without_local_recovery ... ok
+test summary::tests::snapshot::summary_snapshot_bundled_sqlite_uses_session_rowid_index_without_scan_or_sort ... ok
+test summary::tests::snapshot::summary_snapshot_hash_binds_all_safe_identity_without_raw_metadata ... ok
+test summary::tests::snapshot::summary_snapshot_pins_successive_finals_and_preserves_cross_direction_insertion ... ok
+test summary::tests::snapshot_owned::summary_snapshot_dropped_observer_retains_entered_sql_owner_and_slot ... ok
+test summary::tests::snapshot::summary_snapshot_separate_metadata_limit_and_present_invalid_native_types_fail ... ok
+test summary::tests::job_proof::summary_job_proof_rejects_each_association_profile_and_claim_drift_before_entry ... ok
+test summary::tests::planner::summary_planner_reserves_complete_maps_and_rejects_64_maps_before_dispatch ... ok
+test summary::tests::snapshot_owned::summary_snapshot_five_second_observation_timeout_keeps_actual_entered_sql_owned ... ok
+test summary::tests::snapshot::summary_snapshot_row100001_and_normalized_16mib_overflow_reject_whole_input ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 760 filtered out; finished in 7.46s
+

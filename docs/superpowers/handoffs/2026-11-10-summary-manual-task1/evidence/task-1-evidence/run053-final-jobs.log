@@ -1,0 +1,37 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.68s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 30 tests
+test intelligence::jobs::tests::child_operations::child_operations_failed_process_upgrade_rolls_back_the_reserved_slot ... ok
+test intelligence::jobs::tests::child_operations::child_operations_release_process_before_publishing_slot_completion ... ok
+test intelligence::jobs::tests::handler_fixture_replacement_is_only_available_before_first_start ... ok
+test intelligence::jobs::tests::child_operations::child_operations_retained_context_does_not_keep_process_after_generation_done ... ok
+test intelligence::jobs::tests::intelligence_jobs_registry_is_frozen_and_missing_handlers_reject_before_admission ... ok
+test intelligence::jobs::tests::child_operations::child_operations_old_context_and_observer_cannot_affect_rearmed_generation ... ok
+test intelligence::jobs::tests::child_operations::child_operations_reject_cancelled_and_closed_jobs ... ok
+test intelligence::jobs::tests::child_operations::child_operations_share_sixteen_slots_and_hold_each_until_final_clone_drop ... ok
+test intelligence::jobs::tests::child_operations::child_operations_reject_terminal_context_in_open_generation ... ok
+test intelligence::jobs::tests::continuations::intelligence_after_terminal_reserves_before_success_releases_exclusion_and_drains_actual_child ... ok
+test intelligence::jobs::tests::child_operations::child_operations_drain_after_handler_completion_before_process_release_and_rearm ... ok
+test intelligence::jobs::tests::intelligence_jobs_actual_config_snapshot_and_shutdown_share_one_order ... ok
+test intelligence::jobs::tests::documents::documents_interrupt_publishes_actual_changed_job_beyond_first_history_page ... ok
+test intelligence::jobs::tests::intelligence_jobs_snapshot_admission_retains_public_identity ... ok
+test intelligence::jobs::tests::reap::intelligence_reap_absent_pending_frame_requires_complete_claim_ledger ... ok
+test intelligence::jobs::tests::reap::intelligence_reap_claim_before_handler_entry_is_not_terminal_authority ... ok
+test intelligence::jobs::tests::intelligence_jobs_uncertain_shutdown_retains_lease_and_fences_late_success_and_restart ... ok
+test intelligence::jobs::tests::intelligence_jobs_two_workers_capacity_cancel_and_terminal_persistence ... ok
+test intelligence::jobs::tests::intelligence_jobs_sqlite_wait_does_not_block_snapshot_admission_control ... ok
+test intelligence::jobs::tests::reap::intelligence_reap_claim_rollback_keeps_ledger_complete_and_allows_retry ... ok
+test intelligence::jobs::tests::reap::intelligence_reap_out_of_order_older_claim_cannot_use_newer_completion ... ok
+test intelligence::jobs::tests::reap::intelligence_reap_rejects_matching_live_frame_rowid_and_payload_drift ... ok
+test intelligence::jobs::tests::reap::intelligence_reap_entered_child_outlives_observer_and_terminal_handler ... ok
+test intelligence::jobs::tests::reap::intelligence_reap_shutdown_rejects_unfinished_factory_without_waiting_for_children ... ok
+test intelligence::jobs::tests::intelligence_jobs_success_failure_release_exclusion_and_parser_is_shared ... ok
+test intelligence::jobs::tests::continuations::intelligence_after_terminal_does_not_run_success_hook_for_failed_or_cancelled_parent ... ok
+test intelligence::jobs::tests::reap::intelligence_reap_terminal_hook_waits_for_last_actual_child_and_closes_factory ... ok
+test intelligence::jobs::tests::reap::intelligence_reap_shutdown_waits_for_completion_publication_after_slot_release ... ok
+test intelligence::jobs::tests::reap::intelligence_reap_safe_pruning_and_explicit_joined_fresh_rearm_authority ... ok
+test intelligence::jobs::tests::reap::summary_reap_claim_before_handler_entry_keeps_delete_and_recovery_fenced_until_actual_factory_close ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 805 filtered out; finished in 1.28s
+

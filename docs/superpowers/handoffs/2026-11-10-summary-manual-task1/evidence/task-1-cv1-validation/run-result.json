@@ -1,0 +1,25 @@
+{
+  "cargo_elapsed_ns": 109547452144,
+  "cargo_exit_code": 0,
+  "cargo_pid": 965188,
+  "command_sha256": "1bfb3a15d51814ad30973ed4bf672fab73f2966487cb65a0b8a2a615cc134edb",
+  "finished_utc": "2026-11-09T19:31:26.360697+00:00",
+  "measurement_present": true,
+  "observed_cargo_descendant_pids": [
+    965188,
+    966317
+  ],
+  "raw_log_bytes": 5543,
+  "raw_log_path": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/sdd/2026-11-09-session-summary-continuation/task-1-cv1-validation/cargo-test.log",
+  "raw_log_sha256": "93ec975c48321a2c82909519d1ac7a7c85ed3184a1405f614a95c15c1c2c05cd",
+  "single_fixture_result": true,
+  "source_after_cargo_added": [
+    "src-tauri/gen/schemas/acl-manifests.json",
+    "src-tauri/gen/schemas/capabilities.json",
+    "src-tauri/gen/schemas/desktop-schema.json",
+    "src-tauri/gen/schemas/linux-schema.json"
+  ],
+  "source_after_cargo_changes": [],
+  "source_after_cargo_sha256": "4088f18cdac59c07b00c4f36201c8f1ff87a9f566b26d28ebe32ccb78ee22b48",
+  "started_utc": "2026-11-09T19:29:36.802144+00:00"
+}

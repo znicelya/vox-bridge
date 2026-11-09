@@ -1,0 +1,42 @@
+{
+  "active_jobs": 0,
+  "actual_reap_samples": [
+    {
+      "basis": "fresh",
+      "generation": null,
+      "id": "30000000-0000-0000-0000-000000000001",
+      "payload_sha256": "43ca04fe948eed577386274126911442abd8a33ca0824bd0a14f304ca78aa340",
+      "registry": "0f4be36a-f2d0-4119-88ab-e850ca9ab470",
+      "rowid": 1,
+      "status": "interrupted"
+    },
+    {
+      "basis": "fresh",
+      "generation": null,
+      "id": "30000000-0000-0000-0000-000000030d40",
+      "payload_sha256": "b47b5064886fc495df96f49e6c3316cf9bd589d23bd19644e03a0a2ac513e074",
+      "registry": "0f4be36a-f2d0-4119-88ab-e850ca9ab470",
+      "rowid": 200000,
+      "status": "interrupted"
+    }
+  ],
+  "coherent_joined_rows": 200000,
+  "completed_sessions": 1,
+  "coverage_rows": 0,
+  "deleting_sessions": 0,
+  "deleting_summaries": 0,
+  "foreign_key_violations": 0,
+  "jobs": 200000,
+  "legacy_rows": 0,
+  "native_rows": 200000,
+  "preflight_elapsed_ns": 1027068163,
+  "preflight_excluded_from_recovery_interval": true,
+  "raw_response_rows": 0,
+  "sessions": 1,
+  "versions": {
+    "distinct": 200000,
+    "durable_counter": 200000,
+    "max": 200000,
+    "min": 1
+  }
+}

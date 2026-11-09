@@ -1,0 +1,98 @@
+{
+  "actual_cleanup": {
+    "actual_drain_joined": true,
+    "actual_drain_within_15s": true,
+    "actual_slots": 1,
+    "bounded_actual_drain_code": "Ok",
+    "config_slots": 2,
+    "direct_slots": 16,
+    "elapsed_ns": 741177,
+    "owner_gone": true,
+    "process_lock_reacquired": true,
+    "scheduler_shutdown_code": "Ok",
+    "scheduler_shutdown_ok": true
+  },
+  "actual_result": "Timeout",
+  "availability_established": false,
+  "completed_utc": "2026-11-09T19:41:00.531932+00:00",
+  "copied_frozen_plus_fixture_input_files": 721,
+  "copied_input_changes": [],
+  "copied_original_recovery_function_bytes_unchanged": true,
+  "database_unchanged_after_coherence_audit": true,
+  "elapsed_ns": 10000312414,
+  "live_observed_cargo_or_child_pids": [],
+  "no_recovery_cargo_or_fixture_sql_audit_rerun": true,
+  "original_baseline_files": 4615,
+  "original_input_index_ref_state": {
+    "head": "73760d609a050eaddcd8002cec572fbc73c65164",
+    "protected_gitignore_sha256": "1e708ede61f6522d88e4bea58f5c55e70831f404fd00f7a6710d424446e57a3a",
+    "refs_sha256": "aa5b951f2b32f2fa2d1181e9c6f5c1d5c9427a6dcd19859cda1b174324172906",
+    "staged_diff_sha256": "0c8c0ae8a86bae9bc97a10410d150d79dfef3305f2ec689fa98b7fc704d60f32",
+    "staged_entries_sha256": "c6ddc8ea9bfbe9833f3a319676d9a6f3f0799dd60397f1344d7cd14982d2b21e"
+  },
+  "original_input_index_ref_state_unchanged": true,
+  "preservation_with_exact_root_bookkeeping_exception_pass": true,
+  "preserved_artifacts": {
+    "cargo-test.log": {
+      "bytes": 5543,
+      "kind": "file",
+      "sha256": "93ec975c48321a2c82909519d1ac7a7c85ed3184a1405f614a95c15c1c2c05cd"
+    },
+    "measurement.json": {
+      "bytes": 3668,
+      "kind": "file",
+      "sha256": "ba4073046e72f9e0747c4f04df13a6f2265d3653227253532350fa3a504869b5"
+    },
+    "post-validation-audit.json": {
+      "bytes": 2390,
+      "kind": "file",
+      "sha256": "9dd0bd1936bd5eb5947aaae55664df259ff635c8786ed8bd3b0c241138d90eea"
+    },
+    "post-validation-audit.log": {
+      "bytes": 3046,
+      "kind": "file",
+      "sha256": "509e368ba5339152abfddad73465c160d64b31414fa478139e0f09761edb0dfe"
+    },
+    "run-result.json": {
+      "bytes": 1076,
+      "kind": "file",
+      "sha256": "bc3073fc2340e1aa1d506140190d35645a7826cb924509171d0cb149619e6902"
+    },
+    "sqlite-fixture-audit.json": {
+      "bytes": 1353,
+      "kind": "file",
+      "sha256": "9cb14e3a07a1e2952e0bce61428378b3a462829f8ee84a5aec151b7f01519599"
+    }
+  },
+  "preserved_test_binary_hash_matches": true,
+  "processes_with_source_copy_cwd": [],
+  "protected_worktree_gitignore": {
+    "bytes": 341,
+    "kind": "file",
+    "sha256": "1e708ede61f6522d88e4bea58f5c55e70831f404fd00f7a6710d424446e57a3a"
+  },
+  "provider_calls": 0,
+  "sole_controller_bookkeeping_exception": {
+    "appended_bytes": 448,
+    "baseline": {
+      "bytes": 49554,
+      "kind": "file",
+      "sha256": "487d76aaa99c7e211efde7a18f51163fbbe6f23881e25ea146c6cc6588caaa04"
+    },
+    "current": {
+      "bytes": 50002,
+      "kind": "file",
+      "sha256": "744959b33638ac321848f0b3fdabb50557b6c1be796c49e211ba712b9f006b4e"
+    },
+    "original_prefix_byte_identical": true,
+    "owner": "/root",
+    "parent_attribution": "controller-progress-authorization.txt",
+    "parent_attribution_sha256": "a4dc2d9cef4117ef423e1d67c83e1fe64ce611cb8419f282e6f7d8e9b0dd0f67",
+    "path": ".superpowers/sdd/2026-11-09-session-summary-continuation/progress.md",
+    "validation_author_modified_original": false
+  },
+  "strict_failed_audit_and_measurement_artifacts_unchanged": true,
+  "strict_failed_audit_original_exit_code": 1,
+  "unchanged_original_files": 4614,
+  "unexpected_original_mismatches": []
+}

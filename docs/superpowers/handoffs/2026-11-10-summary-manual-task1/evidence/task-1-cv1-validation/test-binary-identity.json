@@ -1,0 +1,10 @@
+{
+  "bytes": 560710768,
+  "captured_utc": "2026-11-09T19:38:16.060317+00:00",
+  "copied_exactly": true,
+  "executed_preserved_copy": false,
+  "original_cargo_output": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a",
+  "preserved_copy": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/sdd/2026-11-09-session-summary-continuation/task-1-cv1-validation/bin/vox_bridge_lib-c923e116beb4374a",
+  "sha256": "adabd2ddc13f04412e952b6b5a80097eb9f526b5ffcfe12bca961a286d9098c1",
+  "source_at_cargo_start_sha256": "e50e2fd4986763aa975f4215fe7f951f548a24c1884546f3bdf409677b51bbfb"
+}

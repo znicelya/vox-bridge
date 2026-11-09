@@ -1,0 +1,22 @@
+{
+  "accepted_utc": "2026-11-09T14:10:29.231326+00:00",
+  "base": "73760d609a050eaddcd8002cec572fbc73c65164",
+  "accepted_source_commit": "3c36bda1b7c7c4c04651b3c419c8c0f0fedb5eae",
+  "accepted_source_tree": "42ad04b3c5027f0ed7a84c509522502983bf8a84",
+  "worktree": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation",
+  "environment": {
+    "CARGO_HOME": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106",
+    "CARGO_TARGET_DIR": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107",
+    "TMPDIR": "/dev/shm/voxbridge-intelligence-20261109.q7xaof9u",
+    "PKG_CONFIG_PATH": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig",
+    "PKG_CONFIG_SYSROOT_DIR": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot",
+    "LIBRARY_PATH": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu"
+  },
+  "plan_sha256": "b09c176b1f85d3737707d30e6e2a629625f7678b2bd716d4b3aaea82f2837fbc",
+  "brief_sha256": "6125bb2389c6c8e173ed0d61a62a4f6798b5f8165c191c89d0cba5d9597a79de",
+  "constraints_sha256": "fb99cbd2228012398b1d46cc3cc8896ebcd06c360bab33d29bc008495c83e510",
+  "execution_context_sha256": "d3f65f6bf524292a78b420ba2642a57f520aef7a31a5399a28e90aa1e206d21a",
+  "protected_gitignore_sha256": "1e708ede61f6522d88e4bea58f5c55e70831f404fd00f7a6710d424446e57a3a",
+  "source_cargo_owner": "Task1 implementer only after Root dispatch; no pending command now",
+  "remote_push": "pending HTTPS GitHub login; last push exit128; local main accepted"
+}

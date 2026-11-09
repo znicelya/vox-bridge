@@ -1,0 +1,38 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 21s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 3 tests
+test summary::tests::migration::summary_migration6_failure_rolls_back_schema_and_original_rows ... FAILED
+test summary::tests::migration::summary_migration6_seeds_negative_zero_and_large_signed_exhaustion_without_rewriting ... FAILED
+test summary::tests::migration::summary_migration6_preserves_legacy_and_durable_counter_on_reopen ... FAILED
+
+failures:
+
+---- summary::tests::migration::summary_migration6_failure_rolls_back_schema_and_original_rows stdout ----
+
+thread 'summary::tests::migration::summary_migration6_failure_rolls_back_schema_and_original_rows' (705682) panicked at src/summary/tests/migration.rs:69:5:
+conflicting summary schema must fail the whole upgrade
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- summary::tests::migration::summary_migration6_seeds_negative_zero_and_large_signed_exhaustion_without_rewriting stdout ----
+
+thread 'summary::tests::migration::summary_migration6_seeds_negative_zero_and_large_signed_exhaustion_without_rewriting' (705684) panicked at src/summary/tests/migration.rs:57:177:
+called `Result::unwrap()` on an `Err` value: Storage(SqliteFailure(Error { code: Unknown, extended_code: 1 }, Some("no such table: summary_version_counters")))
+
+---- summary::tests::migration::summary_migration6_preserves_legacy_and_durable_counter_on_reopen stdout ----
+
+thread 'summary::tests::migration::summary_migration6_preserves_legacy_and_durable_counter_on_reopen' (705683) panicked at src/summary/tests/migration.rs:24:5:
+assertion `left == right` failed: completed upgrade must expose the manual-summary schema
+  left: 5
+ right: 6
+
+
+failures:
+    summary::tests::migration::summary_migration6_failure_rolls_back_schema_and_original_rows
+    summary::tests::migration::summary_migration6_preserves_legacy_and_durable_counter_on_reopen
+    summary::tests::migration::summary_migration6_seeds_negative_zero_and_large_signed_exhaustion_without_rewriting
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 756 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `--lib`

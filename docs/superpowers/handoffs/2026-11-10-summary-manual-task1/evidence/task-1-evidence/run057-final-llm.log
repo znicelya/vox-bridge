@@ -1,0 +1,18 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.63s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 11 tests
+test llm::tests::llm_full_profile_drift_and_pre_cancel_never_dispatch_http ... ok
+test llm::tests::llm_local_http_exact_chat_shape_and_saved_bearer_isolation ... ok
+test summary::tests::manual::manual_entered_llm_retains_raw_and_exact_supplied_map_coverage_before_parse ... ok
+test summary::tests::manual::manual_delete_waits_for_actual_entered_llm_and_late_result_never_repopulates ... ok
+test llm::openai_compatible::owned_tests::llm_entered_resolver_timeout_keeps_combined_request_and_process_slots_until_actual_key_release ... ok
+test llm::openai_compatible::owned_tests::llm_real_summary_terminal_after_entered_resolver_timeout_cannot_reap_or_delete_before_actual_key_release ... ok
+test llm::tests::llm_local_http_first_choice_is_authoritative_and_never_falls_through_to_later_valid_content ... ok
+test llm::tests::llm_local_http_never_retries_transient_errors_and_maps_only_allowlisted_context_codes ... ok
+test llm::tests::llm_resolver_rejects_every_admitted_profile_field_and_saved_key_association_drift_before_http ... ok
+test llm::tests::llm_fifth_request_wait_is_bounded_and_does_not_enter_http_until_actual_request_slot_release ... ok
+test llm::tests::llm_local_http_rejects_absent_null_refusal_wrong_types_and_oversize ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 825 filtered out; finished in 1.55s
+

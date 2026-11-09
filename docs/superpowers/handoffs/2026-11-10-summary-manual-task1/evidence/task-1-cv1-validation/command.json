@@ -1,0 +1,43 @@
+{
+  "accepted_environment_sha256": "0293c719b0458056392c42f9233d435e6450b36341ac6c85d719fae4d0c27581",
+  "argv": [
+    "cargo",
+    "test",
+    "--offline",
+    "--locked",
+    "--manifest-path",
+    "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/sdd/2026-11-09-session-summary-continuation/task-1-cv1-validation/source/src-tauri/Cargo.toml",
+    "--lib",
+    "summary::recovery::cv1_validation::cv1_recovery_near_200000_native_history_one_measurement",
+    "--",
+    "--exact",
+    "--nocapture"
+  ],
+  "cwd": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/sdd/2026-11-09-session-summary-continuation/task-1-cv1-validation/source/src-tauri",
+  "default_libtest_concurrency": true,
+  "environment_overrides": {
+    "CARGO_HOME": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106",
+    "CARGO_TARGET_DIR": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107",
+    "LIBRARY_PATH": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu",
+    "PKG_CONFIG_PATH": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig",
+    "PKG_CONFIG_SYSROOT_DIR": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot",
+    "TMPDIR": "/dev/shm/voxbridge-intelligence-20261109.q7xaof9u"
+  },
+  "fixture_environment": {
+    "VOXBRIDGE_CV1_ARTIFACT_DIR": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/sdd/2026-11-09-session-summary-continuation/task-1-cv1-validation",
+    "VOXBRIDGE_CV1_DATA_DIR": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/sdd/2026-11-09-session-summary-continuation/task-1-cv1-validation/data"
+  },
+  "inherited_build_environment": {
+    "CARGO_BUILD_JOBS": null,
+    "CARGO_ENCODED_RUSTFLAGS": null,
+    "CARGO_INCREMENTAL": null,
+    "LD_LIBRARY_PATH": "/usr/local/cuda-13.2/lib64:\\$LD_LIBRARY_PATH",
+    "RUSTC_WRAPPER": null,
+    "RUSTFLAGS": null
+  },
+  "runner_pid": 965170,
+  "rustc_version": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1\n",
+  "shell_reproduction": "env CARGO_HOME=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106 CARGO_TARGET_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107 TMPDIR=/dev/shm/voxbridge-intelligence-20261109.q7xaof9u PKG_CONFIG_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig PKG_CONFIG_SYSROOT_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot LIBRARY_PATH=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu VOXBRIDGE_CV1_DATA_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/sdd/2026-11-09-session-summary-continuation/task-1-cv1-validation/data VOXBRIDGE_CV1_ARTIFACT_DIR=/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/sdd/2026-11-09-session-summary-continuation/task-1-cv1-validation cargo test --offline --locked --manifest-path /mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/sdd/2026-11-09-session-summary-continuation/task-1-cv1-validation/source/src-tauri/Cargo.toml --lib summary::recovery::cv1_validation::cv1_recovery_near_200000_native_history_one_measurement -- --exact --nocapture",
+  "source_manifest_sha256": "e50e2fd4986763aa975f4215fe7f951f548a24c1884546f3bdf409677b51bbfb",
+  "started_utc": "2026-11-09T19:29:36.802144+00:00"
+}

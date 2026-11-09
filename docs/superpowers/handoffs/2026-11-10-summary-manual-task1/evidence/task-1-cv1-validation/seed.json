@@ -1,0 +1,21 @@
+{
+  "payload_sequence_hash_encoding": "version ascending; u64 little-endian raw length followed by exact UTF-8 raw bytes",
+  "payload_sequence_sha256": "175db8004666551d203d013b88466b83506149e593cf554958a58f3ebe45a7b0",
+  "profile": {
+    "base_url": "http://127.0.0.1:12345/v1",
+    "dimensions": null,
+    "id": "40000000-0000-0000-0000-000000000001",
+    "kind": "llm",
+    "max_context_tokens": 4096,
+    "max_output_tokens": 512,
+    "model": "fixture-model",
+    "name": "Fixture",
+    "timeout_ms": 1000
+  },
+  "rows": 200000,
+  "seeding_elapsed_ns": 26348201866,
+  "seeding_excluded_from_recovery_interval": true,
+  "session_id": "10000000-0000-0000-0000-000000000001",
+  "sessions": 1,
+  "terminal_state": "Interrupted / Interrupted; no model execution"
+}

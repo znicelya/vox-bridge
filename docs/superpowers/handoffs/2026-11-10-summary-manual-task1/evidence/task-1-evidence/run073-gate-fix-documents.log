@@ -1,0 +1,39 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 39.12s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 31 tests
+test knowledge::document_tests::admission::documents_copy_intent_service_does_not_claim_a_failed_copiers_unowned_row ... ok
+test knowledge::document_tests::admission::documents_completion_same_content_noop_at_maximum_document_version ... ok
+test knowledge::document_tests::copying::documents_copy_complete_detects_path_replacement_after_single_handle_open ... ok
+test knowledge::document_tests::copying::documents_copy_intent_collision_preserves_an_unowned_durable_row ... ok
+test knowledge::document_tests::admission::documents_admission_commits_local_chunks_and_deduplicates_same_parser_content ... ok
+test knowledge::document_tests::admission::documents_completion_admission_rollback_publishes_no_job_and_preserves_old_metadata ... ok
+test knowledge::document_tests::derived_result::documents_derived_full_6000_cjk_heading_and_exact_offsets_survive ... ok
+test knowledge::document_tests::admission::documents_atomic_duplicate_imports_share_job_and_parser_identity_invalidates_dedup ... ok
+test knowledge::document_tests::admission::documents_completion_failed_chunk_commit_keeps_old_text_and_truthful_progress ... ok
+test knowledge::document_tests::admission::documents_admission_replacement_keeps_requested_uuid_and_explicit_failed_retry_advances ... ok
+test knowledge::document_tests::derived_result::documents_derived_safe_probe_accepts_actual_96_chunks_without_conservative_refusal ... ok
+test knowledge::document_tests::admission::documents_admission_busy_preserves_versions_and_duplicate_survives_full_queue ... ok
+test knowledge::document_tests::documents_migration4_failure_rolls_back_added_columns_and_preserves_legacy_rows ... ok
+test knowledge::document_tests::derived_result::documents_derived_single_group_over_budget_is_resource_limit ... ok
+test knowledge::document_tests::derived_result::documents_derived_budget_accumulates_across_later_groups ... ok
+test knowledge::document_tests::copying::documents_copy_non_utf8_native_path_stays_lossless_but_public_attribution_is_rejected ... ok
+test knowledge::document_tests::copying::documents_copy_streams_owned_text_and_preserves_canonical_source_attribution ... ok
+test knowledge::document_tests::copying::documents_copy_complete_collision_preserves_preexisting_files_including_temp ... ok
+test knowledge::document_tests::copying::documents_copy_rejects_oversize_before_read_and_preserves_source ... ok
+test knowledge::document_tests::wire::knowledge_wire_contract_real_dtos_and_camelcase_args_match_shared_fixture ... ok
+test knowledge::document_tests::copying::documents_copy_signatures_cancellation_and_symlinks_fail_without_following_source ... ok
+test knowledge::document_tests::documents_migration_generation_seals_reject_untrusted_json_and_cascade_cleanup ... ok
+test knowledge::document_tests::derived_result::documents_derived_service_failure_preserves_old_text_source_and_cleans_candidate ... ok
+test knowledge::document_tests::documents_migration_preserves_legacy_nullable_metadata_and_chunks_across_reopen ... ok
+test knowledge::document_tests::documents_projection_pages_legacy_rows_without_rewriting_nullable_metadata ... ok
+test knowledge::document_tests::index_schema::documents_index_mapping_schema_supports_current_generation_and_version_join ... ok
+test knowledge::document_tests::index_schema::documents_index_work_schema_bounds_rows_keys_ids_and_snapshot_values ... ok
+test knowledge::document_tests::knowledge_migration5_binding_fences_and_reopen_preserve_untrusted_legacy_rows ... ok
+test knowledge::document_tests::startup::documents_startup_existing_copy_and_reap_intents_reconcile_without_replay_twice ... ok
+test knowledge::document_tests::index_schema::documents_index_work_survives_canonical_deletion_and_pages_high_ids ... ok
+test knowledge::document_tests::copying::documents_copy_complete_exact_32mib_and_split_utf8_streaming_boundary ... ok
+
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 806 filtered out; finished in 2.34s
+

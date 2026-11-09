@@ -1,0 +1,15 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.61s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 8 tests
+test summary::tests::snapshot::summary_snapshot_pins_successive_finals_and_preserves_cross_direction_insertion ... ok
+test summary::tests::snapshot::summary_snapshot_hash_binds_all_safe_identity_without_raw_metadata ... ok
+test summary::tests::snapshot_owned::summary_snapshot_dropped_observer_retains_entered_sql_owner_and_slot ... ok
+test summary::tests::snapshot::summary_snapshot_bundled_sqlite_uses_session_rowid_index_without_scan_or_sort ... ok
+test summary::tests::snapshot::summary_snapshot_separate_metadata_limit_and_present_invalid_native_types_fail ... ok
+test summary::tests::snapshot::summary_snapshot_oversize_direction_and_language_are_whole_input_context_failures ... ok
+test summary::tests::snapshot_owned::summary_snapshot_five_second_observation_timeout_keeps_actual_entered_sql_owned ... ok
+test summary::tests::snapshot::summary_snapshot_row100001_and_normalized_16mib_overflow_reject_whole_input ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 829 filtered out; finished in 6.49s
+

@@ -1,0 +1,132 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+warning: unused imports: `JsonHttp`, `JsonRequest`, and `JsonResponse`
+ --> src/llm/tests.rs:2:73
+  |
+2 | use crate::{app::CredentialChange,intelligence::{http::{ReqwestJsonHttp,JsonHttp,JsonRequest,JsonResponse},test_support::*,types::*}};
+  |                                                                         ^^^^^^^^ ^^^^^^^^^^^ ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `self`
+ --> src/summary/snapshot.rs:2:48
+  |
+2 | use super::{job_proof::SummaryJobProof,store::{self,text,uuid,storage,error}};
+  |                                                ^^^^
+
+warning: unused import: `SummaryRecoveryFence`
+  --> src/summary/mod.rs:10:40
+   |
+10 | pub(crate) use recovery::{SummaryReady,SummaryRecoveryFence};
+   |                                        ^^^^^^^^^^^^^^^^^^^^
+
+warning: variant `Automatic` is never constructed
+  --> src/intelligence/config.rs:31:5
+   |
+29 | pub(crate) enum SummarySelection {
+   |                 ---------------- variant in this enum
+30 |     Manual { profile_id: Option<Uuid> },
+31 |     Automatic,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `automatic_summary` and `selection_error` are never read
+  --> src/intelligence/config.rs:34:16
+   |
+33 | pub(crate) struct SummaryConfigSnapshot {
+   |                   --------------------- fields in this struct
+34 |     pub(crate) automatic_summary: bool,
+   |                ^^^^^^^^^^^^^^^^^
+35 |     pub(crate) profile: Option<ModelProfile>,
+36 |     pub(crate) selection_error: Option<IntelligenceErrorCode>,
+   |                ^^^^^^^^^^^^^^^
+
+warning: methods `signal_closing`, `drain_actual`, and `prepare_session_delete_owned` are never used
+  --> src/summary/mod.rs:23:19
+   |
+18 | impl SummaryService {
+   | ------------------- methods in this implementation
+...
+23 |     pub(crate) fn signal_closing(&self)->AppResult<()> {self.core.recovery.close()}
+   |                   ^^^^^^^^^^^^^^
+24 |     pub(crate) async fn drain_actual(&self)->AppResult<()> {self.core.recovery.drain().await?;self.core.attempts.drain().await}
+   |                         ^^^^^^^^^^^^
+...
+33 |     pub(crate) async fn prepare_session_delete_owned(&self,session_id:Uuid,owner:OperationLease)->AppResult<SummarySessionDeleteGuar...
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `SummarySessionDeleteGuard` is never constructed
+   --> src/summary/operations.rs:194:19
+    |
+194 | pub(crate) struct SummarySessionDeleteGuard {core:Arc<SummaryCore>,scope:Scope,reap:Arc<JobReapPort>,fence:DeleteFence,owner:Operat...
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `delete_owned` is never used
+   --> src/summary/operations.rs:196:25
+    |
+195 | impl SummarySessionDeleteGuard {
+    | ------------------------------ method in this implementation
+196 |     pub(crate) async fn delete_owned(self)->AppResult<()> {
+    |                         ^^^^^^^^^^^^
+
+warning: function `prepare_session_delete` is never used
+   --> src/summary/operations.rs:200:21
+    |
+200 | pub(super) async fn prepare_session_delete(core:Arc<SummaryCore>,jobs:Arc<JobScheduler>,session:Uuid,owner:OperationLease,ready:Sum...
+    |                     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variant `Closing` is never constructed
+ --> src/summary/recovery.rs:9:37
+  |
+9 | enum Stage {Closed,Recovering,Ready,Closing}
+  |      ----- variant in this enum     ^^^^^^^
+  |
+  = note: `Stage` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: methods `close` and `drain` are never used
+  --> src/summary/recovery.rs:30:19
+   |
+16 | impl RecoveryControl {
+   | -------------------- methods in this implementation
+...
+30 |     pub(super) fn close(&self)->AppResult<()> {self.state.lock().map_err(|_|storage())?.stage=Stage::Closing;Ok(())}
+   |                   ^^^^^
+31 |     fn fail(&self,key:Key) {if let Ok(mut state)=self.state.lock() {if state.key==Some(key)&&state.stage==Stage::Recovering {state.s...
+32 |     pub(super) async fn drain(&self)->AppResult<()> {let _all=self.actual.clone().acquire_owned().await.map_err(|_|error(Code::Inter...
+   |                         ^^^^^
+
+warning: fields `io` and `dir` are never read
+  --> src/summary/tests/harness.rs:46:9
+   |
+43 | pub(super) struct SummaryHarness {
+   |                   -------------- fields in this struct
+...
+46 |     pub io: ConfigIo,
+   |         ^^
+...
+52 |     pub dir: tempfile::TempDir,
+   |         ^^^
+
+warning: `vox-bridge` (lib test) generated 12 warnings (run `cargo fix --lib -p vox-bridge --tests` to apply 3 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 25.96s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 2 tests
+test commands::summary::tests::summary_commands_exact_signed_cursor_tagged_page_default_limit_and_validation ... ok
+test commands::summary::tests::summary_commands_startup_opens_real_manual_readiness_and_native_terminal_projection ... FAILED
+
+failures:
+
+---- commands::summary::tests::summary_commands_startup_opens_real_manual_readiness_and_native_terminal_projection stdout ----
+
+thread 'commands::summary::tests::summary_commands_startup_opens_real_manual_readiness_and_native_terminal_projection' (762105) panicked at src/commands/summary/tests.rs:39:17:
+successful app startup must open local summary readiness before manual admission: String("[INTELLIGENCE_ERROR][interrupted] Intelligence work was interrupted.")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    commands::summary::tests::summary_commands_startup_opens_real_manual_readiness_and_native_terminal_projection
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 796 filtered out; finished in 0.13s
+
+error: test failed, to rerun pass `--lib`

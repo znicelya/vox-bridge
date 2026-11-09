@@ -1,0 +1,63 @@
+{
+  "actual_owned_cleanup_checked": true,
+  "actual_result": "Timeout",
+  "audit_completed_utc": "2026-11-09T19:35:17.803117+00:00",
+  "availability_established": false,
+  "cargo_exit_code": 0,
+  "copied_frozen_plus_fixture_files_checked": 721,
+  "copied_source_mismatches": [],
+  "copy_build_generated_schema_files": [
+    "src-tauri/gen/schemas/acl-manifests.json",
+    "src-tauri/gen/schemas/capabilities.json",
+    "src-tauri/gen/schemas/desktop-schema.json",
+    "src-tauri/gen/schemas/linux-schema.json"
+  ],
+  "data_artifacts": {
+    "data/cv1-process.lock": {
+      "bytes": 0,
+      "kind": "file",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "data/vox-bridge.sqlite": {
+      "bytes": 230780928,
+      "kind": "file",
+      "sha256": "fe6b25571dcbbd2ecf982a4380cbb8c94ea222a14d0a63802df77d543553367a"
+    }
+  },
+  "database_audit_sha256": "9cb14e3a07a1e2952e0bce61428378b3a462829f8ee84a5aec151b7f01519599",
+  "database_checks_pass": true,
+  "elapsed_ns": 10000312414,
+  "exact_one_measurement_raw_json_match": true,
+  "frozen_archive_unchanged": true,
+  "live_observed_cargo_or_child_pids": [],
+  "only_expected_build_generated_schema_files_added": true,
+  "original_baseline_files_checked": 4615,
+  "original_git_state": {
+    "head": "73760d609a050eaddcd8002cec572fbc73c65164",
+    "protected_gitignore_sha256": "1e708ede61f6522d88e4bea58f5c55e70831f404fd00f7a6710d424446e57a3a",
+    "refs_sha256": "aa5b951f2b32f2fa2d1181e9c6f5c1d5c9427a6dcd19859cda1b174324172906",
+    "staged_diff_sha256": "0c8c0ae8a86bae9bc97a10410d150d79dfef3305f2ec689fa98b7fc704d60f32",
+    "staged_entries_sha256": "c6ddc8ea9bfbe9833f3a319676d9a6f3f0799dd60397f1344d7cd14982d2b21e"
+  },
+  "original_git_state_matches_baseline": true,
+  "original_mismatches": [
+    ".superpowers/sdd/2026-11-09-session-summary-continuation/progress.md"
+  ],
+  "original_report": {
+    "bytes": 77047,
+    "kind": "file",
+    "sha256": "342ee2c8adb81bea0f9feaa19a3e1d47dc906a1326e6ad5d2e3b921d27098937"
+  },
+  "original_review": {
+    "bytes": 13393,
+    "kind": "file",
+    "sha256": "19b7a677e5a9826121502e60f9447ec7c8df28c7bbf3b9c11454e424506b74fc"
+  },
+  "processes_with_source_copy_cwd": [],
+  "provider_calls": 0,
+  "ready_after_actual_drain": false,
+  "ready_at_return": false,
+  "single_fixture_result": true,
+  "validation_audit_pass": false,
+  "warnings": []
+}

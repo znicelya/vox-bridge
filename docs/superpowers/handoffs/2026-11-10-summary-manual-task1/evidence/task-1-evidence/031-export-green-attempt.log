@@ -1,0 +1,78 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+warning: unused imports: `JsonHttp`, `JsonRequest`, and `JsonResponse`
+ --> src/llm/tests.rs:2:73
+  |
+2 | use crate::{app::CredentialChange,intelligence::{http::{ReqwestJsonHttp,JsonHttp,JsonRequest,JsonResponse},test_support::*,types::*}};
+  |                                                                         ^^^^^^^^ ^^^^^^^^^^^ ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `self`
+ --> src/summary/snapshot.rs:2:48
+  |
+2 | use super::{job_proof::SummaryJobProof,store::{self,text,uuid,storage,error}};
+  |                                                ^^^^
+
+warning: unused import: `SummaryRecoveryFence`
+  --> src/summary/mod.rs:10:40
+   |
+10 | pub(crate) use recovery::{SummaryReady,SummaryRecoveryFence};
+   |                                        ^^^^^^^^^^^^^^^^^^^^
+
+warning: variant `Automatic` is never constructed
+  --> src/intelligence/config.rs:31:5
+   |
+29 | pub(crate) enum SummarySelection {
+   |                 ---------------- variant in this enum
+30 |     Manual { profile_id: Option<Uuid> },
+31 |     Automatic,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `automatic_summary` and `selection_error` are never read
+  --> src/intelligence/config.rs:34:16
+   |
+33 | pub(crate) struct SummaryConfigSnapshot {
+   |                   --------------------- fields in this struct
+34 |     pub(crate) automatic_summary: bool,
+   |                ^^^^^^^^^^^^^^^^^
+35 |     pub(crate) profile: Option<ModelProfile>,
+36 |     pub(crate) selection_error: Option<IntelligenceErrorCode>,
+   |                ^^^^^^^^^^^^^^^
+
+warning: fields `io` and `dir` are never read
+  --> src/summary/tests/harness.rs:46:9
+   |
+43 | pub(super) struct SummaryHarness {
+   |                   -------------- fields in this struct
+...
+46 |     pub io: ConfigIo,
+   |         ^^
+...
+52 |     pub dir: tempfile::TempDir,
+   |         ^^^
+
+warning: `vox-bridge` (lib test) generated 6 warnings (run `cargo fix --lib -p vox-bridge --tests` to apply 3 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 35.39s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 15 tests
+test export::export_tests::json_export_has_stable_fields_and_only_final_segments ... ok
+test export::export_tests::export_rejects_missing_sessions ... ok
+test export::export_tests::export_rejects_unknown_or_mismatched_extensions_and_directories ... ok
+test export::export_tests::export_writes_complete_output_to_destination ... ok
+test export::export_tests::export_rejects_read_only_existing_destination ... ok
+test export::export_tests::export_native_summary_contains_every_field_safe_metadata_and_no_raw_response ... ok
+test export::export_tests::export_legacy_signed_values_remain_numeric_without_fabricated_milliseconds ... ok
+test export::export_tests::export_can_replace_an_existing_destination ... ok
+test export::export_tests::json_export_identifies_legacy_rows_and_includes_diagnostics_and_context ... ok
+test export::export_tests::plain_text_export_uses_timestamped_direction_source_and_translation_lines ... ok
+test export::export_tests::markdown_export_contains_direction_timestamp_and_final_content ... ok
+test export::export_tests::legacy_role_mapping_uses_each_rows_direction_and_marks_ambiguity ... ok
+test export::export_tests::export_invalid_reserved_raw_and_overlarge_status_fail_whole_preserving_destination ... ok
+test export::export_tests::export_32mib_summary_projection_cap_preserves_destination ... ok
+test export::export_tests::export_128mib_escaped_artifact_cap_preserves_destination ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 788 filtered out; finished in 3.36s
+

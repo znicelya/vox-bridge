@@ -1,0 +1,24 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.66s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 17 tests
+test session::orchestrator_tests::failed_prepare_releases_reservation_and_creates_nothing ... ok
+test session::orchestrator_tests::concurrent_stop_returns_the_same_durable_terminal_record ... ok
+test session::orchestrator_tests::actual_startup_failure_persists_failed_and_replays_safe_failure ... ok
+test session::orchestrator_tests::admitted_starting_stop_suppresses_inflight_running_publication ... ok
+test session::orchestrator_tests::replayed_storage_failure_is_the_same_diagnostic_as_durable_history ... ok
+test session::orchestrator_tests::direction_loss_keeps_peer_running_and_resume_uses_same_owner ... ok
+test session::orchestrator_tests::recovery_rolls_back_all_rows_and_diagnostics_when_lifecycle_write_fails ... ok
+test session::orchestrator_tests::losing_start_never_prepares_and_cancelled_reservation_releases_immediately ... ok
+test session::orchestrator_tests::actual_cleanup_failure_after_starting_stop_is_failed ... ok
+test session::orchestrator_tests::cancelled_stop_caller_does_not_cancel_owned_cleanup ... ok
+test session::orchestrator_tests::recovery_interrupts_only_incomplete_rows_and_preserves_context ... ok
+test session::orchestrator_tests::failed_starting_insert_is_atomic_and_opens_nothing ... ok
+test session::orchestrator_tests::stopping_persistence_failure_still_cleans_and_releases_ownership ... ok
+test session::orchestrator_tests::terminal_write_failure_replays_error_to_attached_waiters_without_success ... ok
+test session::orchestrator_tests::running_persistence_failure_cleans_resources_and_never_publishes_running ... ok
+test session::orchestrator_tests::running_stop_finishes_each_call_stream_once_and_replays_terminal ... ok
+test session::orchestrator_tests::stop_during_retained_open_cancels_startup_and_waits_for_cleanup ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 820 filtered out; finished in 0.58s
+

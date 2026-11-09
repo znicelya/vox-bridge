@@ -1,0 +1,22 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.69s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 15 tests
+test storage::sqlite_tests::failed_migration_rolls_back_columns_version_and_preserves_data ... ok
+test storage::sqlite_tests::intelligence_migration_failure_rolls_back_all_new_tables_and_version ... ok
+test storage::sqlite_tests::deleting_session_removes_segments_and_summary ... ok
+test storage::sqlite_tests::unknown_newer_schema_is_rejected_without_creating_tables ... ok
+test storage::sqlite_tests::interim_segments_are_not_persisted ... ok
+test storage::sqlite_tests::final_segments_are_unique_by_session_direction_and_sequence ... ok
+test storage::sqlite_tests::new_transcripts_reject_interims_missing_details_and_overflow ... ok
+test storage::sqlite_tests::summary_versions_are_transactionally_persisted_and_listed ... ok
+test storage::sqlite_tests::diagnostic_pages_and_exports_persist_safe_payloads_and_cascade_delete ... ok
+test storage::sqlite_tests::export_reads_persisted_context_and_deletion_cascades_it ... ok
+test storage::sqlite_tests::intelligence_migration_from_v2_reopens_twice_and_preserves_rows ... ok
+test storage::sqlite_tests::legacy_database_migrates_once_preserving_original_rows ... ok
+test storage::sqlite_tests::diagnostics_reject_unsafe_log_ids_and_storage_failure ... ok
+test storage::sqlite_tests::tied_session_timestamps_paginate_without_duplicates ... ok
+test storage::sqlite_tests::transcript_pages_follow_insertion_across_directions_and_sessions ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 821 filtered out; finished in 0.46s
+
