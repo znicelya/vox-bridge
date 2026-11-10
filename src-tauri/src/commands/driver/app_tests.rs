@@ -115,6 +115,7 @@ async fn active_live_and_call_sessions_reject_all_driver_actions_without_invokin
         let driver = Driver::new(false);
         let (_dir, h, app) = setup(driver.clone(), call).await;
         assert_eq!(driver.calls.load(Ordering::SeqCst), 0);
+        app.start_intelligence().await.unwrap();
         let session = app.create_session(h.launch.clone()).await.unwrap();
         running(&app, session.id).await;
         for operation in [
@@ -133,12 +134,14 @@ async fn active_live_and_call_sessions_reject_all_driver_actions_without_invokin
             .await
             .unwrap();
         assert_eq!(driver.calls.load(Ordering::SeqCst), 1);
+        app.close_all().await.unwrap();
     }
 }
 #[tokio::test]
 async fn starting_reservation_rejects_driver_before_audio_open() {
     let driver = Driver::new(false);
     let (_dir, h, app) = setup(driver.clone(), false).await;
+    app.start_intelligence().await.unwrap();
     let (entered, release) = h.audio.block_inventory();
     let create = tokio::spawn({
         let app = app.clone();
@@ -158,11 +161,13 @@ async fn starting_reservation_rejects_driver_before_audio_open() {
     release.send(()).unwrap();
     let session = create.await.unwrap().unwrap();
     app.stop_session(session.id).await.unwrap();
+    app.close_all().await.unwrap();
 }
 #[tokio::test]
 async fn cancelled_maintenance_observer_keeps_create_and_close_fenced_until_ack() {
     let driver = Driver::new(true);
     let (dir, h, mut app) = setup(driver.clone(), false).await;
+    app.start_intelligence().await.unwrap();
     crate::app::driver_test_support::short_observation(&mut app);
     let call = tokio::spawn({
         let app = app.clone();
@@ -200,15 +205,17 @@ async fn cancelled_maintenance_observer_keeps_create_and_close_fenced_until_ack(
         .await
         .unwrap()
         .unwrap();
-    app.open_window().unwrap();
+    app.reopen_window().await.unwrap();
     assert_eq!(driver.calls.load(Ordering::SeqCst), 1);
     let session = app.create_session(h.launch.clone()).await.unwrap();
     app.stop_session(session.id).await.unwrap();
+    app.close_all().await.unwrap();
 }
 #[tokio::test]
 async fn maintenance_timeout_observes_without_releasing_the_operation() {
     let driver = Driver::new(true);
     let (_dir, h, mut app) = setup(driver.clone(), false).await;
+    app.start_intelligence().await.unwrap();
     crate::app::driver_test_support::short_observation(&mut app);
     let result = tokio::time::timeout(
         Duration::from_millis(200),
@@ -234,6 +241,7 @@ async fn maintenance_timeout_observes_without_releasing_the_operation() {
 async fn stopping_audio_remains_busy_until_the_native_close_acknowledgement() {
     let driver = Driver::new(false);
     let (_dir, h, app) = setup(driver.clone(), false).await;
+    app.start_intelligence().await.unwrap();
     let release = h.audio.delay_close("live-input");
     let session = app.create_session(h.launch.clone()).await.unwrap();
     running(&app, session.id).await;
@@ -250,11 +258,13 @@ async fn stopping_audio_remains_busy_until_the_native_close_acknowledgement() {
     assert_eq!(driver.calls.load(Ordering::SeqCst), 0);
     release.send(()).unwrap();
     stop.await.unwrap().unwrap();
+    app.close_all().await.unwrap();
 }
 #[tokio::test]
 async fn uninstall_completion_does_not_replace_actual_inventory_readiness() {
     let driver = Driver::new(false);
     let (_dir, h, app) = setup(driver, false).await;
+    app.start_intelligence().await.unwrap();
     h.audio
         .set_driver_status(DriverStatus::Failed("endpoints removed".into()));
     assert_eq!(
@@ -269,6 +279,7 @@ async fn uninstall_completion_does_not_replace_actual_inventory_readiness() {
     );
     assert!(app.create_session(h.launch.clone()).await.is_err());
     assert_eq!(h.audio.open_ports(), 0);
+    app.close_all().await.unwrap();
 }
 #[tokio::test]
 async fn paused_direction_still_excludes_maintenance_while_peer_can_keep_running() {
@@ -276,6 +287,7 @@ async fn paused_direction_still_excludes_maintenance_while_peer_can_keep_running
     for call in [false, true] {
         let driver = Driver::new(false);
         let (_dir, h, app) = setup(driver.clone(), call).await;
+        app.start_intelligence().await.unwrap();
         let session = app.create_session(h.launch.clone()).await.unwrap();
         running(&app, session.id).await;
         h.audio.lose(if call { "a-input" } else { "live-input" });
@@ -303,6 +315,7 @@ async fn paused_direction_still_excludes_maintenance_while_peer_can_keep_running
         );
         assert_eq!(driver.calls.load(Ordering::SeqCst), 0);
         app.stop_session(session.id).await.unwrap();
+        app.close_all().await.unwrap();
     }
 }
 #[tokio::test]

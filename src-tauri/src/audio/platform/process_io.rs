@@ -39,6 +39,15 @@ pub struct ProcessPipes {
 #[async_trait]
 pub trait ProcessSpawner: Send + Sync {
     async fn spawn(&self, spec: ProcessSpec) -> AppResult<ProcessPipes>;
+    async fn spawn_audio_owned(
+        &self,
+        _spec: ProcessSpec,
+        _execution: crate::audio::join::AudioLeafExecution,
+    ) -> AppResult<AudioOwnedProcess> {
+        Err(audio_error(
+            "process spawner provides no actual audio source",
+        ))
+    }
     /// Returns pipes only after OS limits are installed. Cleanup errors are not
     /// child-exit acknowledgements; the limited owner retains reap responsibility.
     async fn spawn_limited(
@@ -51,7 +60,10 @@ pub trait ProcessSpawner: Send + Sync {
         ))
     }
 }
+pub(crate) mod audio_owned;
 mod limited;
+pub use audio_owned::AudioOwnedProcess;
+pub(crate) use audio_owned::output_audio_owned;
 pub struct SystemProcessSpawner;
 type ExitResult = Result<ProcessExit, AudioFailure>;
 struct Control {
@@ -112,6 +124,13 @@ fn supervise(mut child: Box<dyn OwnedChild>, reap_timeout: Duration) -> Arc<dyn 
 }
 #[async_trait]
 impl ProcessSpawner for SystemProcessSpawner {
+    async fn spawn_audio_owned(
+        &self,
+        spec: ProcessSpec,
+        execution: crate::audio::join::AudioLeafExecution,
+    ) -> AppResult<AudioOwnedProcess> {
+        audio_owned::spawn(spec, execution).await
+    }
     async fn spawn_limited(
         &self,
         spec: ProcessSpec,
@@ -152,9 +171,7 @@ impl ProcessSpawner for SystemProcessSpawner {
         })
     }
 }
-pub(crate) async fn output(spawner: &dyn ProcessSpawner, args: &[&str]) -> AppResult<Vec<u8>> {
-    output_with_deadline(spawner, args, Duration::from_secs(2)).await
-}
+#[cfg(test)]
 async fn output_with_deadline(
     spawner: &dyn ProcessSpawner,
     args: &[&str],

@@ -59,6 +59,7 @@ impl Default for Deadlines {
     }
 }
 struct NativeControl {
+    actual: crate::audio::join::AudioOwnerJoin,
     tx: sync_mpsc::SyncSender<Command>,
     shared: AudioShared,
     capture: BoundedAudioQueue,
@@ -130,6 +131,9 @@ impl Drop for NativeControl {
 }
 #[async_trait]
 impl AudioControl for NativeControl {
+    fn actual_join_port(&self) -> AppResult<crate::audio::join::AudioOwnerJoin> {
+        Ok(self.actual.clone())
+    }
     fn suppress_now(&self) {
         self.shared.suppress();
     }
@@ -179,11 +183,21 @@ pub(crate) async fn open_with_factory(
 ) -> AppResult<AudioPorts> {
     open_owned(request, factory, None, Deadlines::default()).await
 }
+#[cfg(test)]
 pub(crate) async fn open_owned(
     request: AudioOpenRequest,
     factory: Arc<dyn NativeOwnerFactory>,
     lease: Option<Arc<Lease>>,
     deadlines: Deadlines,
+) -> AppResult<AudioPorts> {
+    open_registered(request, factory, lease, deadlines, None).await
+}
+pub(crate) async fn open_registered(
+    request: AudioOpenRequest,
+    factory: Arc<dyn NativeOwnerFactory>,
+    lease: Option<Arc<Lease>>,
+    deadlines: Deadlines,
+    parent: Option<crate::audio::join::AudioParent>,
 ) -> AppResult<AudioPorts> {
     let capture = BoundedAudioQueue::default();
     let shared = AudioShared::new(capture.clone());
@@ -191,7 +205,9 @@ pub(crate) async fn open_owned(
     let (health, health_rx) = watch::channel(AudioHealth::Ready);
     let (tx, rx) = sync_mpsc::sync_channel::<Command>(8);
     let (ready, ready_rx) = oneshot::channel();
+    let (actual_source, actual) = crate::audio::join::AudioOwnerSource::new();
     let control = Arc::new(NativeControl {
+        actual,
         tx,
         shared: shared.clone(),
         capture: capture.clone(),
@@ -203,10 +219,20 @@ pub(crate) async fn open_owned(
     let owner_capture = capture.clone();
     let owner_lease = lease.clone();
     let owner_shared = shared.clone();
-    std::thread::Builder::new()
+    let entered = parent.clone();
+    let thread = std::thread::Builder::new()
         .name("vox-native-audio-owner".into())
         .spawn(move || {
             let shared = owner_shared;
+            if let Some(parent) = &entered {
+                if let Err(error) = parent.require_ready() {
+                    if let Some(lease) = owner_lease {
+                        lease.release();
+                    }
+                    let _ = ready.send(Err(AudioFailure::from_error(error)));
+                    return;
+                }
+            }
             let opened = factory.open_on_owner_thread(
                 &request,
                 owner_capture.clone(),
@@ -335,13 +361,20 @@ pub(crate) async fn open_owned(
             if let Some(reply) = final_reply {
                 let _ = reply.send(value);
             }
-        })
-        .map_err(|_| {
+        });
+    let thread = match thread {
+        Ok(thread) => thread,
+        Err(_) => {
             if let Some(lease) = &lease {
                 lease.release();
             }
-            audio_error("native audio owner thread could not start")
-        })?;
+            if let Some(parent) = parent {
+                parent.finish().await?;
+            }
+            return Err(audio_error("native audio owner thread could not start"));
+        }
+    };
+    actual_source.retain_thread_parent(thread, parent);
     match tokio::time::timeout(deadlines.open, ready_rx).await {
         Ok(Ok(Ok(()))) => Ok(AudioPorts {
             capture,

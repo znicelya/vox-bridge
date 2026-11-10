@@ -62,7 +62,8 @@ async fn replace_keep_clear_reload_never_exposes_synthetic_credentials() {
     .unwrap();
     drop(app);
     let reload = Arc::new(SecretStore::with_test_backend(dir.path(), backend).unwrap());
-    let app = tests::injected(dir.path(), &h, reload.clone());
+    let restarted = tests::fixture();
+    let app = tests::injected(dir.path(), &restarted, reload.clone());
     assert_eq!(
         reload
             .get(SECRET_SERVICE, &secret_key(id))
@@ -290,6 +291,7 @@ async fn final_fix_held_config_close_is_bounded_and_retains_one_cleanup_owner() 
         })
         .await
         .unwrap();
+        app.start_intelligence().await.unwrap();
         app.config_io = ConfigIo::with_runtime_for_tests(
             ConfigStore::new(dir.path(), secrets.clone()).unwrap(),
             Arc::new(tokio::sync::Semaphore::new(2)),
@@ -408,6 +410,7 @@ async fn partial_clear_then_keep_orphan_cannot_authenticate_fresh_volc_launch() 
     })
     .await
     .unwrap();
+    app.start_intelligence().await.unwrap();
     app.config_io.fail_next_for_tests("delete_secret");
     assert!(
         app.save_provider_config(SaveProviderRequest {
@@ -473,6 +476,7 @@ async fn partial_clear_then_keep_orphan_cannot_authenticate_fresh_volc_launch() 
     assert_eq!(lookups.load(Ordering::SeqCst), 1);
     assert_eq!(observed.load(Ordering::SeqCst), 1);
     assert_eq!(h.audio.open_ports(), 0);
+    app.close_all().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -493,6 +497,7 @@ async fn entered_cancelled_delete_retains_admission_and_process_owner_until_nati
         })
         .await
         .unwrap();
+        app.start_intelligence().await.unwrap();
         app.config_io = ConfigIo::with_runtime_for_tests(
             ConfigStore::new(dir.path(), secrets.clone()).unwrap(),
             Arc::new(tokio::sync::Semaphore::new(2)),
@@ -527,11 +532,16 @@ async fn entered_cancelled_delete_retains_admission_and_process_owner_until_nati
         }
         assert!(!create.is_finished());
         assert_eq!(h.audio.inventory_calls(), 0);
+        let close = tokio::spawn({
+            let app = app.clone();
+            async move { app.close_all().await }
+        });
         drop(app);
         assert!(AppState::new(dir.path().to_path_buf()).is_err());
         // Release even if a later assertion fails; no leaked native latch.
         secret_lock.unlock().unwrap();
         assert!(create.await.unwrap().is_err());
+        close.await.unwrap().unwrap();
         assert_eq!(h.audio.inventory_calls(), 0);
         assert_eq!(h.audio.open_calls(), 0);
         tests::eventually(|| AppState::new(dir.path().to_path_buf()).is_ok()).await;

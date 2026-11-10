@@ -6,6 +6,9 @@ mod planner;
 mod recovery;
 mod snapshot;
 mod store;
+mod terminal;
+#[cfg(test)]
+pub(crate) use terminal::readiness_test_support;
 pub mod types;
 use crate::{
     error::AppResult,
@@ -26,18 +29,38 @@ pub(crate) use recovery::SummaryReady;
 pub(crate) use recovery::SummaryRecoveryFence;
 use std::sync::Arc;
 pub(crate) use store::SummaryJobRequest;
+pub(crate) use terminal::{
+    SessionTerminalPort, SummaryDeliveryOwner, SummaryDeliveryReady, TerminalCommitIntent,
+};
 use uuid::Uuid;
 pub struct SummaryService {
     store: Arc<LocalStore>,
     config: Arc<ServiceConfigStore>,
     jobs: Arc<JobScheduler>,
     core: Arc<SummaryCore>,
+    delivery: Arc<terminal::DeliveryFacade>,
 }
 pub(crate) struct SummaryCore {
     store: Arc<LocalStore>,
     llm: Arc<dyn LlmProvider>,
     attempts: operations::AttemptRegistry,
     recovery: Arc<recovery::RecoveryControl>,
+    #[cfg(test)]
+    sql_entry: Arc<readiness_test_support::BoundaryControl>,
+}
+enum ManualReadiness {
+    Delivery(SummaryDeliveryReady),
+    #[cfg(test)]
+    Local(SummaryReady),
+}
+impl ManualReadiness {
+    fn run<T>(&self, operation: impl FnOnce() -> AppResult<T>) -> AppResult<T> {
+        match self {
+            Self::Delivery(ready) => ready.run(operation),
+            #[cfg(test)]
+            Self::Local(ready) => ready.run(operation),
+        }
+    }
 }
 impl SummaryService {
     pub fn new(
@@ -52,8 +75,11 @@ impl SummaryService {
                 llm,
                 attempts: operations::AttemptRegistry::default(),
                 recovery: recovery::RecoveryControl::new(),
+                #[cfg(test)]
+                sql_entry: Arc::default(),
             }),
             store,
+            delivery: terminal::DeliveryFacade::new(),
             config,
             jobs,
         }
@@ -87,9 +113,25 @@ impl SummaryService {
         session_id: Uuid,
         profile_id: Option<Uuid>,
         owner: OperationLease,
+        ready: SummaryDeliveryReady,
+    ) -> AppResult<JobView> {
+        ready.require_owner(&self.delivery)?;
+        self.generate_with_readiness_owned(
+            session_id,
+            profile_id,
+            owner,
+            ManualReadiness::Delivery(ready),
+        )
+        .await
+    }
+    async fn generate_with_readiness_owned(
+        &self,
+        session_id: Uuid,
+        profile_id: Option<Uuid>,
+        owner: OperationLease,
+        ready: ManualReadiness,
     ) -> AppResult<JobView> {
         let fence = self.jobs.admission_fence(JobKind::Summary)?;
-        let ready = self.core.recovery.ready()?;
         let events = self.jobs.event_port();
         let wake = self.jobs.wake_port();
         self.config
@@ -133,13 +175,15 @@ impl SummaryService {
         &self,
         summary_id: Uuid,
         owner: OperationLease,
+        ready: SummaryDeliveryReady,
     ) -> AppResult<()> {
+        ready.require_owner(&self.delivery)?;
         operations::delete_summary(
             self.core.clone(),
             self.jobs.clone(),
             summary_id,
             owner,
-            self.core.recovery.ready()?,
+            operations::DeleteFence::Delivery(ready),
         )
         .await
     }

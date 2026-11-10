@@ -1,5 +1,6 @@
 use super::*;
 use crate::{storage::StoredSession, summary::SummaryJobRequest};
+mod readiness;
 fn session(app: &AppState) -> Uuid {
     let id = Uuid::new_v4();
     app.store
@@ -13,6 +14,46 @@ fn session(app: &AppState) -> Uuid {
         })
         .unwrap();
     id
+}
+
+#[tokio::test]
+async fn summary_automatic_startup_old_completed_is_interrupted_without_model_admission() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = AppState::new(dir.path().to_path_buf()).unwrap();
+    let id = session(&app);
+    app.store
+        .update_session_lifecycle(&crate::storage::StoredSessionLifecycle {
+            session_id: id,
+            status: "completed".into(),
+            ended_at: Some(7),
+        })
+        .unwrap();
+    app.save_intelligence_settings(IntelligenceSettings {
+        automatic_summary: true,
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    app.start_intelligence().await.unwrap();
+    let rows = app.list_summaries(id, None, None).unwrap().rows;
+    app.close_all().await.unwrap();
+    assert_eq!(
+        rows.len(),
+        1,
+        "migration-era terminal history must materialize one local automatic retry before Ready"
+    );
+    let crate::summary::types::SummaryView::Native(row) = &rows[0] else {
+        panic!("automatic retry must be Native")
+    };
+    assert_eq!(row.status, JobStatus::Failed);
+    assert_eq!(row.error, Some(IntelligenceErrorCode::Interrupted));
+    app.reopen_window().await.unwrap();
+    let reopened = app.list_summaries(id, None, None).unwrap().rows;
+    app.close_all().await.unwrap();
+    assert_eq!(
+        reopened, rows,
+        "permanent Existing must win on a second joined reopen"
+    );
 }
 async fn terminal(app: &AppState, id: Uuid) -> JobView {
     tokio::time::timeout(Duration::from_secs(3), async {
@@ -32,6 +73,14 @@ async fn summary_app_fresh_process_recovery_interrupts_registered_native_then_re
  {
     let dir = tempfile::tempdir().unwrap();
     let app = AppState::new(dir.path().to_path_buf()).unwrap();
+    // This fixture verifies manual deletion recovery and its retained counter.
+    // A fresh automatic bootstrap of the recovered Failed session is separate.
+    app.save_intelligence_settings(IntelligenceSettings {
+        automatic_summary: false,
+        ..Default::default()
+    })
+    .await
+    .unwrap();
     let session = session(&app);
     let old = app
         .store

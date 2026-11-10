@@ -2,12 +2,64 @@ use super::*;
 mod child_operations;
 mod continuations;
 mod documents;
+mod oo1_storage;
 mod reap;
+mod stop_race;
 use crate::intelligence::test_support::*;
 use std::{
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
+
+// Test arrangement only: pause after the real stop future returned Pending,
+// before the same select invocation observes an actual worker join.
+pub(super) enum StopPollPoint {
+    Pending,
+    Joined { normal: bool },
+}
+
+pub(super) async fn observe_stop_poll(
+    future: impl std::future::Future<Output = ()>,
+    probe: &Arc<Mutex<Option<Oo1StopPollProbe>>>,
+) {
+    let mut future = std::pin::pin!(future);
+    std::future::poll_fn(|cx| {
+        let poll = std::future::Future::poll(future.as_mut(), cx);
+        if poll.is_pending() {
+            let probe = probe.lock().unwrap().clone();
+            if let Some(probe) = probe {
+                probe(StopPollPoint::Pending);
+            }
+        }
+        poll
+    })
+    .await;
+}
+
+// Completion flags can precede JoinSet's ready notification. In this single
+// controlled poll window, await only the real join future's Ready receipt;
+// never fabricate one or consume a replacement handle. Outside the fixture
+// this is precisely the original join future with no extra polling.
+pub(super) async fn observe_worker_join<T>(
+    future: impl std::future::Future<Output = T>,
+    probe: &Arc<Mutex<Option<Oo1StopPollProbe>>>,
+) -> T {
+    if probe.lock().unwrap().is_none() {
+        return future.await;
+    }
+    let mut future = std::pin::pin!(future);
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    std::future::poll_fn(|cx| {
+        loop {
+            let poll = std::future::Future::poll(future.as_mut(), cx);
+            if poll.is_ready() || std::time::Instant::now() >= deadline {
+                return poll;
+            }
+            std::thread::yield_now();
+        }
+    })
+    .await
+}
 struct Handler {
     calls: Arc<AtomicUsize>,
     release: Arc<tokio::sync::Notify>,

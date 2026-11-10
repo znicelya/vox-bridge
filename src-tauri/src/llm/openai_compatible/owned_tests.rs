@@ -215,10 +215,14 @@ async fn llm_real_summary_terminal_after_entered_resolver_timeout_cannot_reap_or
         })
         .unwrap();
     backend.block.store(true, Ordering::SeqCst);
-    let job = summaries
-        .generate_owned(session, None, owner.clone())
-        .await
-        .unwrap();
+    let job = crate::summary::readiness_test_support::generate_local_owned(
+        &summaries,
+        session,
+        None,
+        owner.clone(),
+    )
+    .await
+    .unwrap();
     let observed = tokio::time::timeout(Duration::from_secs(2), entry).await;
     if !matches!(observed, Ok(Ok(()))) {
         drop(release);
@@ -245,7 +249,11 @@ async fn llm_real_summary_terminal_after_entered_resolver_timeout_cannot_reap_or
         .transaction(|tx| jobs.reap_port().prove(tx, job.id).map(|p| p.is_none()))
         .unwrap();
     let retained_requests = llm.requests.available_permits();
-    let mut deletion = Box::pin(summaries.delete_owned(job.object_id.unwrap(), owner));
+    let mut deletion = Box::pin(crate::summary::readiness_test_support::delete_local_owned(
+        &summaries,
+        job.object_id.unwrap(),
+        owner,
+    ));
     let pending = tokio::time::timeout(Duration::from_millis(50), deletion.as_mut())
         .await
         .is_err();

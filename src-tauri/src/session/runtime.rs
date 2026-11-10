@@ -30,12 +30,15 @@ use crate::{
 };
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     sync::{mpsc, oneshot, watch},
-    task::JoinSet,
+    task::{JoinHandle, JoinSet},
     time::Instant,
 };
 use uuid::Uuid;
@@ -69,6 +72,42 @@ pub struct RunningSession {
     status: watch::Receiver<RuntimeSnapshot>,
     completion: watch::Receiver<Option<RuntimeOutcome>>,
     pending_resumes: Arc<Mutex<[bool; 2]>>,
+    actual: Arc<tokio::sync::Mutex<Option<JoinHandle<()>>>>,
+    actors: Arc<ActorTasks>,
+}
+
+#[derive(Default)]
+struct ActorTasks {
+    tasks: [tokio::sync::Mutex<Option<JoinHandle<ActorExit>>>; 2],
+    failed: AtomicBool,
+}
+
+impl ActorTasks {
+    async fn join(&self, key: usize) -> Option<ActorExit> {
+        let mut task = self.tasks[key].lock().await;
+        let joined = task.as_mut()?.await;
+        // Await the borrowed genuine handle. Cancellation leaves it in its
+        // slot, while completion consumes it before another observer retries.
+        task.take();
+        match joined {
+            Ok(exit) => Some(exit),
+            Err(_) => {
+                self.failed.store(true, Ordering::Release);
+                None
+            }
+        }
+    }
+
+    async fn drain(&self) -> AppResult<()> {
+        for key in 0..self.tasks.len() {
+            self.join(key).await;
+        }
+        if self.failed.load(Ordering::Acquire) {
+            Err(AppError::Internal("runtime actual owner stopped".into()))
+        } else {
+            Ok(())
+        }
+    }
 }
 
 pub(super) struct ResumeRequest {
@@ -81,7 +120,10 @@ pub(super) enum DirectionControl {
 }
 
 pub(super) enum ActorUpdate {
-    Snapshot(DirectionSnapshot),
+    Snapshot {
+        direction: DirectionSnapshot,
+        applied: oneshot::Sender<()>,
+    },
     ResumeComplete {
         direction: SessionDirection,
         result: oneshot::Sender<AppResult<()>>,
@@ -92,6 +134,16 @@ pub(super) enum ActorUpdate {
 pub(super) struct ActorExit {
     pub(super) direction: SessionDirection,
     pub(super) failures: Vec<RuntimeFailureCode>,
+}
+
+struct StopActors(watch::Sender<bool>);
+impl Drop for StopActors {
+    fn drop(&mut self) {
+        // Started blocking actors cannot be aborted with their JoinSet. If
+        // their supervisor is lost, retain ordinary stop intent so those real
+        // actors settle rather than keeping runtime destruction waiting.
+        self.0.send_replace(true);
+    }
 }
 
 impl TranslationRuntime {
@@ -173,10 +225,11 @@ impl TranslationRuntime {
         let (stop, stop_rx) = watch::channel(false);
         let (resume, resume_rx) = mpsc::channel(2);
         let pending_resumes = Arc::new(Mutex::new([false; 2]));
+        let actors = Arc::new(ActorTasks::default());
         let audio = self.audio.clone();
         let store = self.store.clone();
         let bus = self.bus.clone();
-        tokio::spawn(supervise(
+        let task = tokio::spawn(supervise(
             prepared,
             audio,
             store,
@@ -187,6 +240,7 @@ impl TranslationRuntime {
             status_tx,
             completion_tx,
             pending_resumes.clone(),
+            actors.clone(),
         ));
         RunningSession {
             stop,
@@ -194,6 +248,8 @@ impl TranslationRuntime {
             status,
             completion,
             pending_resumes,
+            actual: Arc::new(tokio::sync::Mutex::new(Some(task))),
+            actors,
         }
     }
 }
@@ -205,6 +261,19 @@ impl PreparedRuntime {
 }
 
 impl RunningSession {
+    pub(crate) async fn join_actual(&self) -> AppResult<()> {
+        {
+            let mut actual = self.actual.lock().await;
+            if let Some(task) = actual.as_mut() {
+                let joined = task.await;
+                actual.take();
+                if joined.is_err() {
+                    self.actors.failed.store(true, Ordering::Release);
+                }
+            }
+        }
+        self.actors.drain().await
+    }
     pub fn status(&self) -> watch::Receiver<RuntimeSnapshot> {
         self.status.clone()
     }
@@ -285,10 +354,12 @@ async fn supervise(
     status: watch::Sender<RuntimeSnapshot>,
     completion: watch::Sender<Option<RuntimeOutcome>>,
     pending_resumes: Arc<Mutex<[bool; 2]>>,
+    actors: Arc<ActorTasks>,
 ) {
     let (updates_tx, mut updates) = mpsc::channel(32);
     let mut controls = BTreeMap::new();
     let mut tasks = JoinSet::new();
+    let _stop_actors = StopActors(stop_tx.clone());
     let mut failures = Vec::new();
     let health = RuntimeRouteHealth::default();
     let router = Arc::new(crate::audio::router::AudioRouter::paused_unbound(
@@ -306,38 +377,65 @@ async fn supervise(
             .find(|config| config.direction == plan.direction)
             .expect("prepared direction config")
             .clone();
-        let sink =
-            match TranscriptSink::new(store.clone(), bus.clone(), config, provider_id.clone()) {
-                Ok(sink) => sink,
-                Err(_) => {
-                    if !failures.contains(&RuntimeFailureCode::Storage) {
-                        failures.push(RuntimeFailureCode::Storage);
-                    }
-                    stop_tx.send_replace(true);
-                    continue;
+        let runtime = tokio::runtime::Handle::current();
+        let session_id = prepared.session_id;
+        let route = router_direction(prepared.context.launch.config.mode(), plan.direction)
+            .expect("validated direction");
+        let provider_id = provider_id.clone();
+        let provider = prepared.provider.clone();
+        let audio = audio.clone();
+        let storage = store.clone();
+        let bus = bus.clone();
+        let actor_stop = stop.clone();
+        let router = router.clone();
+        let health = health.clone();
+        let updates = updates_tx.clone();
+        let key = direction_key(plan.direction) as usize;
+        // Acquire ownership before submission. No await separates the genuine
+        // blocking handle's creation from saving it outside the supervisor.
+        let mut actual = actors.tasks[key].lock().await;
+        // The two original actors each occupy one retained blocking-pool task.
+        // Drive their existing future on the original runtime handle so their
+        // synchronous transcript/cleanup callbacks never block Tokio workers.
+        // Cancelling the supervisor's observers cannot discard those handles.
+        *actual = Some(tokio::task::spawn_blocking(move || {
+            runtime.block_on(async move {
+                let sink =
+                    match TranscriptSink::new(storage.clone(), bus.clone(), config, provider_id) {
+                        Ok(sink) => sink,
+                        Err(_) => {
+                            return ActorExit {
+                                direction: plan.direction,
+                                failures: vec![RuntimeFailureCode::Storage],
+                            };
+                        }
+                    };
+                DirectionActor {
+                    session_id,
+                    route,
+                    router,
+                    health,
+                    plan,
+                    prepared: provider,
+                    audio,
+                    store: storage,
+                    bus,
+                    stop: actor_stop,
+                    controls: controls_rx,
+                    updates,
+                    sink,
+                    epoch: 0,
+                    failures: Vec::new(),
+                    transition_failures: Vec::new(),
+                    diagnostics: DiagnosticAccumulator::new(Instant::now()),
                 }
-            };
-        let actor = DirectionActor {
-            session_id: prepared.session_id,
-            route: router_direction(prepared.context.launch.config.mode(), plan.direction)
-                .expect("validated direction"),
-            router: router.clone(),
-            health: health.clone(),
-            plan,
-            prepared: prepared.provider.clone(),
-            audio: audio.clone(),
-            store: store.clone(),
-            bus: bus.clone(),
-            stop: stop.clone(),
-            controls: controls_rx,
-            updates: updates_tx.clone(),
-            sink,
-            epoch: 0,
-            failures: Vec::new(),
-            transition_failures: Vec::new(),
-            diagnostics: DiagnosticAccumulator::new(Instant::now()),
-        };
-        tasks.spawn(actor.run());
+                .run()
+                .await
+            })
+        }));
+        drop(actual);
+        let owner = actors.clone();
+        tasks.spawn(async move { owner.join(key).await });
     }
     drop(updates_tx);
     let startup_deadline = Instant::now() + Duration::from_secs(30);
@@ -376,7 +474,7 @@ async fn supervise(
                     pending_resumes.lock().unwrap()[direction_key(direction) as usize] = false;
                     let _ = result.send(response);
                 },
-                ActorUpdate::Snapshot(direction) => {
+                ActorUpdate::Snapshot { direction, applied } => {
                     if startup && (direction.failure.is_some() || matches!(direction.phase, DirectionPhase::Paused | DirectionPhase::Stopped)) {
                         stop_tx.send_replace(true);
                     }
@@ -385,17 +483,21 @@ async fn supervise(
                         if startup && snapshot.directions.iter().all(|d| d.phase == DirectionPhase::Running) { startup = false; }
                         if !stopping { snapshot.phase = if startup { RuntimePhase::Starting } else { aggregate_phase(&snapshot.directions) }; }
                     });
+                    let _ = applied.send(());
                 }
             },
             joined = tasks.join_next() => {
                 match joined {
-                    Some(Ok(exit)) => {
+                    Some(Ok(Some(exit))) => {
                         for code in exit.failures { if !failures.contains(&code) { failures.push(code); } }
                         status.send_modify(|snapshot| {
                             if let Some(direction) = snapshot.directions.iter_mut().find(|d| d.direction == exit.direction) { direction.phase = DirectionPhase::Stopped; }
                         });
                     }
-                    Some(Err(_)) => if !failures.contains(&RuntimeFailureCode::CleanupTimeout) { failures.push(RuntimeFailureCode::CleanupTimeout); },
+                    Some(Ok(None)) | Some(Err(_)) => {
+                        actors.failed.store(true, Ordering::Release);
+                        if !failures.contains(&RuntimeFailureCode::CleanupTimeout) { failures.push(RuntimeFailureCode::CleanupTimeout); }
+                    },
                     None => break,
                 }
                 if startup { stop_tx.send_replace(true); }
@@ -612,3 +714,6 @@ pub(super) fn now_ms() -> i64 {
         .and_then(|duration| i64::try_from(duration.as_millis()).ok())
         .unwrap_or(i64::MAX)
 }
+
+#[cfg(test)]
+mod actual_actor_tests;

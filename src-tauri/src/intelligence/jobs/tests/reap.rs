@@ -314,9 +314,15 @@ async fn intelligence_reap_claim_before_handler_entry_is_not_terminal_authority(
         .unwrap()
         .control
         .clone();
-    let (job, _, _, frame) = claim(&h.store, &control, &h.jobs.closed, &h.jobs.reap)
-        .unwrap()
-        .unwrap();
+    let (job, _, _, frame) = claim(
+        &h.store,
+        &control,
+        &h.jobs.closed,
+        &h.jobs.reap,
+        &h.jobs.oo1_claim_probe,
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(job.id, id);
     h.store
         .transaction(|tx| {
@@ -362,7 +368,16 @@ async fn intelligence_reap_claim_rollback_keeps_ledger_complete_and_allows_retry
             Ok(())
         })
         .unwrap();
-    assert!(claim(&h.store, &control, &h.jobs.closed, &h.jobs.reap).is_err());
+    assert!(
+        claim(
+            &h.store,
+            &control,
+            &h.jobs.closed,
+            &h.jobs.reap,
+            &h.jobs.oo1_claim_probe
+        )
+        .is_err()
+    );
     assert!(!proved(&h, id).unwrap());
     assert!(!control.lock().unwrap().active.contains_key(&id));
     h.store
@@ -477,9 +492,15 @@ async fn intelligence_reap_shutdown_rejects_unfinished_factory_without_waiting_f
         .unwrap()
         .control
         .clone();
-    let (_, _, _, frame) = claim(&h.store, &control, &h.jobs.closed, &h.jobs.reap)
-        .unwrap()
-        .unwrap();
+    let (_, _, _, frame) = claim(
+        &h.store,
+        &control,
+        &h.jobs.closed,
+        &h.jobs.reap,
+        &h.jobs.oo1_claim_probe,
+    )
+    .unwrap()
+    .unwrap();
     let completion = frame.child().unwrap();
     let stopped = tokio::time::timeout(Duration::from_millis(20), h.jobs.shutdown()).await;
     assert!(
@@ -546,9 +567,15 @@ async fn summary_reap_claim_before_handler_entry_keeps_delete_and_recovery_fence
             .unwrap()
             .control
             .clone();
-        let (job, _, _, frame) = claim(&h.store, &control, &h.jobs.closed, &h.jobs.reap)
-            .unwrap()
-            .unwrap();
+        let (job, _, _, frame) = claim(
+            &h.store,
+            &control,
+            &h.jobs.closed,
+            &h.jobs.reap,
+            &h.jobs.oo1_claim_probe,
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(job.id, stored.id);
         h.store.transaction(|tx| {tx.execute("UPDATE intelligence_jobs SET status='interrupted',error_code='interrupted' WHERE id=?1",[job.id.to_string()])?;if recovery {tx.execute("UPDATE session_summaries SET deleting=1 WHERE id=?1",[stored.object_id.unwrap().to_string()])?;}Ok(())}).unwrap();
         assert!(!proved(&h, job.id).unwrap());
@@ -560,7 +587,12 @@ async fn summary_reap_claim_before_handler_entry_keeps_delete_and_recovery_fence
                     .await
                     .map(|_| ())
             } else {
-                summary.delete_owned(id, owner.clone()).await
+                crate::summary::readiness_test_support::delete_local_owned(
+                    &summary,
+                    id,
+                    owner.clone(),
+                )
+                .await
             }
         });
         let pending = tokio::time::timeout(Duration::from_millis(50), operation.as_mut())

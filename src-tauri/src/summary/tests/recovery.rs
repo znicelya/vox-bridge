@@ -10,9 +10,7 @@ async fn summary_readiness_cannot_be_inferred_from_started_jobs_without_local_re
         h.jobs.clone(),
         h.llm.clone(),
     );
-    let result = unready
-        .generate_owned(session, None, h.process.clone())
-        .await;
+    let result = generate_local_owned(&unready, session, None, h.process.clone()).await;
     if let Ok(job) = &result {
         h.wait(job.id).await;
     }
@@ -80,6 +78,9 @@ async fn summary_recovery_sql_acquisition_timeout_keeps_readiness_closed_and_own
         h.llm.clone(),
     );
     let session = h.completed_session(&[]).await;
+    // Join initial empty claims so both Tokio workers remain available while
+    // this local recovery fixture deliberately holds SQLite.
+    h.close().await;
     let file = std::fs::File::options()
         .read(true)
         .write(true)
@@ -149,8 +150,7 @@ async fn summary_recovery_sql_acquisition_timeout_keeps_readiness_closed_and_own
         ))
     ));
     assert!(
-        service
-            .generate_owned(session, None, h.process.clone())
+        generate_local_owned(&service, session, None, h.process.clone())
             .await
             .is_err()
     );

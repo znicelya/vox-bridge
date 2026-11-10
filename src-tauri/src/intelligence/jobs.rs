@@ -7,7 +7,7 @@ use super::{
 };
 use crate::{
     error::{AppError, AppResult},
-    storage::LocalStore,
+    storage::{LocalStore, SqlSlot},
 };
 use std::{
     collections::HashMap,
@@ -20,8 +20,10 @@ use std::{
 use tokio::sync::{Notify, Semaphore, broadcast, mpsc, watch};
 use uuid::Uuid;
 mod child_operations;
+mod maintenance;
 pub(crate) mod reap;
 use child_operations::ChildOperations;
+use maintenance::Maintenance;
 pub(crate) use reap::{JobReapEvidence, JobReapPort};
 pub struct JobContext {
     pub id: Uuid,
@@ -118,6 +120,7 @@ pub trait JobHandler: Send + Sync {
         Ok(())
     }
 }
+#[derive(Clone)]
 pub(crate) struct AfterTerminalNotice {
     pub(crate) parent_id: Uuid,
     pub(crate) document_id: Uuid,
@@ -173,6 +176,13 @@ impl JobAdmissionFence {
 }
 type Handlers = HashMap<JobKind, Arc<dyn JobHandler>>;
 pub(crate) type OperationLease = Arc<dyn Send + Sync>;
+#[cfg(test)]
+pub(crate) type Oo1ClaimProbe = Arc<dyn Fn(&'static str, bool) + Send + Sync>;
+#[cfg(test)]
+pub(crate) type Oo1ClaimGate =
+    Arc<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>;
+#[cfg(test)]
+type Oo1StopPollProbe = Arc<dyn Fn(tests::StopPollPoint) + Send + Sync>;
 #[derive(Default)]
 struct Control {
     stopping: bool,
@@ -183,6 +193,7 @@ struct Generation {
     cancel: watch::Sender<bool>,
     completion: watch::Receiver<bool>,
     control: Arc<Mutex<Control>>,
+    maintenance: Arc<Maintenance>,
 }
 #[derive(Default)]
 struct State {
@@ -193,6 +204,14 @@ struct State {
 }
 pub struct JobScheduler {
     store: Arc<LocalStore>,
+    #[cfg(test)]
+    pub(crate) oo1_claim_probe: Arc<Mutex<Option<Oo1ClaimProbe>>>,
+    #[cfg(test)]
+    pub(crate) oo1_claim_gate: Arc<Mutex<Option<Oo1ClaimGate>>>,
+    #[cfg(test)]
+    oo1_workers: Arc<Mutex<Vec<tokio::task::AbortHandle>>>,
+    #[cfg(test)]
+    oo1_stop_poll_probe: Arc<Mutex<Option<Oo1StopPollProbe>>>,
     state: Mutex<State>,
     wake: Arc<Notify>,
     events: broadcast::Sender<IntelligenceEvent>,
@@ -206,6 +225,14 @@ impl JobScheduler {
     pub fn new(store: Arc<LocalStore>) -> Self {
         Self {
             store,
+            #[cfg(test)]
+            oo1_claim_probe: Arc::new(Mutex::new(None)),
+            #[cfg(test)]
+            oo1_claim_gate: Arc::new(Mutex::new(None)),
+            #[cfg(test)]
+            oo1_workers: Arc::default(),
+            #[cfg(test)]
+            oo1_stop_poll_probe: Arc::default(),
             state: Mutex::default(),
             wake: Arc::default(),
             events: broadcast::channel(64).0,
@@ -273,14 +300,34 @@ impl JobScheduler {
         let events = self.events.clone();
         let worker_control = control.clone();
         let closed = self.closed.clone();
+        #[cfg(test)]
+        let oo1_claim_probe = self.oo1_claim_probe.clone();
+        #[cfg(test)]
+        let oo1_claim_gate = self.oo1_claim_gate.clone();
+        #[cfg(test)]
+        let oo1_workers = self.oo1_workers.clone();
+        #[cfg(test)]
+        let oo1_stop_poll_probe = self.oo1_stop_poll_probe.clone();
+        #[cfg(test)]
+        oo1_workers.lock().unwrap().clear();
         let children = ChildOperations::new(&lease);
+        let maintenance = Arc::new(Maintenance::default());
+        let maintenance_worker = maintenance.start(
+            store.clone(),
+            handlers.clone(),
+            events.clone(),
+            lease.clone(),
+        );
+        let generation_maintenance = maintenance.clone();
+        let generation_stop = cancel.clone();
         runtime.spawn(async move {
             let _lease = lease;
             let (tx, rx) = mpsc::channel(2);
             let rx = Arc::new(tokio::sync::Mutex::new(rx));
             let mut workers = tokio::task::JoinSet::new();
-            for _ in 0..2 {
-                workers.spawn(worker(
+            let sql: [Arc<SqlSlot>; 2] = std::array::from_fn(|_| Arc::default());
+            for slot in &sql {
+                let _abort_handle = workers.spawn(worker(
                     store.clone(),
                     handlers.clone(),
                     worker_control.clone(),
@@ -292,20 +339,56 @@ impl JobScheduler {
                     children.clone(),
                     after_terminal.clone(),
                     reap.clone(),
+                    slot.clone(),
+                    _lease.clone(),
+                    #[cfg(test)]
+                    oo1_claim_probe.clone(),
+                    #[cfg(test)]
+                    oo1_claim_gate.clone(),
                 ));
+                #[cfg(test)]
+                oo1_workers.lock().unwrap().push(_abort_handle);
             }
             let mut stop = stop;
+            let mut failed = false;
             loop {
+                let stopping = cancelled(&mut stop);
+                #[cfg(test)]
+                let stopping = tests::observe_stop_poll(stopping, &oo1_stop_poll_probe);
+                let joining = workers.join_next();
+                #[cfg(test)]
+                let joining = tests::observe_worker_join(joining, &oo1_stop_poll_probe);
                 tokio::select! {
-                                                  biased;
-                                                  _ = cancelled(&mut stop) => break,
-                                                  _ = wake.notified() => {
-                                                      for _ in 0..2 {
-                let _ = tx.try_send(());
-                               }
-                                                  }
-                                              }
+                    biased;
+                    _ = stopping => break,
+                    joined = joining => {
+                        // Stop can arrive after its branch returned Pending
+                        // in this same select poll. Classify the genuine join
+                        // before sending our own stop; all remaining owners
+                        // still have to complete their actual drains below.
+                        let stop_requested = *generation_stop.borrow();
+                        #[cfg(test)]
+                        {
+                            let probe = oo1_stop_poll_probe.lock().unwrap().clone();
+                            if let Some(probe) = probe {
+                                probe(tests::StopPollPoint::Joined {
+                                    normal: matches!(&joined, Some(Ok(Ok(())))),
+                                });
+                            }
+                        }
+                        failed = !stop_requested || !matches!(joined, Some(Ok(Ok(()))));
+                        closed.store(true, Ordering::Release);
+                        generation_stop.send_replace(true);
+                        break;
+                    },
+                    _ = wake.notified() => {
+                        for _ in 0..2 {
+                            let _ = tx.try_send(());
+                        }
+                    }
+                }
             }
+            generation_maintenance.request_queued();
             {
                 let mut control = worker_control.lock().unwrap();
                 control.stopping = true;
@@ -314,7 +397,15 @@ impl JobScheduler {
                 }
             }
             drop(tx);
-            while workers.join_next().await.is_some() {}
+            while let Some(joined) = workers.join_next().await {
+                failed |= !matches!(joined, Ok(Ok(())));
+            }
+            for slot in &sql {
+                failed |= slot.drain().await.is_err();
+            }
+            generation_maintenance.finish();
+            failed |= !matches!(maintenance_worker.await, Ok(Ok(())));
+            failed |= generation_maintenance.drain().await.is_err();
             for handler in handlers.values() {
                 while handler.cleanup_after_stop().await.is_err() {
                     tokio::time::sleep(Duration::from_millis(20)).await;
@@ -322,6 +413,9 @@ impl JobScheduler {
             }
             children.drain().await;
             if reap.quiesce(generation_id).await.is_err() {
+                return;
+            }
+            if failed {
                 return;
             }
             drop(_lease);
@@ -335,6 +429,7 @@ impl JobScheduler {
             cancel,
             completion,
             control,
+            maintenance,
         });
         self.wake();
         Ok(())
@@ -506,37 +601,9 @@ impl JobScheduler {
                     cancel.send_replace(true);
                 }
             }
-            // Never wait for SQLite while holding generation control: snapshot callbacks
-            // already own SQLite before they acquire that control fence.
-            let ids = self
-                .store
-                .transaction(|tx| {
-                    let ids = tx
-                        .prepare("SELECT id FROM intelligence_jobs WHERE status='queued' LIMIT 32")?
-                        .query_map([], |row| row.get::<_, String>(0))?
-                        .collect::<Result<Vec<_>, _>>()?;
-                    for id in &ids {
-                        transition_tx(
-                            tx,
-                            Uuid::parse_str(id)
-                                .map_err(|_| error(IntelligenceErrorCode::Storage))?,
-                            "queued",
-                            JobStatus::Cancelled,
-                            Some(IntelligenceErrorCode::Cancelled),
-                            &s.handlers,
-                            false,
-                        )?;
-                    }
-                    Ok(ids)
-                })
-                .map_err(store::safe_store_error)?;
-            for id in ids {
-                if let Ok(id) = Uuid::parse_str(&id) {
-                    if let Some(job) = self.store.get_job(id)? {
-                        self.publish(job);
-                    }
-                }
-            }
+            // This only coalesces work for the existing generation owner.
+            // Neither callers nor Drop acquire SQLite or submit another task.
+            g.maintenance.request_queued();
         }
         Ok(())
     }
@@ -548,8 +615,8 @@ impl JobScheduler {
             .unwrap()
             .generation
             .as_ref()
-            .map(|g| (g.id, g.completion.clone()));
-        if let Some((id, mut completion)) = completion {
+            .map(|g| (g.id, g.completion.clone(), g.maintenance.clone()));
+        if let Some((id, mut completion, maintenance)) = completion {
             let result = tokio::time::timeout(self.shutdown_timeout, async {
                 loop {
                     if *completion.borrow_and_update() {
@@ -562,20 +629,27 @@ impl JobScheduler {
                 }
             })
             .await;
-            let mut state = self.state.lock().unwrap();
-            // A delayed second observer cannot retire or interrupt a newer generation.
-            if state.generation.as_ref().is_none_or(|g| g.id != id) {
-                return Ok(());
-            }
-            match result {
-                Ok(Ok(())) => state.generation = None,
-                _ => {
-                    for job in interrupt(&self.store, &state.handlers)? {
-                        self.publish(job);
-                    }
-                    return Err(error(IntelligenceErrorCode::Interrupted));
+            {
+                let mut state = self.state.lock().unwrap();
+                // A delayed observer cannot retire or interrupt a newer generation.
+                if state.generation.as_ref().is_none_or(|g| g.id != id) {
+                    return Ok(());
+                }
+                if matches!(result, Ok(Ok(()))) {
+                    state.generation = None;
+                    return Ok(());
                 }
             }
+            let round = maintenance.request_interrupt()?;
+            // Keep the original join deadline. A separate bounded flush gives
+            // a free store time to commit Interrupted, while held SQL remains
+            // pending under the same owner and never stalls the executor.
+            let _ = tokio::time::timeout(
+                self.shutdown_timeout.min(Duration::from_millis(50)),
+                maintenance.observe_interrupt(round),
+            )
+            .await;
+            return Err(error(IntelligenceErrorCode::Interrupted));
         }
         Ok(())
     }
@@ -631,23 +705,52 @@ async fn worker(
     children: ChildOperations,
     after_terminal: Option<Arc<dyn AfterTerminal>>,
     reap: Arc<reap::Registry>,
-) {
+    sql: Arc<SqlSlot>,
+    owner: OperationLease,
+    #[cfg(test)] oo1_claim_probe: Arc<Mutex<Option<Oo1ClaimProbe>>>,
+    #[cfg(test)] oo1_claim_gate: Arc<Mutex<Option<Oo1ClaimGate>>>,
+) -> AppResult<()> {
     use futures_util::FutureExt;
     loop {
         tokio::select! {
         biased;
-                _=cancelled(&mut stop)=>return,
+                _=cancelled(&mut stop)=>return Ok(()),
         token=async{
         rx.lock().await.recv().await}
         =>if token.is_none(){
-        return;
+        return Ok(());
                 }
         }
-        let claimed = match claim(&store, &control, &closed, &reap) {
+        #[cfg(test)]
+        {
+            let gate = oo1_claim_gate.lock().unwrap().clone();
+            if let Some(gate) = gate {
+                gate().await;
+            }
+        }
+        let storage = store.clone();
+        let claim_control = control.clone();
+        let claim_closed = closed.clone();
+        let claim_reap = reap.clone();
+        #[cfg(test)]
+        let probe = oo1_claim_probe.clone();
+        let claimed = match sql
+            .run(owner.clone(), move || {
+                claim(
+                    &storage,
+                    &claim_control,
+                    &claim_closed,
+                    &claim_reap,
+                    #[cfg(test)]
+                    &probe,
+                )
+            })
+            .await
+        {
             Ok(v) => v,
-            Err(_) => {
+            Err(error) => {
                 control.lock().unwrap().stopping = true;
-                return;
+                return Err(error);
             }
         };
         let Some((job, payload, cancel, frame)) = claimed else {
@@ -675,12 +778,24 @@ async fn worker(
             None => Err(IntelligenceErrorCode::Configuration),
         };
         let notice = if result.is_ok() {
-            after_terminal
-                .as_ref()
-                .and_then(|hook| store.transaction(|tx| hook.notice(tx, &job)).ok().flatten())
+            if let Some(hook) = after_terminal.clone() {
+                let storage = store.clone();
+                let noticed_job = job.clone();
+                sql.run(owner.clone(), move || {
+                    storage.transaction(|tx| hook.notice(tx, &noticed_job))
+                })
+                .await
+                .ok()
+                .flatten()
+            } else {
+                None
+            }
         } else {
             None
         };
+        if sql.failed() {
+            return Err(error(IntelligenceErrorCode::Interrupted));
+        }
         // Reservation happens while this context is still active and Running.
         // ConfigIo never acquires an owner from a terminal context.
         let continuation = notice.as_ref().and_then(|_| {
@@ -698,40 +813,56 @@ async fn worker(
             .ok()
         });
         frame.close_handler();
-        let finished = store.transaction(|tx| {
-            let mut c = control.lock().unwrap();
-            let was_running = store::job_in_transaction(tx, job.id)?
-                .is_some_and(|job| job.status == JobStatus::Running);
-            let is_cancelled = *cancel.borrow();
-            let (status, code) = if is_cancelled {
-                (JobStatus::Cancelled, Some(IntelligenceErrorCode::Cancelled))
-            } else {
-                match result {
-                    Ok(()) => (JobStatus::Succeeded, None),
-                    Err(IntelligenceErrorCode::Cancelled) => {
+        let storage = store.clone();
+        let finish_control = control.clone();
+        let finish_handlers = handlers.clone();
+        let finish_hook = after_terminal.clone();
+        let finish_notice = notice.clone();
+        let finish_cancel = cancel.clone();
+        let has_continuation = continuation.is_some();
+        let id = job.id;
+        let finished = sql
+            .run(owner.clone(), move || {
+                storage.transaction(|tx| {
+                    let mut c = finish_control.lock().unwrap();
+                    let was_running = store::job_in_transaction(tx, id)?
+                        .is_some_and(|job| job.status == JobStatus::Running);
+                    let is_cancelled = *finish_cancel.borrow();
+                    let (status, code) = if is_cancelled {
                         (JobStatus::Cancelled, Some(IntelligenceErrorCode::Cancelled))
+                    } else {
+                        match result {
+                            Ok(()) => (JobStatus::Succeeded, None),
+                            Err(IntelligenceErrorCode::Cancelled) => {
+                                (JobStatus::Cancelled, Some(IntelligenceErrorCode::Cancelled))
+                            }
+                            Err(IntelligenceErrorCode::Interrupted) => (
+                                JobStatus::Interrupted,
+                                Some(IntelligenceErrorCode::Interrupted),
+                            ),
+                            Err(e) => (JobStatus::Failed, Some(e)),
+                        }
+                    };
+                    transition_tx(tx, id, "running", status, code, &finish_handlers, false)?;
+                    c.active.remove(&id);
+                    let succeeded = was_running && status == JobStatus::Succeeded;
+                    if succeeded && !has_continuation {
+                        if let (Some(hook), Some(notice)) = (&finish_hook, &finish_notice) {
+                            hook.deferred(tx, notice)?;
+                        }
                     }
-                    Err(IntelligenceErrorCode::Interrupted) => (
-                        JobStatus::Interrupted,
-                        Some(IntelligenceErrorCode::Interrupted),
-                    ),
-                    Err(e) => (JobStatus::Failed, Some(e)),
-                }
-            };
-            transition_tx(tx, job.id, "running", status, code, &handlers, false)?;
-            c.active.remove(&job.id);
-            let succeeded = was_running && status == JobStatus::Succeeded;
-            if succeeded && continuation.is_none() {
-                if let (Some(hook), Some(notice)) = (&after_terminal, &notice) {
-                    hook.deferred(tx, notice)?;
-                }
-            }
-            Ok(succeeded)
-        });
+                    Ok(succeeded)
+                })
+            })
+            .await;
         if finished.is_ok() {
-            if let Ok(Some(job)) = store.get_job(job.id) {
+            let storage = store.clone();
+            if let Ok(Some(job)) = sql.run(owner.clone(), move || storage.get_job(id)).await {
                 let _ = events.send(IntelligenceEvent::JobChanged { job });
             }
+        }
+        if sql.failed() {
+            return Err(error(IntelligenceErrorCode::Interrupted));
         }
         if matches!(finished, Ok(true)) {
             if let (Some(hook), Some(notice), Some(owner)) = (&after_terminal, notice, continuation)
@@ -751,9 +882,7 @@ async fn worker(
         if let Some(handler) = handlers.get(&job.kind) {
             let _ = handler.cleanup(Some(job.id)).await;
         }
-        if reap.prune().is_err() {
-            return;
-        }
+        reap.prune()?;
         wake.notify_one();
     }
 }
@@ -762,6 +891,7 @@ fn claim(
     control: &Mutex<Control>,
     closed: &AtomicBool,
     reap: &Arc<reap::Registry>,
+    #[cfg(test)] oo1_claim_probe: &Mutex<Option<Oo1ClaimProbe>>,
 ) -> AppResult<
     Option<(
         JobView,
@@ -772,8 +902,18 @@ fn claim(
 > {
     use rusqlite::OptionalExtension;
     let mut attempted = None;
+    #[cfg(test)]
+    let oo1_observer = oo1_claim_probe.lock().unwrap().clone();
+    #[cfg(test)]
+    if let Some(observer) = &oo1_observer {
+        observer("before_sql_lock", closed.load(Ordering::Acquire));
+    }
     let claimed = store
         .transaction(|tx| {
+            #[cfg(test)]
+            if let Some(observer) = &oo1_observer {
+                observer("after_sql_lock", closed.load(Ordering::Acquire));
+            }
             let mut control = control.lock().unwrap();
             if control.stopping || closed.load(Ordering::Acquire) {
                 return Ok(None);

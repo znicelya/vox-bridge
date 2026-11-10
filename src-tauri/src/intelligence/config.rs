@@ -15,6 +15,8 @@ use std::{
 };
 use uuid::Uuid;
 mod persistence;
+#[cfg(test)]
+mod summary_selection_test_support;
 mod validation;
 use persistence::*;
 pub(crate) use validation::endpoint;
@@ -25,19 +27,13 @@ pub struct ServiceConfigStore {
     io: ConfigIo,
     store: Arc<LocalStore>,
     path: PathBuf,
+    #[cfg(test)]
+    summary_selection: Arc<summary_selection_test_support::SelectionControl>,
 }
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "Automatic selection is consumed by Task2")
-)]
 pub(crate) enum SummarySelection {
     Manual { profile_id: Option<Uuid> },
     Automatic,
 }
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "Automatic admission fields are consumed by Task2")
-)]
 pub(crate) struct SummaryConfigSnapshot {
     pub(crate) automatic_summary: bool,
     pub(crate) profile: Option<ModelProfile>,
@@ -133,7 +129,13 @@ impl ServiceConfigStore {
     }
     pub(crate) fn new(io: ConfigIo, store: Arc<LocalStore>) -> Self {
         let path = io.data_dir().join("service-configs.json");
-        Self { io, store, path }
+        Self {
+            io,
+            store,
+            path,
+            #[cfg(test)]
+            summary_selection: Arc::default(),
+        }
     }
     pub fn path(&self) -> &Path {
         &self.path
@@ -346,9 +348,13 @@ impl ServiceConfigStore {
         completed: impl FnOnce(&T) + Send + 'static,
     ) -> AppResult<T> {
         let store = self.store.clone();
+        #[cfg(test)]
+        let summary_selection = self.summary_selection.clone();
         self.io
             .run(move |tx| {
                 let doc = read(tx)?;
+                #[cfg(test)]
+                summary_selection.enter()?;
                 let id = match selection {
                     SummarySelection::Manual { profile_id } => {
                         profile_id.or(doc.settings.summary_profile_id)

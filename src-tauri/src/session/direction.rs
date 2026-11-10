@@ -1025,15 +1025,25 @@ impl DirectionActor {
     }
 
     async fn publish(&self, phase: DirectionPhase, failure: Option<RuntimeFailureCode>) {
-        let _ = self
+        let (applied, observed) = tokio::sync::oneshot::channel();
+        if self
             .updates
-            .send(ActorUpdate::Snapshot(DirectionSnapshot {
-                direction: self.plan.direction,
-                phase,
-                stream_epoch: self.epoch,
-                failure,
-            }))
-            .await;
+            .send(ActorUpdate::Snapshot {
+                direction: DirectionSnapshot {
+                    direction: self.plan.direction,
+                    phase,
+                    stream_epoch: self.epoch,
+                    failure,
+                },
+                applied,
+            })
+            .await
+            .is_ok()
+        {
+            // Apply the snapshot before a following resource transition or
+            // transcript write can become visible from the blocking actor.
+            let _ = observed.await;
+        }
     }
 }
 

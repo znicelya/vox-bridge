@@ -35,6 +35,7 @@ async fn active_and_restarted_terminal_subscriptions_use_runtime_and_durable_his
     })
     .await
     .unwrap();
+    app.start_intelligence().await.unwrap();
     let record = app.create_session(h.launch.clone()).await.unwrap();
     let (out, mut events) = emitter();
     let ticket = app
@@ -50,8 +51,13 @@ async fn active_and_restarted_terminal_subscriptions_use_runtime_and_durable_his
     }
     app.unsubscribe_session(ticket.id).await.unwrap();
     app.unsubscribe_session(ticket.id).await.unwrap();
+    app.close_all().await.unwrap();
+    app.open_window().unwrap();
     drop(app);
-    let app = tests::injected(dir.path(), &h, secrets);
+    // A genuinely restarted process has a fresh audio registry. The old
+    // producer remains correctly fenced after the final App facade closes it.
+    let restarted = tests::fixture();
+    let app = tests::injected(dir.path(), &restarted, secrets);
     assert_eq!(
         app.get_session(record.id).await.unwrap().unwrap().status,
         SessionStatus::Completed
@@ -102,6 +108,7 @@ async fn closing_starting_runtime_cleans_ports_and_blocked_emit_even_when_caller
     let started = h
         .provider
         .delay_started(crate::domain::session::SessionDirection::SourceToTarget);
+    app.start_intelligence().await.unwrap();
     let record = app.create_session(h.launch.clone()).await.unwrap();
     assert!(started.wait_entered().await);
     let (sender, mut receiver) = mpsc::channel(1);
@@ -206,6 +213,7 @@ async fn close_observes_registry_barrier_even_when_its_queue_is_full_and_stops_a
     })
     .await
     .unwrap();
+    app.start_intelligence().await.unwrap();
     let session = app.create_session(h.launch.clone()).await.unwrap();
     tests::eventually(|| {
         app.store
@@ -311,6 +319,7 @@ async fn deletion_joins_blocked_terminal_delivery_and_evicted_history_gets_fresh
     })
     .await
     .unwrap();
+    app.start_intelligence().await.unwrap();
     let session = app.create_session(h.launch.clone()).await.unwrap();
     app.stop_session(session.id).await.unwrap();
     for _ in 0..300 {
@@ -368,6 +377,7 @@ async fn queued_old_window_subscription_cannot_finish_into_new_lifecycle() {
     })
     .await
     .unwrap();
+    app.start_intelligence().await.unwrap();
     let session = app.create_session(h.launch.clone()).await.unwrap();
     let guard = app.subscription_mutation.clone().lock_owned().await;
     let owner = app.clone();
@@ -413,6 +423,7 @@ async fn retry_delete_after_registry_admission_failure_preserves_durable_row_unt
     })
     .await
     .unwrap();
+    app.start_intelligence().await.unwrap();
     let session = app.create_session(h.launch.clone()).await.unwrap();
     app.stop_session(session.id).await.unwrap();
     let latch = Arc::new(DropLatch {
@@ -470,9 +481,13 @@ async fn retry_delete_after_registry_admission_failure_preserves_durable_row_unt
         tokio::time::timeout(std::time::Duration::from_secs(2), delivery.recv()).await;
     let removed = app.get_session(session.id).await.unwrap().is_none();
     // Release every owner before asserting the recovery contract.
-    app.close_all().await.unwrap();
+    let close_result = app.close_all().await;
     drop(waiting);
     let _ = replacement.await.unwrap();
+    assert!(
+        close_result.is_ok(),
+        "close after deletion retry failed: {close_result:?}"
+    );
     assert!(
         retry.is_ok(),
         "deletion retry must observe pending cleanup; got {retry:?}"
@@ -497,6 +512,7 @@ async fn active_session_delete_rejects_before_cancelling_its_subscription() {
     })
     .await
     .unwrap();
+    app.start_intelligence().await.unwrap();
     let session = app.create_session(h.launch.clone()).await.unwrap();
     let (out, mut events) = emitter();
     app.subscribe_session(session.id, "active-window".into(), out)
@@ -537,6 +553,7 @@ async fn cancelled_delete_caller_still_owns_cleanup_before_durable_removal() {
     })
     .await
     .unwrap();
+    app.start_intelligence().await.unwrap();
     let session = app.create_session(h.launch.clone()).await.unwrap();
     app.stop_session(session.id).await.unwrap();
     let latch = Arc::new(DropLatch {

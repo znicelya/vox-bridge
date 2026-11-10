@@ -1,6 +1,7 @@
 use super::harness::*;
 use crate::intelligence::types::*;
 use sha2::{Digest, Sha256};
+use std::time::Duration;
 fn large_summary(len: usize) -> String {
     serde_json::json!({"summary":"x".repeat(len),"participants":[],"companies":[],"requirements":[],"action_items":[],"risks":[],"terms":[]}).to_string()
 }
@@ -175,7 +176,9 @@ async fn summary_pipeline_single_raw_and_total_raw_breaches_keep_prior_committed
             h.llm.push(&"x".repeat(2 * 1024 * 1024 + 1));
         }
         let job = h.generate(session, None).await.unwrap();
-        let done = h.wait(job.id).await;
+        // This case persists up to 32 MiB in a debug build. Its fixture wait
+        // must allow shared test load; it is not a product request deadline.
+        let done = h.wait_with_timeout(job.id, Duration::from_secs(30)).await;
         let raw = h.raw_responses(job.object_id.unwrap()).unwrap();
         let coverage = h.coverage(job.object_id.unwrap()).unwrap();
         let bytes = h

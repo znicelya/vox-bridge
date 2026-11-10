@@ -25,6 +25,8 @@ use tokio::{
     sync::{Mutex, mpsc, watch},
 };
 use uuid::Uuid;
+#[cfg(test)]
+pub(crate) mod entry_test_support;
 #[derive(Clone)]
 struct Device {
     index: u32,
@@ -132,12 +134,18 @@ fn modules_ready(value: &Value) -> bool {
 }
 pub(crate) async fn inventory(
     spawner: &dyn ProcessSpawner,
+    parent: &crate::audio::join::AudioParent,
 ) -> AppResult<(DriverStatus, InventoryRows)> {
+    let group = parent.helpers().begin()?;
+    let a = group.leaf()?;
+    let b = group.leaf()?;
+    let c = group.leaf()?;
     let (sources, sinks, modules) = tokio::join!(
-        process_io::output(spawner, &["--format=json", "list", "sources"]),
-        process_io::output(spawner, &["--format=json", "list", "sinks"]),
-        process_io::output(spawner, &["--format=json", "list", "modules"])
+        process_io::output_audio_owned(spawner, &["--format=json", "list", "sources"], a),
+        process_io::output_audio_owned(spawner, &["--format=json", "list", "sinks"], b),
+        process_io::output_audio_owned(spawner, &["--format=json", "list", "modules"], c)
     );
+    group.join().await?;
     let sources = devices(json(&sources?)?)?;
     let sinks = devices(json(&sinks?)?)?;
     let modules = json(&modules?)?;
@@ -241,13 +249,14 @@ fn stream_spec(record: bool, device: &str, name: &str) -> ProcessSpec {
         pipe_stdout: record,
     }
 }
-async fn associated(
+async fn associated_owned(
     spawner: &dyn ProcessSpawner,
     record: bool,
     name: &str,
     index: u32,
+    execution: crate::audio::join::AudioLeafExecution,
 ) -> AppResult<bool> {
-    let bytes = process_io::output(
+    let bytes = process_io::output_audio_owned(
         spawner,
         &[
             "--format=json",
@@ -258,6 +267,7 @@ async fn associated(
                 "sink-inputs"
             },
         ],
+        execution,
     )
     .await?;
     let value = json(&bytes)?;
@@ -279,6 +289,55 @@ async fn associated(
             .get(if record { "source" } else { "sink" })
             .and_then(number)
             == Some(index))
+}
+async fn association_pair(
+    spawner: &dyn ProcessSpawner,
+    helpers: &crate::audio::join::AudioLeafGroup,
+    capture: Option<(&str, u32)>,
+    playback: Option<(&str, u32)>,
+) -> AppResult<(bool, bool)> {
+    let group = helpers.begin()?;
+    let a = capture.map(|_| group.leaf()).transpose()?;
+    let b = playback.map(|_| group.leaf()).transpose()?;
+    let (a, b) = tokio::join!(
+        async {
+            match (capture, a) {
+                (Some((name, index)), Some(execution)) => {
+                    associated_owned(spawner, true, name, index, execution).await
+                }
+                _ => Ok(true),
+            }
+        },
+        async {
+            match (playback, b) {
+                (Some((name, index)), Some(execution)) => {
+                    associated_owned(spawner, false, name, index, execution).await
+                }
+                _ => Ok(true),
+            }
+        },
+    );
+    group.join().await?;
+    Ok((a?, b?))
+}
+#[cfg(test)]
+async fn associated(
+    spawner: &dyn ProcessSpawner,
+    record: bool,
+    name: &str,
+    index: u32,
+) -> AppResult<bool> {
+    let registry = crate::audio::join::AudioRegistry::new();
+    let parent = registry.stream()?;
+    let result = association_pair(
+        spawner,
+        &parent.helpers(),
+        record.then_some((name, index)),
+        (!record).then_some((name, index)),
+    )
+    .await;
+    parent.finish().await?;
+    result.map(|(a, b)| a && b)
 }
 #[derive(Clone)]
 struct WorkerEnd {
@@ -341,6 +400,7 @@ impl Inner {
 }
 type OperationResult = Result<Option<PlaybackReport>, AudioFailure>;
 struct Control {
+    actual: crate::audio::join::AudioOwnerJoin,
     inner: Arc<Inner>,
     operations: [Mutex<Option<watch::Receiver<Option<OperationResult>>>>; 4],
 }
@@ -436,6 +496,9 @@ impl Drop for Control {
 }
 #[async_trait]
 impl AudioControl for Control {
+    fn actual_join_port(&self) -> AppResult<crate::audio::join::AudioOwnerJoin> {
+        Ok(self.actual.clone())
+    }
     fn suppress_now(&self) {
         self.inner.shared.suppress();
     }
@@ -469,6 +532,8 @@ pub(crate) async fn open(
     sink: u32,
     spawner: Arc<dyn ProcessSpawner>,
     lease: Arc<Lease>,
+    parent: crate::audio::join::AudioParent,
+    #[cfg(test)] entry: Option<Arc<entry_test_support::EntryControl>>,
 ) -> AppResult<AudioPorts> {
     open_timed(
         request,
@@ -479,6 +544,9 @@ pub(crate) async fn open(
         spawner,
         lease,
         Deadlines::default(),
+        parent,
+        #[cfg(test)]
+        entry,
     )
     .await
 }
@@ -506,7 +574,95 @@ async fn open_timed(
     spawner: Arc<dyn ProcessSpawner>,
     lease: Arc<Lease>,
     deadlines: Deadlines,
+    parent: crate::audio::join::AudioParent,
+    #[cfg(test)] entry: Option<Arc<entry_test_support::EntryControl>>,
 ) -> AppResult<AudioPorts> {
+    let (source_owner, actual) = crate::audio::join::AudioOwnerSource::new();
+    let (publish, receive) = tokio::sync::oneshot::channel();
+    let entered = parent.clone();
+    let task = tokio::spawn(async move {
+        match open_inner(
+            request,
+            input,
+            source,
+            output,
+            sink,
+            spawner,
+            lease,
+            deadlines,
+            entered,
+            actual,
+            #[cfg(test)]
+            entry,
+        )
+        .await
+        {
+            Ok(Opened {
+                ports,
+                capture,
+                playback,
+                monitor,
+                streams,
+            }) => {
+                // A cancelled observer drops the returned ports and signals
+                // teardown; the original aggregate still owns all joins.
+                let _ = publish.send(Ok(ports));
+                let _ = tokio::join!(capture, playback, monitor);
+                let _ = streams.join().await;
+            }
+            Err(error) => {
+                let _ = publish.send(Err(error));
+            }
+        }
+    });
+    source_owner.retain_task(task, parent);
+    receive
+        .await
+        .map_err(|_| audio_error("Pulse stream owner ended"))?
+}
+struct Opened {
+    ports: AudioPorts,
+    capture: tokio::task::JoinHandle<()>,
+    playback: tokio::task::JoinHandle<()>,
+    monitor: tokio::task::JoinHandle<()>,
+    streams: crate::audio::join::AudioGroupScope,
+}
+async fn open_inner(
+    request: AudioOpenRequest,
+    input: String,
+    source: u32,
+    output: String,
+    sink: u32,
+    spawner: Arc<dyn ProcessSpawner>,
+    lease: Arc<Lease>,
+    deadlines: Deadlines,
+    parent: crate::audio::join::AudioParent,
+    actual: crate::audio::join::AudioOwnerJoin,
+    #[cfg(test)] entry: Option<Arc<entry_test_support::EntryControl>>,
+) -> AppResult<Opened> {
+    #[cfg(test)]
+    if let Some(entry) = &entry {
+        entry.enter(entry_test_support::Boundary::OwnerReady).await;
+    }
+    let streams = async {
+        parent.require_ready()?;
+        #[cfg(test)]
+        if let Some(entry) = &entry {
+            entry.enter(entry_test_support::Boundary::StreamGroup).await;
+        }
+        parent.streams()?.begin()
+    }
+    .await;
+    let streams = match streams {
+        Ok(streams) => streams,
+        Err(error) => {
+            // No native leaf or process can enter before these checks finish.
+            // The registered parent still joins its real empty groups below.
+            lease.release();
+            return Err(error);
+        }
+    };
+    let helpers = parent.helpers();
     let capture = BoundedAudioQueue::default();
     let shared = AudioShared::new(capture.clone());
     let capture_name = format!("{}-capture", Uuid::new_v4());
@@ -514,14 +670,14 @@ async fn open_timed(
     let mut capture_process = None;
     let mut playback_process = None;
     let prepared=tokio::time::timeout(deadlines.open,async{
-        capture_process=Some(spawner.spawn(stream_spec(true,&input,&capture_name)).await?);
-        playback_process=Some(spawner.spawn(stream_spec(false,&output,&playback_name)).await?);
+        capture_process=Some(spawner.spawn_audio_owned(stream_spec(true,&input,&capture_name), streams.leaf()?).await?.into_parts().0);
+        playback_process=Some(spawner.spawn_audio_owned(stream_spec(false,&output,&playback_name), streams.leaf()?).await?.into_parts().0);
         if capture_process.as_ref().unwrap().stdout.is_none() || playback_process.as_ref().unwrap().stdin.is_none() {
             return Err(audio_error("Pulse audio process is missing its pipe"));
         }
         loop{
             let a=capture_process.as_ref().unwrap().control.clone();let b=playback_process.as_ref().unwrap().control.clone();
-            let valid=tokio::select!{_ = a.wait()=>return Err(audio_error("Pulse capture exited before route readiness")),_ = b.wait()=>return Err(audio_error("Pulse playback exited before route readiness")),value=async{let(a,b)=tokio::join!(associated(spawner.as_ref(),true,&capture_name,source),associated(spawner.as_ref(),false,&playback_name,sink));Ok::<bool,crate::error::AppError>(a?&&b?)}=>value?};
+            let valid=tokio::select!{_ = a.wait()=>return Err(audio_error("Pulse capture exited before route readiness")),_ = b.wait()=>return Err(audio_error("Pulse playback exited before route readiness")),value=async{let(a,b)=association_pair(spawner.as_ref(),&helpers,Some((&capture_name,source)),Some((&playback_name,sink))).await?;Ok::<bool,crate::error::AppError>(a&&b)}=>value?};
             if valid{return Ok(());}tokio::time::sleep(Duration::from_millis(40)).await;
         }
     }).await.map_err(|_| crate::error::AppError::from(AudioFailure::new(RuntimeFailureCode::StartupTimeout, "Pulse stream association timed out"))).and_then(|r|r);
@@ -581,7 +737,7 @@ async fn open_timed(
     let s = shared.clone();
     let q = capture.clone();
     let h = health.clone();
-    tokio::spawn(async move {
+    let capture_task = tokio::spawn(async move {
         capture_worker(
             reader,
             capture_process.control,
@@ -598,7 +754,7 @@ async fn open_timed(
     let h = health.clone();
     let sealed = seal.clone();
     let writer_eof = eof.clone();
-    tokio::spawn(async move {
+    let playback_task = tokio::spawn(async move {
         playback_worker(
             writer,
             playback_process.control,
@@ -614,7 +770,7 @@ async fn open_timed(
     });
     let s = shared.clone();
     let h = health.clone();
-    tokio::spawn(async move {
+    let monitor_task = tokio::spawn(async move {
         monitor(
             spawner,
             source_control,
@@ -627,6 +783,7 @@ async fn open_timed(
             eof,
             h,
             monitor_cancel,
+            helpers,
         )
         .await;
         monitor_finished.send_replace(true);
@@ -643,14 +800,21 @@ async fn open_timed(
         lease,
         deadlines,
     });
-    Ok(AudioPorts {
-        capture,
-        playback: tx,
-        health: health_rx,
-        control: Arc::new(Control {
-            inner,
-            operations: std::array::from_fn(|_| Mutex::new(None)),
-        }),
+    Ok(Opened {
+        ports: AudioPorts {
+            capture,
+            playback: tx,
+            health: health_rx,
+            control: Arc::new(Control {
+                actual,
+                inner,
+                operations: std::array::from_fn(|_| Mutex::new(None)),
+            }),
+        },
+        capture: capture_task,
+        playback: playback_task,
+        monitor: monitor_task,
+        streams,
     })
 }
 async fn capture_worker(
@@ -824,6 +988,7 @@ async fn monitor(
     eof: Arc<AtomicBool>,
     health: watch::Sender<AudioHealth>,
     mut cancel: watch::Receiver<bool>,
+    helpers: crate::audio::join::AudioLeafGroup,
 ) {
     let mut tick = tokio::time::interval_at(
         tokio::time::Instant::now() + Duration::from_secs(1),
@@ -842,7 +1007,7 @@ async fn monitor(
             _=source.wait(),if capture_active=>!shared.gates.capture_suppressed.load(Ordering::Acquire),
             _=sink.wait(),if output_active=>!eof.load(Ordering::Acquire),
             _=tick.tick()=>{
-                let check=async{let(a,b)=tokio::join!(async{if capture_active{associated(spawner.as_ref(),true,&capture_name,source_index).await}else{Ok(true)}},async{if output_active{associated(spawner.as_ref(),false,&playback_name,sink_index).await}else{Ok(true)}});(!shared.gates.capture_suppressed.load(Ordering::Acquire) && !matches!(a,Ok(true))) || (!eof.load(Ordering::Acquire) && !matches!(b,Ok(true)))};
+                let check=async{match association_pair(spawner.as_ref(),&helpers,capture_active.then_some((capture_name.as_str(),source_index)),output_active.then_some((playback_name.as_str(),sink_index))).await { Ok((a,b)) => (!shared.gates.capture_suppressed.load(Ordering::Acquire) && !a) || (!eof.load(Ordering::Acquire) && !b), Err(_) => true }};
                 tokio::select!{_ = cancel.changed()=>return,_ = shared.aborted()=>return,failed=check=>failed}
             }
         };
@@ -856,6 +1021,7 @@ async fn monitor(
 
 #[cfg(test)]
 mod tests {
+    mod owned;
     use super::super::process_io::{ProcessPipes, test_support::TestControl};
     use super::*;
     use crate::domain::audio::AudioSource;
@@ -920,6 +1086,7 @@ mod tests {
     struct Fixture {
         rows: StdMutex<HashMap<String, Value>>,
         specs: StdMutex<Vec<ProcessSpec>>,
+        spawn_audio_calls: std::sync::atomic::AtomicUsize,
         children: StdMutex<Vec<(String, Arc<TestControl>)>>,
         capture: StdMutex<Option<tokio::io::DuplexStream>>,
         playback: StdMutex<Option<tokio::io::DuplexStream>>,
@@ -927,6 +1094,8 @@ mod tests {
         fail_playback: AtomicBool,
         cleanup_mode: Arc<AtomicU8>,
         cleanup_release: watch::Sender<bool>,
+        held_helper: StdMutex<Option<String>>,
+        held_children: StdMutex<Vec<Arc<TestControl>>>,
     }
     fn device(index: u32, name: &str, monitor: Option<u32>) -> Value {
         serde_json::json!({"index":index,"name":name,"description":name,"sample_specification":"s16le 2ch 48000Hz","monitor_of_sink":monitor})
@@ -964,6 +1133,7 @@ mod tests {
             Arc::new(Self {
                 rows: StdMutex::new(rows),
                 specs: StdMutex::default(),
+                spawn_audio_calls: std::sync::atomic::AtomicUsize::new(0),
                 children: StdMutex::default(),
                 capture: StdMutex::default(),
                 playback: StdMutex::default(),
@@ -971,6 +1141,8 @@ mod tests {
                 fail_playback: AtomicBool::new(false),
                 cleanup_mode: Arc::new(AtomicU8::new(CLEANUP_NORMAL)),
                 cleanup_release,
+                held_helper: StdMutex::default(),
+                held_children: StdMutex::default(),
             })
         }
         fn stream_child(&self, program: &str) -> Arc<TestControl> {
@@ -1015,6 +1187,34 @@ mod tests {
     }
     #[async_trait]
     impl ProcessSpawner for Fixture {
+        async fn spawn_audio_owned(
+            &self,
+            spec: ProcessSpec,
+            execution: crate::audio::join::AudioLeafExecution,
+        ) -> AppResult<process_io::AudioOwnedProcess> {
+            self.spawn_audio_calls.fetch_add(1, AtomicOrdering::SeqCst);
+            if spec.program.to_str() == Some("pacat") && self.fail_playback.load(Ordering::Acquire)
+            {
+                return Err(audio_error("injected missing playback utility"));
+            }
+            let (source, actual) = execution.enter()?;
+            let pipes = self.spawn(spec).await?;
+            // Fixture wait reads the controlled positive exit independently
+            // of its termination-error observer. It is an actual producer.
+            let exit = pipes.control.clone();
+            let process = process_io::AudioOwnedProcess::attach(pipes, actual, &source);
+            source.run_owned(move |source| async move {
+                let code = loop {
+                    match exit.wait().await {
+                        Ok(exit) => break exit.code,
+                        Err(_) => tokio::time::sleep(Duration::from_millis(200)).await,
+                    }
+                };
+                drop(exit);
+                source.exited(code).await;
+            });
+            Ok(process)
+        }
         async fn spawn(&self, spec: ProcessSpec) -> AppResult<ProcessPipes> {
             let program = spec.program.to_str().unwrap().to_owned();
             self.specs.lock().unwrap().push(spec.clone());
@@ -1030,13 +1230,23 @@ mod tests {
                 let key = spec.args.last().unwrap().to_str().unwrap();
                 let explicit = self.rows.lock().unwrap().get(key).cloned();
                 let value = explicit.unwrap_or_else(|| self.stream_rows(key == "source-outputs"));
-                control.exit(0);
+                let held = self.held_helper.lock().unwrap().as_deref() == Some(key);
+                if held {
+                    self.held_children.lock().unwrap().push(control.clone());
+                } else {
+                    control.exit(0);
+                }
+                let observer: Arc<dyn ProcessControl> = Arc::new(FixtureControl {
+                    inner: control.clone(),
+                    cleanup_mode: self.cleanup_mode.clone(),
+                    cleanup_release: self.cleanup_release.subscribe(),
+                });
                 return Ok(ProcessPipes {
                     stdin: None,
                     stdout: Some(Box::pin(std::io::Cursor::new(
                         serde_json::to_vec(&value).unwrap(),
                     ))),
-                    control,
+                    control: observer,
                 });
             }
             let process_control: Arc<dyn ProcessControl> = Arc::new(FixtureControl {
@@ -1117,6 +1327,8 @@ mod tests {
                 close,
                 drain: Duration::from_millis(100),
             },
+            super::super::inventory::actual_test_support::stream(&backend),
+            None,
         )
         .await;
         (backend, request, result)
@@ -1179,7 +1391,10 @@ mod tests {
                 .lock()
                 .unwrap()
                 .insert("modules".into(), modules);
-            let (driver, rows) = inventory(fixture.as_ref()).await.unwrap();
+            let registry = crate::audio::join::AudioRegistry::new();
+            let parent = registry.inventory().await.unwrap();
+            let (driver, rows) = inventory(fixture.as_ref(), &parent).await.unwrap();
+            parent.finish().await.unwrap();
             assert_ne!(driver, DriverStatus::Ready);
             assert!(
                 rows.iter()
@@ -1518,6 +1733,8 @@ mod tests {
                 close: Duration::from_millis(100),
                 drain: Duration::from_millis(100),
             },
+            super::super::inventory::actual_test_support::stream(&backend),
+            None,
         )
         .await;
         assert!(matches!(

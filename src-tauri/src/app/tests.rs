@@ -153,20 +153,30 @@ async fn close_cancels_pending_creation_without_opening_resources_and_allows_new
     })
     .await
     .unwrap();
+    app.start_intelligence().await.unwrap();
     let (entered, release) = h.audio.block_inventory();
     let owner = app.clone();
     let launch = h.launch.clone();
     let create = tokio::spawn(async move { owner.create_session(launch).await });
     entered.await.unwrap();
-    let closed = tokio::time::timeout(Duration::from_secs(2), app.close_all()).await;
+    let closed = app.close_all();
+    tokio::pin!(closed);
+    let pending = tokio::time::timeout(Duration::from_millis(30), &mut closed)
+        .await
+        .is_err();
     let _ = release.send(());
-    closed.unwrap().unwrap();
+    closed.await.unwrap();
+    assert!(
+        pending,
+        "the entered inventory owner remains part of actual window close"
+    );
     assert!(create.await.unwrap().is_err());
     assert_eq!(h.audio.open_calls(), 0);
     assert_eq!(h.provider.connect_counts(), [0, 0]);
-    app.open_window().unwrap();
+    app.reopen_window().await.unwrap();
     let record = app.create_session(h.launch.clone()).await.unwrap();
     app.stop_session(record.id).await.unwrap();
+    app.close_all().await.unwrap();
 }
 
 #[tokio::test]
@@ -238,6 +248,7 @@ async fn configured_launch_owns_ports_persists_finals_and_keeps_its_snapshot() {
     })
     .await
     .unwrap();
+    app.start_intelligence().await.unwrap();
     let validation = app.validate_session_launch(h.launch.clone()).await.unwrap();
     assert_eq!(validation.context.provider_name, "My saved profile");
     assert_eq!(validation.input_audio, PcmSpec::pcm16_mono(16_000));
@@ -295,6 +306,7 @@ async fn configured_launch_owns_ports_persists_finals_and_keeps_its_snapshot() {
             .is_empty()
     );
     app.delete_provider_config(h.saved.id()).await.unwrap();
+    app.close_all().await.unwrap();
 }
 
 #[tokio::test]
@@ -307,6 +319,7 @@ async fn disabled_unknown_and_wrong_role_launches_fail_locally() {
         &h,
         Arc::new(SecretStore::for_tests(dir.path()).unwrap()),
     );
+    app.start_intelligence().await.unwrap();
     for provider in ["aliyun", "palabra", "unknown-provider"] {
         let config = ProviderConfig::new(
             h.saved.id(),
@@ -353,6 +366,7 @@ async fn disabled_unknown_and_wrong_role_launches_fail_locally() {
     assert!(app.create_session(h.launch.clone()).await.is_err());
     assert_eq!(h.audio.open_calls(), 0);
     assert_eq!(h.provider.connect_counts(), [0, 0]);
+    app.close_all().await.unwrap();
 }
 
 #[tokio::test]
@@ -370,6 +384,7 @@ async fn reserved_creation_wins_delete_race_until_its_session_cleanup() {
     })
     .await
     .unwrap();
+    app.start_intelligence().await.unwrap();
     let (entered, release) = h.audio.block_inventory();
     let owner = app.clone();
     let launch = h.launch.clone();
@@ -385,4 +400,5 @@ async fn reserved_creation_wins_delete_race_until_its_session_cleanup() {
     assert!(delete.await.unwrap().is_err());
     app.stop_session(session.id).await.unwrap();
     app.delete_provider_config(id).await.unwrap();
+    app.close_all().await.unwrap();
 }

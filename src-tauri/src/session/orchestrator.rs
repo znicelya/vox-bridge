@@ -19,7 +19,7 @@ use crate::{
     },
     error::{AppError, AppResult},
     events::{EventBus, SessionEvent},
-    storage::{LocalStore, StoredSession, StoredSessionLifecycle},
+    storage::{LocalStore, SqlSlot, StoredSession, StoredSessionLifecycle},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,6 +132,63 @@ impl SessionRecord {
 type ActiveState = Arc<Mutex<Option<SessionOperation>>>;
 type SessionCompletion = Option<Result<SessionRecord, String>>;
 
+struct SessionActualOwner {
+    slot: Mutex<Option<tokio::sync::OwnedSemaphorePermit>>,
+    sql: SqlSlot,
+    runtime: Mutex<Option<super::RunningSession>>,
+}
+impl SessionActualOwner {
+    fn complete(&self) {
+        self.runtime.lock().unwrap().take();
+        self.slot.lock().unwrap().take();
+    }
+}
+struct SessionActualControl {
+    slots: Arc<tokio::sync::Semaphore>,
+    closing: Mutex<Option<crate::audio::join::AudioCloseKey>>,
+    owner: Mutex<Option<Arc<SessionActualOwner>>>,
+    finalization: Mutex<Option<TerminalFinalization>>,
+}
+struct TerminalFinalization {
+    lifecycle: StoredSessionLifecycle,
+    lifecycle_written: bool,
+    diagnostic: Option<crate::domain::transcript::RuntimeDiagnostic>,
+    terminal: crate::summary::SessionTerminalPort,
+}
+#[derive(Clone)]
+pub(crate) struct SessionCloseJoin {
+    key: crate::audio::join::AudioCloseKey,
+    control: Arc<SessionActualControl>,
+}
+impl SessionCloseJoin {
+    pub(crate) fn key(&self) -> &crate::audio::join::AudioCloseKey {
+        &self.key
+    }
+    pub(crate) async fn wait(&self) -> AppResult<()> {
+        let _all = self
+            .control
+            .slots
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| AppError::Internal("session actual source closed".into()))?;
+        if self.control.closing.lock().unwrap().as_ref() != Some(&self.key) {
+            return Err(AppError::InvalidRequest(
+                "session actual close epoch changed".into(),
+            ));
+        }
+        Ok(())
+    }
+    pub(crate) fn outcome(&self) -> AppResult<()> {
+        if self.control.finalization.lock().unwrap().is_some() {
+            return Err(AppError::Internal(
+                "original terminal persistence failed; durable recovery remains required".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 struct SessionOperation {
     id: Uuid,
     provider_config_id: Uuid,
@@ -148,6 +205,7 @@ struct ActiveSession {
 struct Reservation {
     active: ActiveState,
     id: Uuid,
+    actual: Arc<SessionActualOwner>,
 }
 
 impl Drop for Reservation {
@@ -158,6 +216,7 @@ impl Drop for Reservation {
             .is_some_and(|operation| operation.id == self.id && operation.attached.is_none())
         {
             *active = None;
+            self.actual.complete();
         }
     }
 }
@@ -168,6 +227,8 @@ pub struct SessionOrchestrator {
     event_bus: EventBus,
     active: ActiveState,
     runtime: Arc<super::TranslationRuntime>,
+    terminal: Arc<Mutex<crate::summary::SessionTerminalPort>>,
+    actual: Arc<SessionActualControl>,
     #[cfg(test)]
     pub(super) phase_write_gate: Arc<Mutex<Option<super::orchestrator_tests::PhaseWriteGate>>>,
 }
@@ -191,6 +252,15 @@ impl SessionOrchestrator {
             event_bus,
             active: Arc::new(Mutex::new(None)),
             runtime,
+            terminal: Arc::new(Mutex::new(
+                crate::summary::SessionTerminalPort::unavailable(),
+            )),
+            actual: Arc::new(SessionActualControl {
+                slots: Arc::new(tokio::sync::Semaphore::new(1)),
+                closing: Mutex::new(None),
+                owner: Mutex::new(None),
+                finalization: Mutex::new(None),
+            }),
             #[cfg(test)]
             phase_write_gate: Arc::new(Mutex::new(None)),
         }
@@ -198,6 +268,117 @@ impl SessionOrchestrator {
 
     pub fn store(&self) -> &Arc<LocalStore> {
         &self.store
+    }
+    pub(crate) fn install_terminal_port(&self, terminal: crate::summary::SessionTerminalPort) {
+        *self.terminal.lock().unwrap() = terminal;
+    }
+    pub(crate) fn capture_close_join(
+        &self,
+        key: crate::audio::join::AudioCloseKey,
+    ) -> AppResult<SessionCloseJoin> {
+        let mut closing = self.actual.closing.lock().unwrap();
+        if closing.as_ref().is_some_and(|old| old != &key) {
+            return Err(AppError::InvalidRequest(
+                "session actual close epoch changed".into(),
+            ));
+        }
+        *closing = Some(key.clone());
+        Ok(SessionCloseJoin {
+            key,
+            control: self.actual.clone(),
+        })
+    }
+    pub(crate) fn reopen_after_close(
+        &self,
+        key: &crate::audio::join::AudioCloseKey,
+    ) -> AppResult<()> {
+        self.validate_reopen_after_close(key)?;
+        let mut closing = self.actual.closing.lock().unwrap();
+        if closing.as_ref() != Some(key)
+            || self.actual.slots.available_permits() != 1
+            || self.actual.finalization.lock().unwrap().is_some()
+        {
+            return Err(AppError::InvalidRequest(
+                "session actual close remains pending".into(),
+            ));
+        }
+        *closing = None;
+        Ok(())
+    }
+    pub(crate) fn validate_reopen_after_close(
+        &self,
+        key: &crate::audio::join::AudioCloseKey,
+    ) -> AppResult<()> {
+        if self.actual.closing.lock().unwrap().as_ref() != Some(key)
+            || self.actual.slots.available_permits() != 1
+            || self.actual.finalization.lock().unwrap().is_some()
+        {
+            return Err(AppError::InvalidRequest(
+                "session actual close or terminal effects remain pending".into(),
+            ));
+        }
+        Ok(())
+    }
+    /// Same-key recovery of the original failed durable effects. No active/status
+    /// shortcut can prove a missing lifecycle or diagnostic INSERT completed.
+    pub(crate) fn retry_terminal_close_effects(
+        &self,
+        key: &crate::audio::join::AudioCloseKey,
+    ) -> AppResult<()> {
+        if self.actual.closing.lock().unwrap().as_ref() != Some(key)
+            || self.actual.slots.available_permits() != 1
+        {
+            return Err(AppError::InvalidRequest(
+                "original terminal producer remains pending".into(),
+            ));
+        }
+        let mut pending = self.actual.finalization.lock().unwrap();
+        let finalization = pending.as_mut().ok_or_else(|| {
+            AppError::Internal("original audio failure has no durable recovery producer".into())
+        })?;
+        if !finalization.lifecycle_written {
+            let reservation = finalization.terminal.try_reserve();
+            self.store
+                .commit_terminal_lifecycle(&finalization.lifecycle, reservation.intent())?;
+            finalization.lifecycle_written = true;
+            reservation.committed(finalization.lifecycle.session_id);
+        }
+        let lifecycle_complete = self.store.transaction(|tx| {
+            Ok(tx.query_row(
+                "SELECT status=?2 AND ended_at IS ?3 FROM session_lifecycle WHERE session_id=?1",
+                rusqlite::params![
+                    finalization.lifecycle.session_id.to_string(),
+                    finalization.lifecycle.status,
+                    finalization.lifecycle.ended_at
+                ],
+                |row| row.get::<_, bool>(0),
+            )?)
+        })?;
+        if !lifecycle_complete {
+            return Err(AppError::Intelligence(
+                crate::intelligence::types::IntelligenceErrorCode::Storage,
+            ));
+        }
+        if let Some(diagnostic) = &finalization.diagnostic {
+            let expected = serde_json::to_string(diagnostic)
+                .map_err(|_| AppError::Internal("terminal diagnostic encoding failed".into()))?;
+            let existing = self.store.transaction(|tx| {
+                use rusqlite::OptionalExtension;
+                Ok(tx.query_row("SELECT session_id=?2 AND payload_json=?3 FROM session_diagnostics WHERE id=?1",
+                    rusqlite::params![diagnostic.id.to_string(),diagnostic.session_id.to_string(),expected], |row| row.get::<_,bool>(0)).optional()?)
+            })?;
+            match existing {
+                Some(true) => {}
+                Some(false) => {
+                    return Err(AppError::Intelligence(
+                        crate::intelligence::types::IntelligenceErrorCode::Storage,
+                    ));
+                }
+                None => self.store.append_diagnostic(diagnostic)?,
+            }
+        }
+        *pending = None;
+        Ok(())
     }
     pub fn event_bus(&self) -> &EventBus {
         &self.event_bus
@@ -215,6 +396,27 @@ impl SessionOrchestrator {
                     "stop the active session first".into(),
                 ));
             }
+            let closing = self.actual.closing.lock().unwrap();
+            if closing.is_some() {
+                return Err(AppError::InvalidRequest(
+                    "session admission is closing".into(),
+                ));
+            }
+            if self.actual.finalization.lock().unwrap().is_some() {
+                return Err(AppError::InvalidRequest(
+                    "prior terminal persistence requires close recovery".into(),
+                ));
+            }
+            let slot = self.actual.slots.clone().try_acquire_owned().map_err(|_| {
+                AppError::InvalidRequest("prior terminal producer remains owned".into())
+            })?;
+            let actual = Arc::new(SessionActualOwner {
+                slot: Mutex::new(Some(slot)),
+                sql: SqlSlot::default(),
+                runtime: Mutex::new(None),
+            });
+            *self.actual.owner.lock().unwrap() = Some(actual.clone());
+            drop(closing);
             let id = Uuid::new_v4();
             *active = Some(SessionOperation {
                 id,
@@ -224,6 +426,7 @@ impl SessionOrchestrator {
             Reservation {
                 active: self.active.clone(),
                 id,
+                actual,
             }
         };
         let id = reservation.id;
@@ -272,6 +475,7 @@ impl SessionOrchestrator {
         let (stop, stop_rx) = watch::channel(false);
         let (completion, completion_rx) = watch::channel(None);
         let running = self.runtime.start(prepared);
+        *reservation.actual.runtime.lock().unwrap() = Some(running.clone());
         {
             let mut active = self.active.lock().unwrap();
             active.as_mut().expect("reserved session").attached = Some(ActiveSession {
@@ -283,8 +487,12 @@ impl SessionOrchestrator {
         }
         let owner = self.clone();
         let initial = record.clone();
+        let terminal = self.terminal.lock().unwrap().clone();
+        let actual = reservation.actual.clone();
         tokio::spawn(async move {
-            owner.observe(initial, running, stop_rx, completion).await;
+            owner
+                .observe(initial, running, stop_rx, completion, terminal, actual)
+                .await;
         });
         Ok(record)
     }
@@ -326,6 +534,8 @@ impl SessionOrchestrator {
         running: super::RunningSession,
         mut stop: watch::Receiver<bool>,
         completion: watch::Sender<SessionCompletion>,
+        terminal: crate::summary::SessionTerminalPort,
+        actual: Arc<SessionActualOwner>,
     ) {
         let mut status = running.status();
         let mut storage_failed = false;
@@ -335,7 +545,8 @@ impl SessionOrchestrator {
                     snapshot.phase = RuntimePhase::Stopping;
                 }
                 if self
-                    .persist_phase(&mut record, SessionStatus::Stopping)
+                    .persist_phase(&mut record, SessionStatus::Stopping, &actual)
+                    .await
                     .is_err()
                 {
                     storage_failed = true;
@@ -356,7 +567,11 @@ impl SessionOrchestrator {
                 RuntimePhase::Stopped => unreachable!(),
             };
             record.runtime = Some(snapshot);
-            if self.persist_phase(&mut record, phase).is_err() {
+            if self
+                .persist_phase(&mut record, phase, &actual)
+                .await
+                .is_err()
+            {
                 storage_failed = true;
                 break running.stop().await;
             }
@@ -368,6 +583,8 @@ impl SessionOrchestrator {
                 }
             }
         };
+        let joined = running.join_actual().await.is_ok();
+        storage_failed |= !joined;
         record.runtime = None;
         record.ended_at = Some(now_seconds());
         record.status = if storage_failed || matches!(outcome, RuntimeOutcome::Failed { .. }) {
@@ -375,14 +592,27 @@ impl SessionOrchestrator {
         } else {
             SessionStatus::Completed
         };
-        let persisted = self
-            .store
-            .update_session_lifecycle(&StoredSessionLifecycle {
-                session_id: record.id,
-                status: record.status.as_str().into(),
-                ended_at: record.ended_at,
+        let lifecycle = StoredSessionLifecycle {
+            session_id: record.id,
+            status: record.status.as_str().into(),
+            ended_at: record.ended_at,
+        };
+        let reservation = terminal.try_reserve();
+        let storage = self.store.clone();
+        let terminal_lifecycle = lifecycle.clone();
+        let terminal_result = actual
+            .sql
+            .run(actual.clone(), move || {
+                let persisted = storage
+                    .commit_terminal_lifecycle(&terminal_lifecycle, reservation.intent())
+                    .is_ok();
+                Ok((persisted, reservation))
             })
-            .is_ok();
+            .await;
+        let (persisted, reservation) = match terminal_result {
+            Ok((persisted, reservation)) => (persisted, Some(reservation)),
+            Err(_) => (false, None),
+        };
         storage_failed |= !persisted;
         let failure = if storage_failed {
             Some(RuntimeFailureCode::Storage)
@@ -391,12 +621,23 @@ impl SessionOrchestrator {
         } else {
             None
         };
+        let mut final_diagnostic = None;
         let final_event = if let Some(code) = failure {
             let event = runtime_failure_event(record.id, code);
             let SessionEvent::Diagnostic { diagnostic } = &event else {
                 unreachable!("runtime failure is a diagnostic");
             };
-            if self.store.append_diagnostic(diagnostic).is_err() {
+            final_diagnostic = Some(diagnostic.clone());
+            let stored_diagnostic = diagnostic.clone();
+            let storage = self.store.clone();
+            if actual
+                .sql
+                .run(actual.clone(), move || {
+                    storage.append_diagnostic(&stored_diagnostic)
+                })
+                .await
+                .is_err()
+            {
                 storage_failed = true;
                 runtime_failure_event(record.id, RuntimeFailureCode::Storage)
             } else {
@@ -405,7 +646,17 @@ impl SessionOrchestrator {
         } else {
             SessionEvent::status(record.id, record.status.as_str())
         };
+        let sql_joined = actual.sql.drain().await.is_ok();
+        storage_failed |= !sql_joined;
         self.event_bus.close_with_final(record.id, final_event);
+        if storage_failed {
+            *self.actual.finalization.lock().unwrap() = Some(TerminalFinalization {
+                lifecycle,
+                lifecycle_written: persisted,
+                diagnostic: final_diagnostic,
+                terminal: terminal.clone(),
+            });
+        }
         let result = if storage_failed {
             Err("session lifecycle persistence failed".into())
         } else {
@@ -418,26 +669,46 @@ impl SessionOrchestrator {
         if active.as_ref().is_some_and(|op| op.id == record.id) {
             *active = None;
         }
+        drop(active);
+        if persisted {
+            if let Some(reservation) = reservation {
+                reservation.committed(record.id);
+            }
+        }
+        if joined && sql_joined {
+            actual.complete();
+        }
     }
 
-    fn persist_phase(&self, record: &mut SessionRecord, status: SessionStatus) -> AppResult<()> {
+    async fn persist_phase(
+        &self,
+        record: &mut SessionRecord,
+        status: SessionStatus,
+        actual: &Arc<SessionActualOwner>,
+    ) -> AppResult<()> {
         let status_changed = record.status != status;
         if status_changed {
+            let storage = self.store.clone();
+            let lifecycle = StoredSessionLifecycle {
+                session_id: record.id,
+                status: status.as_str().into(),
+                ended_at: None,
+            };
             #[cfg(test)]
-            if status == SessionStatus::Running {
-                let gate = self.phase_write_gate.lock().unwrap().take();
-                if let Some(gate) = gate {
-                    gate.wait();
-                }
-            }
-            // SQLite may block, so stop admission stays available during this
-            // write. The observed phase is not published until the fence below.
-            self.store
-                .update_session_lifecycle(&StoredSessionLifecycle {
-                    session_id: record.id,
-                    status: status.as_str().into(),
-                    ended_at: None,
-                })?;
+            let gate = self.phase_write_gate.clone();
+            actual
+                .sql
+                .run(actual.clone(), move || {
+                    #[cfg(test)]
+                    if status == SessionStatus::Running {
+                        let gate = gate.lock().unwrap().take();
+                        if let Some(gate) = gate {
+                            gate.wait();
+                        }
+                    }
+                    storage.update_session_lifecycle(&lifecycle)
+                })
+                .await?;
             record.status = status;
         }
         let mut active = self.active.lock().unwrap();
@@ -464,6 +735,21 @@ impl SessionOrchestrator {
     }
 
     pub async fn get(&self, id: Uuid) -> AppResult<Option<SessionRecord>> {
+        // The attached observer publishes only after its durable write and
+        // stop fence. A yielding terminal write can already be visible in SQL
+        // while its diagnostic/bus close is still pending; keep callers on the
+        // last committed observer view until that original producer retires.
+        if let Some(record) = self
+            .active
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|operation| operation.id == id)
+            .and_then(|operation| operation.attached.as_ref())
+            .map(|session| session.record.clone())
+        {
+            return Ok(Some(record));
+        }
         let Some(session) = self.store.get_session(id)? else {
             return Ok(None);
         };

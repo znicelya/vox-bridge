@@ -1,5 +1,8 @@
 //! Owns acquisition and acknowledged teardown, including operations that finish
 //! after their caller has stopped admitting work. No join handle is detached.
+#[cfg(test)]
+#[path = "resources/actual_join_tests.rs"]
+mod actual_join_tests;
 use super::{direction::provider_failure, runtime::audio_failure};
 use crate::{
     audio::runtime::{AudioBackend, AudioControl, AudioOpenRequest, AudioPorts},
@@ -118,7 +121,19 @@ impl AudioOperation {
         let task = tokio::spawn(async move {
             let mut report = CleanupReport::default();
             if let Some(old) = old {
+                let actual = old.control.actual_join_port();
                 report.merge(close_audio(old.control.clone(), true).await);
+                drop(old);
+                if report.failures.is_empty() {
+                    match actual {
+                        Ok(actual) => {
+                            if let Err(error) = actual.wait().await {
+                                report.fail(audio_failure(&error));
+                            }
+                        }
+                        Err(error) => report.fail(audio_failure(&error)),
+                    }
+                }
             }
             if !report.failures.is_empty() || signal.load(Ordering::Acquire) {
                 return AudioAcquired {

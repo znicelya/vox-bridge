@@ -116,7 +116,7 @@ async fn running_stop_finishes_each_call_stream_once_and_replays_terminal() {
 async fn losing_start_never_prepares_and_cancelled_reservation_releases_immediately() {
     let h = RuntimeHarness::live(script()).unwrap();
     let o = h.orchestrator();
-    let (entered, _release) = h.audio.block_inventory();
+    let (entered, release) = h.audio.block_inventory();
     let winner = {
         let o = o.clone();
         let launch = h.launch.clone();
@@ -137,7 +137,24 @@ async fn losing_start_never_prepares_and_cancelled_reservation_releases_immediat
     winner.abort();
     let _ = winner.await;
     assert!(!o.uses_provider_config(h.saved.id()).await);
+    // Logical cancellation releases the reservation immediately. Its actual
+    // inventory parent still prevents a new native entry until genuine join.
+    let blocked = o
+        .start(h.launch.clone(), h.saved.clone())
+        .await
+        .unwrap_err();
+    assert!(
+        blocked
+            .to_string()
+            .contains("actual inventory parent is still owned")
+    );
+    assert!(!o.uses_provider_config(h.saved.id()).await);
+    assert_eq!(h.audio.inventory_calls(), 1);
+    assert_eq!(h.audio.open_calls(), 0);
+    assert_eq!(h.provider.connect_counts(), [0, 0]);
+    release.send(()).unwrap();
     let id = o.start(h.launch.clone(), h.saved.clone()).await.unwrap().id;
+    assert_eq!(h.audio.inventory_calls(), 2);
     assert!(o.delete_session(id).await.is_err());
     o.stop_session(id).await.unwrap();
 }
@@ -213,6 +230,14 @@ async fn stopping_persistence_failure_still_cleans_and_releases_ownership() {
 
 #[tokio::test]
 async fn terminal_write_failure_replays_error_to_attached_waiters_without_success() {
+    use crate::{
+        audio::{join::AudioCloseJoin, runtime::AudioBackend},
+        config::{ConfigIo, ConfigStore, SecretStore},
+        intelligence::{config::ServiceConfigStore, http::ReqwestJsonHttp, jobs::JobScheduler},
+        llm::OpenAiCompatibleLlm,
+        summary::SummaryService,
+    };
+    use std::sync::Arc;
     let h = RuntimeHarness::live(script()).unwrap();
     let o = h.orchestrator();
     let release = h.audio.delay_close("live-input");
@@ -249,10 +274,86 @@ async fn terminal_write_failure_replays_error_to_attached_waiters_without_succes
         }
     }
     assert_eq!(errors, 1);
-    // No permanent error cache or retained singleton lease.
+    let blocked = o
+        .start(h.launch.clone(), h.saved.clone())
+        .await
+        .unwrap_err();
+    assert!(
+        blocked
+            .to_string()
+            .contains("prior terminal persistence requires close recovery")
+    );
+
+    // Elect the real delivery identity without starting intelligence or an LLM.
+    // Actual audio join remains separate from the original failed durable write.
+    let dir = tempfile::tempdir().unwrap();
+    let config = Arc::new(ServiceConfigStore::new(
+        ConfigIo::new(
+            ConfigStore::new(
+                dir.path(),
+                Arc::new(SecretStore::for_tests(dir.path()).unwrap()),
+            )
+            .unwrap(),
+        ),
+        h.store.clone(),
+    ));
+    let jobs = Arc::new(JobScheduler::new(h.store.clone()));
+    let service = SummaryService::new(
+        h.store.clone(),
+        config.clone(),
+        jobs.clone(),
+        Arc::new(OpenAiCompatibleLlm::new(
+            config,
+            Arc::new(ReqwestJsonHttp::new().unwrap()),
+        )),
+    );
+    let delivery = service.delivery_owner();
+    let key = delivery
+        .elect_closing(1, h.audio.actual_epoch().unwrap())
+        .unwrap();
+    delivery.signal_closing(&key).unwrap();
+    let native = h.audio.begin_close(key.clone()).unwrap();
+    let session = o.capture_close_join(key.clone()).unwrap();
+    let cleanup = o.clone();
+    let audio =
+        AudioCloseJoin::start_owned(Arc::new(()), key.clone(), session, native, async move {
+            cleanup.stop_active().await
+        })
+        .unwrap();
+    let ack = audio.wait().await.unwrap();
+    ack.require_key(&key).unwrap();
+    assert!(audio.outcome().is_err());
+    assert!(o.retry_terminal_close_effects(&key).is_err());
+    assert!(o.validate_reopen_after_close(&key).is_err());
+    h.audio.validate_reopen_after_close(ack.backend()).unwrap();
+    assert!(o.start(h.launch.clone(), h.saved.clone()).await.is_err());
+    assert_eq!(
+        o.get(id).await.unwrap().unwrap().status,
+        SessionStatus::Stopping
+    );
+    h.store
+        .transaction(|tx| {
+            tx.execute_batch("DROP TRIGGER fail_completed")?;
+            Ok(())
+        })
+        .unwrap();
+    o.retry_terminal_close_effects(&key).unwrap();
+    let recovered = o.get(id).await.unwrap().unwrap();
+    assert_eq!(recovered.status, SessionStatus::Completed);
+    assert!(recovered.ended_at.is_some());
+    assert!(recovered.runtime.is_none());
+    assert!(
+        audio.outcome().is_err(),
+        "the original stop attempt remains failed after its durable effect is repaired"
+    );
+    o.validate_reopen_after_close(&key).unwrap();
+    h.audio.validate_reopen_after_close(ack.backend()).unwrap();
+    h.audio.reopen_after_close(ack.backend()).unwrap();
+    o.reopen_after_close(&key).unwrap();
     let next = o.start(h.launch.clone(), h.saved.clone()).await.unwrap();
     assert_ne!(next.id, id);
-    let _ = o.stop_session(next.id).await;
+    o.stop_session(next.id).await.unwrap();
+    jobs.shutdown().await.unwrap();
 }
 
 #[tokio::test]

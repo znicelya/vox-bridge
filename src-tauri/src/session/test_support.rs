@@ -99,6 +99,8 @@ struct FixtureAudioState {
     quarantined: HashSet<String>,
     delayed_opens: HashMap<String, oneshot::Receiver<Result<(), RuntimeFailureCode>>>,
     delayed_closes: HashMap<String, CloseAcknowledgement>,
+    delayed_actual_joins: HashMap<String, (oneshot::Sender<()>, oneshot::Receiver<()>)>,
+    held_playback_ingress: HashMap<String, oneshot::Receiver<()>>,
 }
 
 struct PlaybackProbe {
@@ -138,7 +140,28 @@ impl PlaybackProbe {
     }
 }
 
-async fn playback_worker(probe: Arc<PlaybackProbe>, mut receiver: mpsc::Receiver<AudioFrame>) {
+async fn playback_worker(
+    probe: Arc<PlaybackProbe>,
+    mut receiver: mpsc::Receiver<AudioFrame>,
+    ingress: Option<oneshot::Receiver<()>>,
+) {
+    if let Some(mut ingress) = ingress {
+        loop {
+            let changed = probe.shared.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if probe
+                .shared
+                .gates
+                .playback_suppressed
+                .load(Ordering::Acquire)
+                || probe.sealed.load(Ordering::Acquire)
+            {
+                break;
+            }
+            tokio::select! { _ = &mut ingress => break, _ = changed => {} }
+        }
+    }
     loop {
         let changed = probe.shared.changed.notified();
         tokio::pin!(changed);
@@ -194,6 +217,10 @@ async fn playback_worker(probe: Arc<PlaybackProbe>, mut receiver: mpsc::Receiver
                     &probe.shared.counters.native_discarded,
                     discarded.samples().len() as u64,
                 );
+                // Mirror the real PlaybackBuffer's overwrite side effect:
+                // native loss also signals a discontinuity to the actor.
+                add(&probe.shared.counters.playback_overflow_generation, 1);
+                probe.shared.changed.notify_waiters();
             }
             pending.push_back(frame);
         }
@@ -228,6 +255,7 @@ impl CloseAcknowledgement {
 
 #[derive(Clone)]
 pub(crate) struct FixtureAudioBackend {
+    actual: crate::audio::join::AudioRegistry,
     state: Arc<Mutex<FixtureAudioState>>,
     open_ports: Arc<AtomicUsize>,
     total_opens: Arc<AtomicUsize>,
@@ -262,6 +290,7 @@ impl FixtureAudioBackend {
             ),
         ];
         Self {
+            actual: crate::audio::join::AudioRegistry::new(),
             state: Arc::new(Mutex::new(FixtureAudioState {
                 inventory: AudioInventory {
                     generation: Uuid::new_v4(),
@@ -277,6 +306,8 @@ impl FixtureAudioBackend {
                 quarantined: HashSet::new(),
                 delayed_opens: HashMap::new(),
                 delayed_closes: HashMap::new(),
+                delayed_actual_joins: HashMap::new(),
+                held_playback_ingress: HashMap::new(),
             })),
             open_ports: Arc::new(AtomicUsize::new(0)),
             total_opens: Arc::new(AtomicUsize::new(0)),
@@ -336,6 +367,16 @@ impl FixtureAudioBackend {
             }
             changed.await;
         }
+    }
+
+    pub(crate) fn hold_playback_ingress(&self, input_id: &str) -> oneshot::Sender<()> {
+        let (release, held) = oneshot::channel();
+        self.state
+            .lock()
+            .unwrap()
+            .held_playback_ingress
+            .insert(input_id.into(), held);
+        release
     }
 
     pub(crate) fn lose(&self, id: &str) {
@@ -466,6 +507,20 @@ impl FixtureAudioBackend {
         release
     }
 
+    pub(crate) fn delay_actual_join(
+        &self,
+        input_id: &str,
+    ) -> (oneshot::Receiver<()>, oneshot::Sender<()>) {
+        let (entered, receive) = oneshot::channel();
+        let (release, wait) = oneshot::channel();
+        self.state
+            .lock()
+            .unwrap()
+            .delayed_actual_joins
+            .insert(input_id.into(), (entered, wait));
+        (receive, release)
+    }
+
     pub(crate) fn delay_close_result(
         &self,
         input_id: &str,
@@ -481,6 +536,10 @@ impl FixtureAudioBackend {
 }
 
 struct FixtureControl {
+    actual: crate::audio::join::AudioOwnerJoin,
+    native_done: watch::Sender<bool>,
+    close_worker: Arc<AsyncMutex<Option<tokio::task::JoinHandle<()>>>>,
+    playback_worker: Arc<AsyncMutex<Option<tokio::task::JoinHandle<()>>>>,
     input_id: String,
     output_id: String,
     capture: BoundedAudioQueue,
@@ -506,9 +565,16 @@ impl FixtureControl {
         let probe = self.probe.clone();
         let health = self.health.clone();
         let delayed = self.delayed_close.lock().unwrap().take();
-        tokio::spawn(async move {
+        let native_done = self.native_done.clone();
+        let playback_worker = self.playback_worker.clone();
+        let mut close_worker = self
+            .close_worker
+            .try_lock()
+            .expect("new fixture close owner");
+        let task = tokio::spawn(async move {
             let acknowledgement = async {
                 probe.wait_worker_done().await;
+                join_fixture_worker(&playback_worker).await;
                 if let Some(delayed) = delayed {
                     delayed.wait().await?;
                 }
@@ -563,13 +629,18 @@ impl FixtureControl {
             if publish.borrow().is_none() {
                 publish.send_replace(Some(value));
             }
+            native_done.send_replace(true);
         });
+        *close_worker = Some(task);
         result
     }
 }
 
 #[async_trait]
 impl AudioControl for FixtureControl {
+    fn actual_join_port(&self) -> AppResult<crate::audio::join::AudioOwnerJoin> {
+        Ok(self.actual.clone())
+    }
     fn suppress_now(&self) {
         self.probe.suppress();
         self.capture.close();
@@ -583,6 +654,26 @@ impl AudioControl for FixtureControl {
             .dropped_normalized_frames
             .saturating_add(self.probe.injected_normalized_loss.load(Ordering::Acquire));
         statistics
+    }
+
+    fn playback_overflow_generation(&self) -> u64 {
+        self.probe
+            .shared
+            .counters
+            .playback_overflow_generation
+            .load(Ordering::Acquire)
+    }
+
+    async fn playback_overflow_changed(&self, observed: u64) {
+        loop {
+            let changed = self.probe.shared.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if self.playback_overflow_generation() != observed {
+                return;
+            }
+            changed.await;
+        }
     }
 
     async fn stop_capture(&self) -> AppResult<()> {
@@ -684,17 +775,115 @@ impl Drop for FixtureControl {
 
 #[async_trait]
 impl AudioBackend for FixtureAudioBackend {
+    fn actual_epoch(&self) -> AppResult<u64> {
+        self.actual.epoch()
+    }
+    fn begin_close(
+        &self,
+        key: crate::audio::join::AudioCloseKey,
+    ) -> AppResult<crate::audio::join::AudioBackendCloseJoin> {
+        self.actual.begin_close(key)
+    }
+    fn reopen_after_close(&self, ack: &crate::audio::join::AudioBackendCloseAck) -> AppResult<()> {
+        self.validate_reopen_after_close(ack)?;
+        self.actual.reopen_after_close(ack)
+    }
+    fn validate_reopen_after_close(
+        &self,
+        ack: &crate::audio::join::AudioBackendCloseAck,
+    ) -> AppResult<()> {
+        if !self.state.lock().unwrap().quarantined.is_empty() {
+            return Err(audio_error("fixture native audio requires restart"));
+        }
+        self.actual.validate_reopen_after_close(ack)
+    }
     async fn inventory(&self) -> AppResult<AudioInventory> {
+        let parent = self.actual.inventory().await?;
         self.inventory_calls.fetch_add(1, Ordering::SeqCst);
         let gate = self.inventory_gate.lock().unwrap().take();
-        if let Some((entered, release)) = gate {
-            let _ = entered.send(());
-            let _ = release.await;
-        }
-        Ok(self.state.lock().unwrap().inventory.clone())
+        let backend = self.clone();
+        let retained = parent.clone();
+        let (publish, receive) = oneshot::channel();
+        let (source, _actual) = crate::audio::join::AudioOwnerSource::new();
+        let task = tokio::spawn(async move {
+            if let Some((entered, release)) = gate {
+                let _ = entered.send(());
+                let _ = release.await;
+            }
+            let result = retained.publish(|| Ok(backend.state.lock().unwrap().inventory.clone()));
+            let _ = publish.send(result);
+        });
+        source.retain_task(task, parent);
+        receive
+            .await
+            .map_err(|_| audio_error("fixture inventory owner ended"))?
     }
 
     async fn open(&self, request: AudioOpenRequest) -> AppResult<AudioPorts> {
+        let parent = self.actual.stream()?;
+        let actual_gate = self
+            .state
+            .lock()
+            .unwrap()
+            .delayed_actual_joins
+            .remove(&request.input_id);
+        let backend = self.clone();
+        let (source, actual) = crate::audio::join::AudioOwnerSource::new();
+        let (native_done, mut completed) = watch::channel(false);
+        let close_worker = Arc::new(AsyncMutex::new(None));
+        let playback_worker = Arc::new(AsyncMutex::new(None));
+        let (publish, receive) = oneshot::channel();
+        let entered = parent.clone();
+        let task = tokio::spawn(async move {
+            let opened = backend
+                .open_fixture(
+                    request,
+                    entered,
+                    actual,
+                    native_done,
+                    close_worker.clone(),
+                    playback_worker.clone(),
+                )
+                .await;
+            let successful = opened.is_ok();
+            let _ = publish.send(opened);
+            if successful {
+                while !*completed.borrow_and_update() {
+                    if completed.changed().await.is_err() {
+                        return;
+                    }
+                }
+                join_fixture_worker(&close_worker).await;
+                join_fixture_worker(&playback_worker).await;
+            }
+            if let Some((entered, release)) = actual_gate {
+                let _ = entered.send(());
+                let _ = release.await;
+            }
+        });
+        source.retain_task(task, parent);
+        receive
+            .await
+            .map_err(|_| audio_error("fixture stream owner ended"))?
+    }
+}
+async fn join_fixture_worker(worker: &AsyncMutex<Option<tokio::task::JoinHandle<()>>>) {
+    let mut worker = worker.lock().await;
+    if let Some(task) = worker.as_mut() {
+        let _ = task.await;
+        worker.take();
+    }
+}
+impl FixtureAudioBackend {
+    async fn open_fixture(
+        &self,
+        request: AudioOpenRequest,
+        parent: crate::audio::join::AudioParent,
+        actual: crate::audio::join::AudioOwnerJoin,
+        native_done: watch::Sender<bool>,
+        close_worker: Arc<AsyncMutex<Option<tokio::task::JoinHandle<()>>>>,
+        playback_worker: Arc<AsyncMutex<Option<tokio::task::JoinHandle<()>>>>,
+    ) -> AppResult<AudioPorts> {
         self.open_calls.fetch_add(1, Ordering::SeqCst);
         let delayed = {
             let mut state = self.state.lock().unwrap();
@@ -718,6 +907,7 @@ impl AudioBackend for FixtureAudioBackend {
                 }
             }
         }
+        parent.require_ready()?;
         let mut state = self.state.lock().unwrap();
         validate_fixture_open(&state, &request)?;
         let capture = BoundedAudioQueue::new(8);
@@ -733,7 +923,14 @@ impl AudioBackend for FixtureAudioBackend {
             failure: Mutex::new(None),
             changed: Notify::new(),
         });
-        tokio::spawn(playback_worker(probe.clone(), receiver));
+        let worker = tokio::spawn(crate::session::test_support::playback_worker(
+            probe.clone(),
+            receiver,
+            state.held_playback_ingress.remove(&request.input_id),
+        ));
+        *playback_worker
+            .try_lock()
+            .expect("new fixture playback owner") = Some(worker);
         let (health, receiver) = watch::channel(AudioHealth::Ready);
         state
             .captures
@@ -760,6 +957,10 @@ impl AudioBackend for FixtureAudioBackend {
         self.total_opens.fetch_add(1, Ordering::SeqCst);
         let delayed_close = state.delayed_closes.remove(&request.input_id);
         let control = Arc::new(FixtureControl {
+            actual,
+            native_done,
+            close_worker,
+            playback_worker,
             input_id: request.input_id,
             output_id: request.output_id,
             capture: capture.clone(),

@@ -34,6 +34,8 @@ pub(crate) fn with_knowledge_ports(
         Arc::new(UnavailableDriverOperations),
         parser,
         Some(embeddings),
+        None,
+        None,
     )
     .unwrap()
 }

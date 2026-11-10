@@ -1,10 +1,25 @@
 //! App-owned subscription admission and cancellation-safe window close barriers.
+#[cfg(test)]
+#[path = "lifecycle/actual_join_tests.rs"]
+mod actual_join_tests;
+#[cfg(test)]
+#[path = "lifecycle/errors_tests.rs"]
+mod errors_tests;
+#[cfg(test)]
+#[path = "lifecycle/executor_tests.rs"]
+mod executor_tests;
+#[path = "lifecycle/final_drop.rs"]
+mod final_drop;
+#[cfg(test)]
+#[path = "lifecycle/final_drop_tests.rs"]
+mod final_drop_tests;
 use super::{AppState, FrontendEmitter, SubscriptionTicket};
 use crate::{
     error::{AppError, AppResult},
     events::SessionEvent,
     session::SessionStatus,
 };
+pub(super) use final_drop::FinalAppFacade;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{broadcast, watch};
 use uuid::Uuid;
@@ -22,12 +37,48 @@ pub(super) struct CloseState {
     closing: bool,
     close_succeeded: bool,
     completion: Option<watch::Receiver<CloseResult>>,
+    audio: Option<crate::audio::join::AudioCloseJoin>,
+    audio_key: Option<crate::audio::join::AudioCloseKey>,
+    audio_ack: Option<crate::audio::join::AudioCloseAck>,
+    terminal_effects_repaired: bool,
+    failures: [Option<String>; 9],
+    first_failure: Option<[Option<String>; 9]>,
+    facade_task: Option<tokio::task::JoinHandle<()>>,
 }
 pub(super) fn closing_error() -> AppError {
     AppError::InvalidRequest("window is closing; retry after close completes".into())
 }
+// The retained startup publisher consumes only these narrow ports. It never
+// owns an AppState/final facade and is dropped before the live worker loop.
+pub(super) struct SummaryPublication {
+    state: Arc<std::sync::Mutex<CloseState>>,
+    readiness: Arc<std::sync::Mutex<Option<crate::summary::SummaryDeliveryReady>>>,
+    orchestrator: crate::session::SessionOrchestrator,
+    epoch: u64,
+}
+impl SummaryPublication {
+    pub(super) fn publish(self, ready: &crate::summary::SummaryDeliveryReady) -> AppResult<()> {
+        let state = self.state.lock().map_err(|_| closing_error())?;
+        if state.closing || state.epoch != self.epoch {
+            return Err(closing_error());
+        }
+        ready.require_epoch(self.epoch)?;
+        self.orchestrator
+            .install_terminal_port(ready.terminal_port());
+        *self.readiness.lock().map_err(|_| closing_error())? = Some(ready.clone());
+        Ok(())
+    }
+}
 
 impl AppState {
+    pub(super) fn summary_publication(&self, epoch: u64) -> SummaryPublication {
+        SummaryPublication {
+            state: self.close_state.clone(),
+            readiness: self.summary_ready.clone(),
+            orchestrator: self.orchestrator.clone(),
+            epoch,
+        }
+    }
     pub(super) fn with_open_epoch<T>(
         &self,
         operation: impl FnOnce() -> AppResult<T>,
@@ -149,27 +200,61 @@ impl AppState {
             }
         }
     }
-    async fn close_intelligence_owner(&self) -> AppResult<()> {
+    fn record_close_failure(&self, branch: usize, result: &AppResult<()>) {
+        self.close_state.lock().unwrap().failures[branch] =
+            result.as_ref().err().map(ToString::to_string);
+    }
+    async fn close_intelligence_owner(
+        &self,
+        key: crate::audio::join::AudioCloseKey,
+        audio: crate::audio::join::AudioCloseJoin,
+        terminal_effects: tokio::sync::oneshot::Receiver<()>,
+        repair_tail: bool,
+    ) -> AppResult<()> {
         let _startup = self.intelligence_startup.lock().await;
-        let (jobs, probes, subscriptions, summaries) = tokio::join!(
+        let (jobs, probes, subscriptions, summaries, delivery) = tokio::join!(
             self.jobs.shutdown(),
             self.probes.shutdown(),
             self.intelligence_subscriptions.close_all(),
-            self.summaries.drain_actual()
+            self.summaries.drain_actual(),
+            async {
+                // Recovery can create a new terminal journal after an earlier
+                // successful delivery close. Its tail must follow that write.
+                terminal_effects.await.map_err(|_| closing_error())?;
+                if repair_tail {
+                    self.summary_delivery
+                        .close_after_terminal_repair_owned(self._process_lock.clone(), key, audio)
+                        .await
+                } else {
+                    self.summary_delivery
+                        .close_join_owned(self._process_lock.clone(), key, audio)
+                        .await
+                }
+            },
         );
+        self.record_close_failure(2, &jobs);
+        self.record_close_failure(3, &probes);
+        self.record_close_failure(4, &subscriptions);
+        self.record_close_failure(5, &summaries);
+        self.record_close_failure(6, &delivery);
+        let knowledge = self.knowledge.shutdown_searches().await;
+        self.record_close_failure(7, &knowledge);
         // Job cleanup may still need already-issued index ownership. The
         // independent index sender remains alive until the scheduler confirms
         // that workers and child operations have actually drained.
         jobs?;
+        delivery?;
         summaries?;
-        self.knowledge.shutdown_searches().await?;
+        knowledge?;
         let _direct_operations = self
             .intelligence_operations
             .clone()
             .acquire_many_owned(16)
             .await
             .map_err(|_| closing_error())?;
-        self.index_owner.shutdown().await?;
+        let index = self.index_owner.shutdown().await;
+        self.record_close_failure(8, &index);
+        index?;
         probes?;
         subscriptions
     }
@@ -178,6 +263,20 @@ impl AppState {
         let mut state = self.close_state.lock().unwrap();
         if state.completion.is_some() || (state.closing && !state.close_succeeded) {
             return Err(closing_error());
+        }
+        if state.closing {
+            let ack = state.audio_ack.as_ref().ok_or_else(closing_error)?;
+            self.summary_delivery.validate_reopen_after_close(ack)?;
+            self.audio.validate_reopen_after_close(ack.backend())?;
+            self.orchestrator.validate_reopen_after_close(ack.key())?;
+            self.audio.reopen_after_close(ack.backend())?;
+            self.orchestrator.reopen_after_close(ack.key())?;
+            self.summary_delivery.reopen_after_close(ack)?;
+            state.audio = None;
+            state.audio_key = None;
+            state.audio_ack = None;
+            state.terminal_effects_repaired = false;
+            self.summary_ready.lock().unwrap().take();
         }
         state.epoch = state.epoch.wrapping_add(1);
         state.closing = false;
@@ -209,11 +308,42 @@ impl AppState {
             if let Some(completion) = &state.completion {
                 completion.clone()
             } else {
+                self._final_facade.record_executor();
+                let retry = state.audio_ack.is_some();
+                if !state.closing {
+                    state.epoch = state.epoch.checked_add(1).ok_or_else(closing_error)?;
+                    self.close_epoch.send_replace(state.epoch);
+                }
                 state.closing = true;
                 state.close_succeeded = false;
-                state.epoch = state.epoch.wrapping_add(1);
-                self.close_epoch.send_replace(state.epoch);
+                self.summary_ready.lock().unwrap().take();
+                let key = self
+                    .summary_delivery
+                    .elect_closing(state.epoch, self.audio.actual_epoch()?)?;
+                self.summary_delivery.signal_closing(&key)?;
                 self.summaries.signal_closing()?;
+                let audio_join = if let Some(join) = &state.audio {
+                    join.clone()
+                } else {
+                    let native = self.audio.begin_close(key.clone())?;
+                    let session = self.orchestrator.capture_close_join(key.clone())?;
+                    let audio_owner = self.clone();
+                    let join = crate::audio::join::AudioCloseJoin::start_owned(
+                        self._process_lock.clone(),
+                        key.clone(),
+                        session,
+                        native,
+                        async move {
+                            let early = audio_owner.orchestrator.stop_active().await;
+                            let _admission = audio_owner.admission.lock().await;
+                            let final_stop = audio_owner.orchestrator.stop_active().await;
+                            early.and(final_stop)
+                        },
+                    )?;
+                    state.audio = Some(join.clone());
+                    state.audio_key = Some(key.clone());
+                    join
+                };
                 let (finished, completion) = watch::channel(None);
                 state.completion = Some(completion.clone());
                 // Signal intelligence/probes before waiting for any config or
@@ -221,22 +351,53 @@ impl AppState {
                 self.jobs.signal_shutdown();
                 self.probes.request_shutdown();
                 let owner = self.clone();
+                let repair_tail = retry && audio_join.outcome().is_err();
+                let (terminal_effects, before_tail) = tokio::sync::oneshot::channel();
                 tokio::spawn(async move {
                     let (audio, frontend, intelligence) = tokio::join!(
                         async {
-                            // Stop promptly even if unrelated native config work
-                            // retains admission; a second pass fences a late start.
-                            let early = owner.orchestrator.stop_active().await;
-                            let _admission = owner.admission.lock().await;
-                            let final_stop = owner.orchestrator.stop_active().await;
-                            early.and(final_stop)
+                            let result = async {
+                                let ack = audio_join.wait().await?;
+                                ack.require_key(&key)?;
+                                owner.close_state.lock().unwrap().audio_ack = Some(ack);
+                                if repair_tail {
+                                    if !owner.close_state.lock().unwrap().terminal_effects_repaired
+                                    {
+                                        owner.orchestrator.retry_terminal_close_effects(&key)?;
+                                        // Cache only this producer's verified same-key result;
+                                        // a later failed delivery tail still needs its own retry.
+                                        owner
+                                            .close_state
+                                            .lock()
+                                            .unwrap()
+                                            .terminal_effects_repaired = true;
+                                    }
+                                    Ok(())
+                                } else {
+                                    audio_join.outcome()
+                                }
+                            }
+                            .await;
+                            let _ = terminal_effects.send(());
+                            result
                         },
                         async {
                             let _mutation = owner.subscription_mutation.lock().await;
                             owner.close_registry(None).await
                         },
-                        async { owner.close_intelligence_owner().await }
+                        async {
+                            owner
+                                .close_intelligence_owner(
+                                    key.clone(),
+                                    audio_join.clone(),
+                                    before_tail,
+                                    repair_tail,
+                                )
+                                .await
+                        }
                     );
+                    owner.record_close_failure(0, &audio);
+                    owner.record_close_failure(1, &frontend);
                     let result = audio
                         .and(frontend)
                         .and(intelligence)
@@ -244,6 +405,9 @@ impl AppState {
                     let mut state = owner.close_state.lock().unwrap();
                     state.closing = true;
                     state.close_succeeded = result.is_ok();
+                    if result.is_err() && state.first_failure.is_none() {
+                        state.first_failure = Some(state.failures.clone());
+                    }
                     state.completion = None;
                     finished.send_replace(Some(result));
                 });

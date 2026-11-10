@@ -1,6 +1,9 @@
 pub mod capture;
 pub mod frame;
 pub mod graph;
+pub mod join;
+#[cfg(test)]
+mod join_tests;
 #[cfg(debug_assertions)]
 pub mod loopback;
 pub mod packetizer;

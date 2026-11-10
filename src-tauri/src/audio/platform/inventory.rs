@@ -26,7 +26,6 @@ use std::{
     },
     time::Duration,
 };
-use tokio::sync::Semaphore;
 use uuid::Uuid;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EndpointRole {
@@ -124,18 +123,22 @@ impl Drop for Lease {
     }
 }
 pub struct PlatformAudioBackend {
+    actual: crate::audio::join::AudioRegistry,
     state: Arc<Mutex<State>>,
     spawner: Arc<dyn ProcessSpawner>,
-    native_inventory_gate: Arc<Semaphore>,
     use_pulse: bool,
+    #[cfg(test)]
+    pulse_entry: Arc<pulse_io::entry_test_support::EntryControl>,
 }
 impl PlatformAudioBackend {
     pub fn new() -> Self {
         Self {
+            actual: crate::audio::join::AudioRegistry::new(),
             state: Arc::default(),
             spawner: Arc::new(SystemProcessSpawner),
-            native_inventory_gate: Arc::new(Semaphore::new(1)),
             use_pulse: cfg!(target_os = "linux"),
+            #[cfg(test)]
+            pulse_entry: Arc::default(),
         }
     }
     #[cfg(test)]
@@ -147,6 +150,7 @@ impl PlatformAudioBackend {
         }
     }
     pub(crate) fn begin_maintenance(&self) -> AppResult<MaintenanceLease> {
+        self.actual.require_ready()?;
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.maintenance.is_some() || !state.leases.is_empty() || !state.quarantined.is_empty()
         {
@@ -160,7 +164,15 @@ impl PlatformAudioBackend {
             id,
         })
     }
+    #[cfg(test)]
     fn record(&self, driver: DriverStatus, rows: InventoryRows) -> AppResult<AudioInventory> {
+        Self::record_snapshot(&self.state, driver, rows)
+    }
+    fn record_snapshot(
+        state: &Arc<Mutex<State>>,
+        driver: DriverStatus,
+        rows: InventoryRows,
+    ) -> AppResult<AudioInventory> {
         let mut entries = BTreeMap::new();
         let mut locators = BTreeMap::new();
         for (entry, locator) in rows {
@@ -171,7 +183,7 @@ impl PlatformAudioBackend {
             locators.insert(id, locator);
         }
         let endpoints = entries.into_values().collect::<Vec<_>>();
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
         if state.maintenance.is_some() {
             return Err(super::driver::busy_error());
         }
@@ -198,6 +210,7 @@ impl PlatformAudioBackend {
         &self,
         request: &AudioOpenRequest,
     ) -> AppResult<(Locator, Locator, Arc<Lease>)> {
+        self.actual.require_ready()?;
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.maintenance.is_some() {
             return Err(super::driver::busy_error());
@@ -272,37 +285,86 @@ impl Default for PlatformAudioBackend {
 }
 #[async_trait]
 impl AudioBackend for PlatformAudioBackend {
+    fn actual_epoch(&self) -> AppResult<u64> {
+        self.actual.epoch()
+    }
+    fn begin_close(
+        &self,
+        key: crate::audio::join::AudioCloseKey,
+    ) -> AppResult<crate::audio::join::AudioBackendCloseJoin> {
+        self.actual.begin_close(key)
+    }
+    fn reopen_after_close(&self, ack: &crate::audio::join::AudioBackendCloseAck) -> AppResult<()> {
+        self.validate_reopen_after_close(ack)?;
+        self.actual.reopen_after_close(ack)
+    }
+    fn validate_reopen_after_close(
+        &self,
+        ack: &crate::audio::join::AudioBackendCloseAck,
+    ) -> AppResult<()> {
+        if !self
+            .state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .quarantined
+            .is_empty()
+        {
+            return Err(audio_error("native audio still requires restart"));
+        }
+        self.actual.validate_reopen_after_close(ack)
+    }
     async fn inventory(&self) -> AppResult<AudioInventory> {
-        let (driver, rows) = if self.use_pulse {
-            pulse_io::inventory(self.spawner.as_ref()).await?
-        } else {
-            let permit = tokio::time::timeout(
-                Duration::from_secs(2),
-                self.native_inventory_gate.clone().acquire_owned(),
-            )
+        let parent = self.actual.inventory().await?;
+        let state = self.state.clone();
+        let spawner = self.spawner.clone();
+        let pulse = self.use_pulse;
+        let entered = parent.clone();
+        let (source, _actual) = crate::audio::join::AudioOwnerSource::new();
+        let (publish, receive) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            let result = async {
+                entered.require_ready()?;
+                let (driver, rows) = if pulse {
+                    pulse_io::inventory(spawner.as_ref(), &entered).await?
+                } else {
+                    let native = entered.clone();
+                    tokio::task::spawn_blocking(move || {
+                        native.require_ready()?;
+                        native_inventory()
+                    })
+                    .await
+                    .map_err(|_| audio_error("native inventory failed"))??
+                };
+                // Parse and snapshot publication are part of the same actual
+                // parent. Closing/epoch change rejects an old late record.
+                entered.publish(|| Self::record_snapshot(&state, driver, rows))
+            }
+            .await;
+            let _ = publish.send(result);
+        });
+        source.retain_task(task, parent);
+        tokio::time::timeout(Duration::from_secs(2), receive)
             .await
-            .map_err(|_| audio_error("native inventory requires restart"))?
-            .map_err(|_| audio_error("native inventory unavailable"))?;
-            let read = tokio::task::spawn_blocking(move || {
-                let _permit = permit;
-                native_inventory()
-            });
-            tokio::time::timeout(Duration::from_secs(2), read)
-                .await
-                .map_err(|_| audio_error("native inventory timed out"))?
-                .map_err(|_| audio_error("native inventory failed"))??
-        };
-        self.record(driver, rows)
+            .map_err(|_| audio_error("native inventory timed out"))?
+            .map_err(|_| audio_error("native inventory owner ended"))?
     }
     async fn open(&self, request: AudioOpenRequest) -> AppResult<AudioPorts> {
-        let (input, output, lease) = self.claim(&request)?;
+        let parent = self.actual.stream()?;
+        let (input, output, lease) = match self.claim(&request) {
+            Ok(claimed) => claimed,
+            Err(error) => {
+                parent.finish().await?;
+                return Err(error);
+            }
+        };
         match (input, output) {
             (Locator::Cpal { endpoint: input }, Locator::Cpal { endpoint: output }) => {
-                native_io::open_owned(
+                native_io::open_registered(
                     request,
                     Arc::new(CpalFactory { input, output }),
                     Some(lease),
                     native_io::Deadlines::default(),
+                    Some(parent),
                 )
                 .await
             }
@@ -326,11 +388,15 @@ impl AudioBackend for PlatformAudioBackend {
                     sink,
                     self.spawner.clone(),
                     lease,
+                    parent,
+                    #[cfg(test)]
+                    Some(self.pulse_entry.clone()),
                 )
                 .await
             }
             _ => {
                 lease.release();
+                parent.finish().await?;
                 Err(audio_error("audio routes cannot mix backends"))
             }
         }
@@ -750,5 +816,25 @@ pub(crate) mod driver_test_support {
         request: &AudioOpenRequest,
     ) -> AppResult<Arc<Lease>> {
         backend.claim(request).map(|(_, _, lease)| lease)
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod actual_test_support {
+    pub(crate) fn stream(backend: &super::PlatformAudioBackend) -> crate::audio::join::AudioParent {
+        backend.actual.stream().unwrap()
+    }
+    pub(crate) fn hold_pulse_open(
+        backend: &super::PlatformAudioBackend,
+        boundary: super::pulse_io::entry_test_support::Boundary,
+    ) -> (
+        tokio::sync::oneshot::Receiver<()>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        backend.pulse_entry.hold(boundary)
+    }
+    pub(crate) fn pair_health(backend: &super::PlatformAudioBackend) -> (usize, usize) {
+        let state = backend.state.lock().unwrap();
+        (state.leases.len(), state.quarantined.len())
     }
 }

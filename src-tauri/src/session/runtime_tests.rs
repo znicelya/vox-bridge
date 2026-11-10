@@ -433,6 +433,9 @@ async fn playback_overflow_replaces_only_audio_and_keeps_provider_stream() {
     )
     .unwrap();
     let h = RuntimeHarness::live(script).unwrap();
+    // Hold the actual ingress consumer so this case tests normalized queue
+    // rejection, independently of how fast a native worker is scheduled.
+    let _ingress = h.audio.hold_playback_ingress("live-input");
     let run = h
         .runtime
         .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());

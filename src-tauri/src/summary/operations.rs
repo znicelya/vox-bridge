@@ -125,6 +125,8 @@ pub(super) async fn sql_owned<T: Send + 'static>(
 ) -> AppResult<T> {
     tokio::task::spawn_blocking(move || {
         let _owner = owner;
+        #[cfg(test)]
+        core.sql_entry.enter();
         core.store
             .transaction(|tx| {
                 deadline_check(deadline)?;
@@ -140,12 +142,14 @@ pub(super) async fn sql_owned<T: Send + 'static>(
 #[derive(Clone)]
 pub(super) enum DeleteFence {
     Ready(SummaryReady),
+    Delivery(super::SummaryDeliveryReady),
     Recovery(SummaryRecoveryFence),
 }
 impl DeleteFence {
     pub(super) fn run<T>(&self, operation: impl FnOnce() -> AppResult<T>) -> AppResult<T> {
         match self {
             Self::Ready(f) => f.run(operation),
+            Self::Delivery(f) => f.run(operation),
             Self::Recovery(f) => f.run(operation),
         }
     }
@@ -385,10 +389,9 @@ pub(super) async fn delete_summary(
     jobs: Arc<JobScheduler>,
     id: Uuid,
     owner: OperationLease,
-    ready: SummaryReady,
+    fence: DeleteFence,
 ) -> AppResult<()> {
     let deadline = Instant::now() + Duration::from_secs(10);
-    let fence = DeleteFence::Ready(ready);
     let (sent, observed) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
         let result = async {

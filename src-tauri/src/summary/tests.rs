@@ -1,9 +1,10 @@
 mod admission;
+mod automatic;
 mod boundaries;
 mod config_selection;
 mod content;
 mod deletion;
-mod harness;
+pub(super) mod harness;
 mod job_proof;
 mod manual;
 mod migration;

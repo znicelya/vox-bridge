@@ -45,6 +45,8 @@ mod intelligence;
 mod lifecycle;
 mod profiles;
 mod summary;
+#[cfg(test)]
+pub(crate) mod summary_test_support;
 
 #[derive(serde::Serialize)]
 pub struct LaunchValidation {
@@ -84,6 +86,11 @@ pub struct AppState {
     documents: Arc<crate::knowledge::documents::DocumentService>,
     knowledge: Arc<crate::knowledge::service::KnowledgeService>,
     summaries: Arc<crate::summary::SummaryService>,
+    summary_delivery: crate::summary::SummaryDeliveryOwner,
+    summary_ready: Arc<std::sync::Mutex<Option<crate::summary::SummaryDeliveryReady>>>,
+    // External App clones share this guard; narrow delivery/native workers do
+    // not retain it, so final disappearance can elect actual source cleanup.
+    _final_facade: Arc<lifecycle::FinalAppFacade>,
 }
 
 impl AppState {
@@ -152,6 +159,7 @@ impl AppState {
         if self.orchestrator.has_active_operation() {
             return Err(busy_error());
         }
+        self._final_facade.record_executor();
         self.driver_active.send_replace(true);
         let owner = self.clone();
         let work = tokio::spawn(async move {
@@ -198,7 +206,18 @@ impl AppState {
         parser: Arc<dyn crate::knowledge::parser::DocumentParser>,
     ) -> AppResult<Self> {
         Self::compose_with_embeddings(
-            data_dir, lock, secrets, audio, factory, driver, parser, None,
+            data_dir,
+            lock,
+            secrets,
+            audio,
+            factory,
+            driver,
+            parser,
+            None,
+            #[cfg(test)]
+            None,
+            #[cfg(test)]
+            None,
         )
     }
     #[allow(clippy::too_many_arguments)]
@@ -211,6 +230,8 @@ impl AppState {
         driver: Arc<dyn DriverOperations>,
         parser: Arc<dyn crate::knowledge::parser::DocumentParser>,
         embeddings: Option<Arc<dyn crate::knowledge::embedding::Embeddings>>,
+        #[cfg(test)] json_http: Option<Arc<dyn crate::intelligence::http::JsonHttp>>,
+        #[cfg(test)] config_slots: Option<Arc<Semaphore>>,
     ) -> AppResult<Self> {
         let store = Arc::new(LocalStore::open(&data_dir)?);
         let now = SystemTime::now()
@@ -219,7 +240,19 @@ impl AppState {
             .as_secs() as i64;
         store.interrupt_incomplete_sessions(now)?;
         let event_bus = EventBus::new();
-        let config_io = ConfigIo::new(ConfigStore::new(&data_dir, secrets)?);
+        let config_store = ConfigStore::new(&data_dir, secrets)?;
+        #[cfg(test)]
+        let config_io = if let Some(slots) = config_slots {
+            ConfigIo::with_runtime_for_tests(
+                config_store,
+                slots,
+                std::time::Duration::from_secs(10),
+            )
+        } else {
+            ConfigIo::new(config_store)
+        };
+        #[cfg(not(test))]
+        let config_io = ConfigIo::new(config_store);
         let service_config = Arc::new(crate::intelligence::config::ServiceConfigStore::new(
             config_io.clone(),
             store.clone(),
@@ -234,7 +267,12 @@ impl AppState {
             parser,
             data_dir.clone(),
         ));
-        let json_http = Arc::new(crate::intelligence::http::ReqwestJsonHttp::new()?);
+        let default_http: Arc<dyn crate::intelligence::http::JsonHttp> =
+            Arc::new(crate::intelligence::http::ReqwestJsonHttp::new()?);
+        #[cfg(test)]
+        let json_http = json_http.unwrap_or(default_http);
+        #[cfg(not(test))]
+        let json_http = default_http;
         let embeddings = embeddings.unwrap_or_else(|| {
             Arc::new(
                 crate::knowledge::embedding::OpenAiCompatibleEmbeddings::new(
@@ -262,6 +300,7 @@ impl AppState {
             )),
         ));
         summaries.register_handler()?;
+        let summary_delivery = summaries.delivery_owner();
         jobs.reconcile()?;
         let runtime = Arc::new(TranslationRuntime::new(
             factory.clone(),
@@ -272,8 +311,19 @@ impl AppState {
         let orchestrator =
             SessionOrchestrator::with_runtime(store.clone(), event_bus.clone(), runtime.clone());
         let (close_epoch, _) = watch::channel(0);
+        let process_lock = Arc::new(lock);
+        let admission = Arc::new(Mutex::new(()));
+        let close_state: Arc<std::sync::Mutex<lifecycle::CloseState>> = Arc::default();
+        let final_facade = lifecycle::FinalAppFacade::new(
+            process_lock.clone(),
+            audio.clone(),
+            orchestrator.clone(),
+            admission.clone(),
+            close_state.clone(),
+            summary_delivery.clone(),
+        );
         Ok(Self {
-            _process_lock: Arc::new(lock),
+            _process_lock: process_lock,
             event_bus,
             store,
             orchestrator,
@@ -282,13 +332,13 @@ impl AppState {
             driver,
             factory,
             runtime,
-            admission: Arc::new(Mutex::new(())),
+            admission,
             driver_active: watch::channel(false).0,
             driver_observation_timeout: std::time::Duration::from_secs(20),
             subscriptions: SubscriptionRegistry::new(),
             subscription_admission: Arc::new(Semaphore::new(16)),
             subscription_mutation: Arc::new(Mutex::new(())),
-            close_state: Arc::default(),
+            close_state,
             close_epoch,
             service_config,
             jobs,
@@ -302,6 +352,9 @@ impl AppState {
             documents,
             knowledge,
             summaries,
+            summary_delivery,
+            summary_ready: Arc::default(),
+            _final_facade: final_facade,
         })
     }
     pub fn data_dir(&self) -> &Path {
@@ -317,10 +370,14 @@ impl AppState {
         &self.orchestrator
     }
     pub async fn list_audio_endpoints(&self) -> AppResult<AudioInventory> {
+        self.with_open_epoch(|| {
+            self._final_facade.record_executor();
+            Ok(())
+        })?;
         self.audio.inventory().await
     }
     pub async fn audio_driver_status(&self) -> AppResult<DriverStatus> {
-        Ok(self.audio.inventory().await?.driver)
+        Ok(self.list_audio_endpoints().await?.driver)
     }
     pub async fn provider_capabilities(&self, config_id: Uuid) -> AppResult<ProviderCapabilities> {
         let owner = self.clone();
@@ -341,6 +398,10 @@ impl AppState {
     ) -> AppResult<LaunchValidation> {
         let id = launch.provider_config_id;
         let saved = self.load_launch_provider_config(id).await?;
+        self.with_open_epoch(|| {
+            self._final_facade.record_executor();
+            Ok(())
+        })?;
         let prepared = self
             .runtime
             .prepare(Uuid::new_v4(), &launch, &saved)
@@ -358,6 +419,7 @@ impl AppState {
             return Err(crate::audio::platform::driver::busy_error());
         }
         let epoch = self.admitted_epoch()?;
+        let ready = self.summary_readiness(epoch)?;
         tokio::select! {
                    biased;
                    _ = closed.changed() => Err(lifecycle::closing_error()),
@@ -365,9 +427,12 @@ impl AppState {
                    result = async {
                        let _guard = self.admission.lock().await;
                        self.check_epoch(epoch)?;
+                       ready.require_epoch(epoch)?;
+                       self._final_facade.record_executor();
                        let id = launch.provider_config_id;
                        let saved = self.load_launch_provider_config(id).await?;
                        self.check_epoch(epoch)?;
+                       ready.require_epoch(epoch)?;
                        self.orchestrator.start(launch,
         saved).await
                    }
@@ -382,7 +447,8 @@ impl AppState {
         session_id: Uuid,
         direction: SessionDirection,
     ) -> AppResult<()> {
-        self.admitted_epoch()?;
+        let epoch = self.admitted_epoch()?;
+        self.summary_readiness(epoch)?;
         self.orchestrator
             .resume_direction(session_id, direction)
             .await

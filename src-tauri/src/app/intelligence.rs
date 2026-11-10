@@ -13,10 +13,18 @@ impl AppState {
         // Repeated startup reuses only the already-published current readiness
         // together with the independent live scheduler fence. It cannot start
         // a second local recovery or retire the existing index generation.
-        if self.summaries.require_epoch(epoch).is_ok() {
-            return self
-                .with_open_epoch(|| self.jobs.admission_fence(JobKind::Summary)?.run(|| Ok(())));
+        if let Ok(ready) = self.summary_readiness(epoch) {
+            return self.with_open_epoch(|| {
+                ready.require_epoch(epoch)?;
+                self.jobs.admission_fence(JobKind::Summary)?.run(|| Ok(()))
+            });
         }
+        self.with_open_epoch(|| {
+            self.summary_delivery.ensure_startable()?;
+            self.summary_ready.lock().unwrap().take();
+            Ok(())
+        })?;
+        self._final_facade.record_executor();
         self.with_open_epoch(|| self.probes.reopen())?;
         let _index = match self
             .index_owner
@@ -55,21 +63,38 @@ impl AppState {
             }
             Err(failure) => Err(failure),
         };
-        if let Err(failure) = summary {
-            let _ = self.summaries.signal_closing();
-            let _ = self.knowledge.shutdown_searches().await;
-            let _ = self.shutdown_index_after_startup_failure().await;
-            return Err(failure);
+        let summary = match summary {
+            Ok(summary) => summary,
+            Err(failure) => {
+                let _ = self.summaries.signal_closing();
+                let _ = self.knowledge.shutdown_searches().await;
+                let _ = self.shutdown_index_after_startup_failure().await;
+                return Err(failure);
+            }
+        };
+        let publication = self.summary_publication(epoch);
+        let delivery = self
+            .summary_delivery
+            .start_published_owned(self._process_lock.clone(), epoch, summary, move |ready| {
+                publication.publish(ready)
+            })
+            .await;
+        match delivery {
+            Ok(ready) => {
+                self.with_open_epoch(|| ready.require_epoch(epoch))?;
+                Ok(())
+            }
+            Err(failure) => {
+                let _ = self.summaries.signal_closing();
+                let _ = self.shutdown_index_after_startup_failure().await;
+                Err(failure)
+            }
         }
-        let jobs = self.with_open_epoch(|| self.jobs.start_owned(self._process_lock.clone()));
-        if jobs.is_err() {
-            let _ = self.summaries.signal_closing();
-            let _ = self.shutdown_index_after_startup_failure().await;
-        }
-        jobs
     }
     async fn shutdown_index_after_startup_failure(&self) -> AppResult<()> {
+        self.summary_ready.lock().unwrap().take();
         self.summaries.signal_closing()?;
+        self.summary_delivery.drain_failed_startup().await?;
         self.summaries.drain_actual().await?;
         let _direct_operations = self
             .intelligence_operations

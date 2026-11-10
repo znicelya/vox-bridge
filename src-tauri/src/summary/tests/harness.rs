@@ -2,6 +2,8 @@ use super::super::{
     SummaryJobRequest, SummaryService,
     types::{NativeSummaryView, SummaryView},
 };
+use crate::summary::readiness_test_support::delete_local_owned;
+pub(in crate::summary) use crate::summary::readiness_test_support::generate_local_owned;
 use crate::{
     app::CredentialChange,
     config::{ConfigIo, ConfigStore, SecretStore},
@@ -31,7 +33,7 @@ use uuid::Uuid;
 pub(super) const VALID: &str = r#"{"summary":"24V需求","participants":[],"companies":[],"requirements":["24V"],"action_items":[],"risks":[],"terms":[]}"#;
 
 #[derive(Default)]
-pub(super) struct RecordingLlm {
+pub(in crate::summary) struct RecordingLlm {
     responses: Mutex<VecDeque<String>>,
     pub calls: Mutex<Vec<(ModelProfile, LlmRequest)>>,
     pub block: AtomicBool,
@@ -72,7 +74,7 @@ impl LlmProvider for RecordingLlm {
     }
 }
 
-pub(super) struct SummaryHarness {
+pub(in crate::summary) struct SummaryHarness {
     pub store: Arc<LocalStore>,
     pub config: Arc<ServiceConfigStore>,
     pub io: ConfigIo,
@@ -184,13 +186,14 @@ impl SummaryHarness {
         id
     }
     pub async fn generate(&self, session: Uuid, profile: Option<Uuid>) -> AppResult<JobView> {
-        self.service
-            .generate_owned(session, profile, self.process.clone())
-            .await
+        generate_local_owned(&self.service, session, profile, self.process.clone()).await
     }
     pub async fn run_jobs(&self, id: Uuid) -> JobView {
+        self.wait_with_timeout(id, Duration::from_secs(5)).await
+    }
+    pub async fn wait_with_timeout(&self, id: Uuid, timeout: Duration) -> JobView {
         self.jobs.wake();
-        tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::time::timeout(timeout, async {
             loop {
                 let row = self.store.get_job(id).unwrap().unwrap();
                 if !matches!(row.status, JobStatus::Queued | JobStatus::Running) {
@@ -200,7 +203,7 @@ impl SummaryHarness {
             }
         })
         .await
-        .expect("actual scheduler must finish the admitted summary")
+        .expect("admitted summary must reach durable terminal status within the fixture deadline")
     }
     pub async fn wait(&self, id: Uuid) -> JobView {
         self.run_jobs(id).await
@@ -243,7 +246,7 @@ impl SummaryHarness {
         })
     }
     pub async fn delete(&self, id: Uuid) -> AppResult<()> {
-        self.service.delete_owned(id, self.process.clone()).await
+        delete_local_owned(&self.service, id, self.process.clone()).await
     }
     pub async fn close(&self) {
         self.jobs.shutdown().await.unwrap();

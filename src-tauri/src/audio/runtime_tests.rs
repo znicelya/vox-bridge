@@ -263,3 +263,53 @@ async fn close_acknowledgement_waits_for_owner_destruction() {
     ports.control.suppress_now();
     assert!(!ports.control.statistics().playback.finalized);
 }
+
+// Dropping/caching a timed-out command reply must not lose the independent
+// actual outer-thread join producer or falsely acknowledge native teardown.
+#[tokio::test]
+async fn audio_actual_join_survives_native_close_observer_timeout() {
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let ports = native_io::open_owned(
+        request(),
+        Arc::new(DropFactory {
+            entered: entered.clone(),
+            release: release.clone(),
+        }),
+        None,
+        native_io::Deadlines {
+            open: Duration::from_secs(1),
+            close: Duration::from_millis(30),
+            drain: Duration::from_millis(50),
+        },
+    )
+    .await
+    .unwrap();
+    let actual = ports.control.actual_join_port();
+    let result = ports.control.close().await;
+    let pending = match &actual {
+        Ok(join) => tokio::time::timeout(Duration::from_millis(20), join.wait())
+            .await
+            .is_err(),
+        Err(_) => false,
+    };
+    release.store(true, Ordering::Release);
+    let joined = match actual {
+        Ok(join) => tokio::time::timeout(Duration::from_secs(2), join.wait())
+            .await
+            .map(|r| r.is_ok())
+            .unwrap_or(false),
+        Err(_) => false,
+    };
+    assert!(entered.load(Ordering::Acquire));
+    assert!(result.is_err());
+    assert!(
+        pending,
+        "a real native drop remains entered after the command observer times out"
+    );
+    assert!(
+        joined,
+        "the same actual join source must acknowledge outer-thread completion after release"
+    );
+    assert_eq!(*ports.health.borrow(), AudioHealth::NeedsRestart);
+}

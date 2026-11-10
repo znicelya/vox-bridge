@@ -21,6 +21,8 @@ use uuid::Uuid;
 pub struct LocalStore {
     connection: Mutex<Connection>,
     summary_snapshot_scopes: std::sync::Arc<tokio::sync::Semaphore>,
+    #[cfg(test)]
+    pub(crate) oo1_transcript_entry: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
 }
 pub(crate) struct SummarySnapshotReadScope {
     deadline: std::time::Instant,
@@ -142,6 +144,8 @@ impl LocalStore {
         Ok(Self {
             connection: Mutex::new(conn),
             summary_snapshot_scopes: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
+            #[cfg(test)]
+            oo1_transcript_entry: Mutex::default(),
         })
     }
     /// The existing SQLite owner is the only authority. The closure must never
@@ -264,7 +268,8 @@ impl LocalStore {
         for id in &ids {
             tx.execute(
                 "UPDATE session_lifecycle SET status='failed',\
-                    ended_at=?2 WHERE session_id=?1",
+                    ended_at=?2,summary_terminal_pending=1,\
+                    summary_terminal_generation=NULL,summary_terminal_error='interrupted' WHERE session_id=?1",
                 params![id.to_string(), ended_at],
             )?;
             let diagnostic = RuntimeDiagnostic {
@@ -309,6 +314,28 @@ impl LocalStore {
             return Err(crate::error::AppError::SessionNotFound(
                 lifecycle.session_id,
             ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn commit_terminal_lifecycle(
+        &self,
+        lifecycle: &StoredSessionLifecycle,
+        intent: &crate::summary::TerminalCommitIntent,
+    ) -> AppResult<()> {
+        if !matches!(lifecycle.status.as_str(), "completed" | "failed") {
+            return Err(AppError::InvalidRequest(
+                "terminal lifecycle status required".into(),
+            ));
+        }
+        let (generation, local_error) = intent.journal_fields();
+        let connection = self.connection.lock().unwrap();
+        let changed = connection.execute(
+            "UPDATE session_lifecycle SET status=CASE WHEN status IN ('completed','failed') THEN status ELSE ?2 END,ended_at=CASE WHEN status IN ('completed','failed') THEN ended_at ELSE ?3 END,summary_terminal_pending=CASE WHEN status IN ('completed','failed') THEN summary_terminal_pending ELSE 1 END,summary_terminal_generation=CASE WHEN status IN ('completed','failed') THEN summary_terminal_generation ELSE ?4 END,summary_terminal_error=CASE WHEN status IN ('completed','failed') THEN summary_terminal_error ELSE ?5 END WHERE session_id=?1",
+            params![lifecycle.session_id.to_string(),lifecycle.status,lifecycle.ended_at,generation,local_error],
+        )?;
+        if changed == 0 {
+            return Err(AppError::SessionNotFound(lifecycle.session_id));
         }
         Ok(())
     }
@@ -364,6 +391,10 @@ impl LocalStore {
         let details = json(update.details.as_ref().expect("validated details"))?;
         let sequence = i64::try_from(update.sequence)
             .map_err(|_| crate::domain::transcript::invalid_transcript())?;
+        #[cfg(test)]
+        if let Some(entered) = self.oo1_transcript_entry.lock().unwrap().take() {
+            let _ = entered.send(());
+        }
         self.connection.lock().unwrap().execute(
             "INSERT INTO translation_segments (id,\
                     session_id,direction,sequence,occurred_at,\

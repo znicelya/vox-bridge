@@ -1,7 +1,7 @@
 use super::*;
 use crate::intelligence::{
     test_support::IntelligenceHarness,
-    types::{IntelligenceErrorCode as Code, JobKind, JobStatus},
+    types::{IntelligenceErrorCode as Code, IntelligenceEvent, JobKind, JobStatus},
 };
 use crate::knowledge::{
     documents::DocumentService,
@@ -305,12 +305,26 @@ async fn documents_completion_admission_rollback_publishes_no_job_and_preserves_
     let h = IntelligenceHarness::new();
     let docs = service(&h);
     docs.register_import_handler().unwrap();
+    let mut original_events = h.jobs.subscribe();
     h.jobs.start().unwrap();
     let old = docs
         .import(source(&h, "source.txt", "old text"))
         .await
         .unwrap();
     wait(&h, old.id, JobStatus::Succeeded).await;
+    // The committed status precedes the original worker's terminal event.
+    // Establish that publication before observing the replacement rollback.
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if matches!(original_events.recv().await.unwrap(), IntelligenceEvent::JobChanged { job }
+                if job.id == old.id && job.status == JobStatus::Succeeded)
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
     let id = old.object_id.unwrap();
     let before = docs.get(id).unwrap().unwrap();
     h.store.transaction(|tx|{tx.execute_batch("CREATE TRIGGER reject_version BEFORE UPDATE OF version ON documents BEGIN SELECT RAISE(ABORT,'fixture rollback'); END;")?;Ok(())}).unwrap();
@@ -322,7 +336,11 @@ async fn documents_completion_admission_rollback_publishes_no_job_and_preserves_
     assert_eq!(docs.get(id).unwrap(), Some(before));
     assert_eq!(h.store.list_jobs(None, 200).unwrap().rows.len(), 1);
     assert_eq!(files(&h), 1);
-    assert!(events.try_recv().is_err());
+    let rollback_event = events.try_recv();
+    assert!(
+        rollback_event.is_err(),
+        "rollback published an unexpected job event: {rollback_event:?}"
+    );
     h.store
         .transaction(|tx| {
             let text: String = tx.query_row(

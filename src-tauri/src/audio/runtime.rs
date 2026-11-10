@@ -33,6 +33,11 @@ pub struct PlaybackReport {
 }
 #[async_trait]
 pub trait AudioControl: Send + Sync {
+    fn actual_join_port(&self) -> AppResult<super::join::AudioOwnerJoin> {
+        Err(audio_error(
+            "audio backend provides no actual owner join source",
+        ))
+    }
     fn suppress_now(&self);
     fn statistics(&self) -> AudioStatistics;
     /// Actual native ring loss, independent of expected suppression/cleanup discards.
@@ -56,6 +61,30 @@ pub struct AudioPorts {
 }
 #[async_trait]
 pub trait AudioBackend: Send + Sync {
+    fn actual_epoch(&self) -> AppResult<u64> {
+        Err(audio_error("audio backend provides no actual epoch source"))
+    }
+    fn begin_close(
+        &self,
+        _key: super::join::AudioCloseKey,
+    ) -> AppResult<super::join::AudioBackendCloseJoin> {
+        Err(audio_error(
+            "audio backend provides no actual close join source",
+        ))
+    }
+    fn reopen_after_close(&self, _ack: &super::join::AudioBackendCloseAck) -> AppResult<()> {
+        Err(audio_error(
+            "audio backend provides no actual reopen authority",
+        ))
+    }
+    fn validate_reopen_after_close(
+        &self,
+        _ack: &super::join::AudioBackendCloseAck,
+    ) -> AppResult<()> {
+        Err(audio_error(
+            "audio backend provides no actual reopen policy source",
+        ))
+    }
     async fn inventory(&self) -> AppResult<AudioInventory>;
     async fn open(&self, request: AudioOpenRequest) -> AppResult<AudioPorts>;
 }
