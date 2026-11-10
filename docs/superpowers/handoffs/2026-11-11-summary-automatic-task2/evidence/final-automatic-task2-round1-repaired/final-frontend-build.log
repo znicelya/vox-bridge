@@ -1,0 +1,23 @@
+$ tsc && vite build
+vite v8.3.5 building client environment for production...
+transforming...
+✓ 2203 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                              0.44 kB │ gzip:   0.28 kB
+dist/assets/ibm-plex-mono-latin-400-normal-CvHOgSBP.woff    13.14 kB
+dist/assets/ibm-plex-mono-latin-500-normal-CB9ihrfo.woff    13.15 kB
+dist/assets/ibm-plex-mono-latin-600-normal-DWFSQ4vo.woff    13.20 kB
+dist/assets/ibm-plex-mono-latin-400-normal-DMJ8VG8y.woff2   14.70 kB
+dist/assets/ibm-plex-mono-latin-500-normal-DSY6xOcd.woff2   14.88 kB
+dist/assets/ibm-plex-mono-latin-600-normal-BgSNZQsw.woff2   15.62 kB
+dist/assets/ibm-plex-sans-latin-400-normal-CYLoc0-x.woff    22.10 kB
+dist/assets/ibm-plex-sans-latin-400-normal-CDDApCn2.woff2   22.58 kB
+dist/assets/ibm-plex-sans-latin-600-normal-Cu4Hd6ag.woff    23.87 kB
+dist/assets/ibm-plex-sans-latin-500-normal-BgVn5rGT.woff    23.91 kB
+dist/assets/ibm-plex-sans-latin-500-normal-6ng42L7E.woff2   24.18 kB
+dist/assets/ibm-plex-sans-latin-600-normal-CuJfVYMP.woff2   24.25 kB
+dist/assets/index-C67nDL_j.css                             103.45 kB │ gzip:  17.59 kB
+dist/assets/index-D3vvgi5j.js                              454.53 kB │ gzip: 145.59 kB
+
+✓ built in 873ms

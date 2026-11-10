@@ -1,0 +1,26 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.10s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 17 tests
+test knowledge::document_tests::admission::documents_admission_commits_local_chunks_and_deduplicates_same_parser_content ... ok
+test knowledge::document_tests::admission::documents_admission_replacement_keeps_requested_uuid_and_explicit_failed_retry_advances ... ok
+test knowledge::document_tests::admission::documents_admission_busy_preserves_versions_and_duplicate_survives_full_queue ... ok
+test app::subscription_tests::active_session_delete_rejects_before_cancelling_its_subscription ... ok
+test app::subscription_tests::queued_old_window_subscription_cannot_finish_into_new_lifecycle ... ok
+test app::subscription_tests::closing_starting_runtime_cleans_ports_and_blocked_emit_even_when_caller_cancels ... ok
+test app::subscription_tests::cancelled_delete_caller_still_owns_cleanup_before_durable_removal ... ok
+test app::subscription_tests::deletion_joins_blocked_terminal_delivery_and_evicted_history_gets_fresh_status ... ok
+test knowledge::document_tests::admission::documents_atomic_duplicate_imports_share_job_and_parser_identity_invalidates_dedup ... ok
+test knowledge::document_tests::admission::documents_completion_admission_rollback_publishes_no_job_and_preserves_old_metadata ... ok
+test knowledge::document_tests::admission::documents_completion_failed_chunk_commit_keeps_old_text_and_truthful_progress ... ok
+test app::subscription_tests::final_fix_close_deadline_covers_subscription_prerequisite_gate ... ok
+test knowledge::document_tests::admission::documents_copy_intent_service_does_not_claim_a_failed_copiers_unowned_row ... ok
+test knowledge::document_tests::admission::documents_completion_same_content_noop_at_maximum_document_version ... ok
+test app::subscription_tests::active_and_restarted_terminal_subscriptions_use_runtime_and_durable_history ... ok
+OO1 close failure branch 1: Err(Internal("subscription close admission timed out; cleanup remains pending"))
+test app::subscription_tests::close_observes_registry_barrier_even_when_its_queue_is_full_and_stops_audio_independently ... ok
+test app::subscription_tests::retry_delete_after_registry_admission_failure_preserves_durable_row_until_cleanup ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 883 filtered out; finished in 3.83s
+

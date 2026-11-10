@@ -1,0 +1,20 @@
+{
+  "utc": "2026-11-10T04:01:03.060586+00:00",
+  "tree": "d1dd2c7aa27501ac817c24f3ada28778dfd1cb86",
+  "all_seven_named_gates_complete": true,
+  "all_exit_zero": true,
+  "compiler_warnings": 0,
+  "rust_cases_passed": 909,
+  "rust_cases_failed": 0,
+  "paid_test_ignored": 1,
+  "frontend_contract_tests_passed": 15,
+  "source_and_inputs_unchanged": true,
+  "unique_frozen_paths_verified": 572,
+  "private_snapshots_verified": 150,
+  "source_freeze_sha256": "708d950e56c57ab913b6bf224ce130a8c400aa92d61d6d44f20ac73448aec01f",
+  "final_verification_sha256": "2c873a01e6dca08e4064ad1df5d705e99ddc6f52b28432ed823bfb522af9cdd0",
+  "fix_package_sha256": "71d14fdd4426a4112ff14fcf8f525e027de3bca658fe05a769999315c83297af",
+  "protected_gitignore_sha256": "1e708ede61f6522d88e4bea58f5c55e70831f404fd00f7a6710d424446e57a3a",
+  "no_pending_cargo": true,
+  "source_task_review_acceptance": false
+}

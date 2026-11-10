@@ -1,0 +1,13 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.61s
+     Running ../tests/knowledge/document_worker.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/document_worker-0f017d3bb14bde13)
+
+running 6 tests
+test worker_limits::real_worker_waiting_for_request_is_terminated_and_reaped_with_replayable_exit ... ok
+test document_service::real_document_service_two_admitted_imports_share_one_actual_worker_permit ... ok
+test real_limited_worker_parses_text_pdf_docx_without_desktop_initialization ... ok
+test worker_limits::real_budget_exits_before_and_after_readiness_without_success_json ... ok
+test worker_limits::real_supervisor_survives_inflation_and_maps_allocator_exit_to_resource_limit ... ok
+test worker_limits::real_malformed_worker_arguments_and_trailing_frames_fail_headlessly ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+

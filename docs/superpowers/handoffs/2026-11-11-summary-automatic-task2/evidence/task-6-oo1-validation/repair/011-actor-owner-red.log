@@ -1,0 +1,20 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 37.50s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 2 tests
+test session::runtime_tests::playback_overflow_replaces_only_audio_and_keeps_provider_stream ... ok
+
+thread 'session::runtime::actual_actor_tests::lost_supervisor_keeps_actual_actor_sql_join_owned_until_external_release' (1792988) panicked at src/session/runtime/actual_actor_tests.rs:83:5:
+supervisor error released its observer before the original actor SQL actually joined
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test session::runtime::actual_actor_tests::lost_supervisor_keeps_actual_actor_sql_join_owned_until_external_release ... FAILED
+
+failures:
+
+failures:
+    session::runtime::actual_actor_tests::lost_supervisor_keeps_actual_actor_sql_join_owned_until_external_release
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 898 filtered out; finished in 0.51s
+
+error: test failed, to rerun pass `--lib`

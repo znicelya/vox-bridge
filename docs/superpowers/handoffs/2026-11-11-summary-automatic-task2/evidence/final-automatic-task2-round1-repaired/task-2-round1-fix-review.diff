@@ -1,0 +1,3159 @@
+ src-tauri/src/app/document_test_support.rs         |   2 +
+ src-tauri/src/app/intelligence.rs                  |  24 +-
+ src-tauri/src/app/intelligence/tests/summary.rs    |   1 +
+ .../app/intelligence/tests/summary/readiness.rs    | 710 +++++++++++++++++++++
+ src-tauri/src/app/lifecycle.rs                     |  90 ++-
+ src-tauri/src/app/lifecycle/errors_tests.rs        | 214 +++++++
+ src-tauri/src/app/mod.rs                           |  47 +-
+ src-tauri/src/app/summary.rs                       |  26 +-
+ src-tauri/src/app/summary_test_support.rs          |  44 ++
+ src-tauri/src/audio/platform/inventory.rs          |  19 +
+ src-tauri/src/audio/platform/pulse_io.rs           |  49 +-
+ .../audio/platform/pulse_io/entry_test_support.rs  |  44 ++
+ .../src/audio/platform/pulse_io/tests/owned.rs     |  88 +++
+ src-tauri/src/intelligence/jobs/tests/reap.rs      |   7 +-
+ src-tauri/src/llm/openai_compatible/owned_tests.rs |  18 +-
+ src-tauri/src/summary/mod.rs                       |  46 +-
+ src-tauri/src/summary/operations.rs                |   7 +-
+ src-tauri/src/summary/terminal.rs                  | 131 +++-
+ .../src/summary/terminal/readiness_test_support.rs |  92 +++
+ src-tauri/src/summary/tests/harness.rs             |   8 +-
+ src-tauri/src/summary/tests/recovery.rs            |  10 +-
+ 21 files changed, 1607 insertions(+), 70 deletions(-)
+diff --git a/src-tauri/src/app/document_test_support.rs b/src-tauri/src/app/document_test_support.rs
+index d1a2d77..16044c5 100644
+--- a/src-tauri/src/app/document_test_support.rs
++++ b/src-tauri/src/app/document_test_support.rs
+@@ -27,13 +27,15 @@ pub(crate) fn with_knowledge_ports(
+     let fixture = crate::app::tests::fixture();
+     AppState::compose_with_embeddings(
+         path.into(),
+         AppState::lock_data_dir(path).unwrap(),
+         secrets.clone(),
+         fixture.audio.clone(),
+         Arc::new(ProviderFactory::new(secrets)),
+         Arc::new(UnavailableDriverOperations),
+         parser,
+         Some(embeddings),
++        None,
++        None,
+     )
+     .unwrap()
+ }
+diff --git a/src-tauri/src/app/intelligence.rs b/src-tauri/src/app/intelligence.rs
+index b874c3e..69401e5 100644
+--- a/src-tauri/src/app/intelligence.rs
++++ b/src-tauri/src/app/intelligence.rs
+@@ -6,27 +6,31 @@ struct Operation {
+ }
+ impl AppState {
+     pub async fn start_intelligence(&self) -> AppResult<()> {
+         // Hold this through actual index readiness/job publication. Close takes
+         // the same gate before treating the previous generation as joined.
+         let _startup = self.intelligence_startup.lock().await;
+         let epoch = self.admitted_epoch()?;
+         // Repeated startup reuses only the already-published current readiness
+         // together with the independent live scheduler fence. It cannot start
+         // a second local recovery or retire the existing index generation.
+-        if self.summaries.require_epoch(epoch).is_ok()
+-            && self.summary_delivery.require_epoch(epoch).is_ok()
+-        {
+-            return self
+-                .with_open_epoch(|| self.jobs.admission_fence(JobKind::Summary)?.run(|| Ok(())));
++        if let Ok(ready) = self.summary_readiness(epoch) {
++            return self.with_open_epoch(|| {
++                ready.require_epoch(epoch)?;
++                self.jobs.admission_fence(JobKind::Summary)?.run(|| Ok(()))
++            });
+         }
+-        self.summary_delivery.ensure_startable()?;
++        self.with_open_epoch(|| {
++            self.summary_delivery.ensure_startable()?;
++            self.summary_ready.lock().unwrap().take();
++            Ok(())
++        })?;
+         self._final_facade.record_executor();
+         self.with_open_epoch(|| self.probes.reopen())?;
+         let _index = match self
+             .index_owner
+             .start_owned(self._process_lock.clone())
+             .await
+         {
+             Ok(index) => index,
+             Err(failure) => {
+                 let _ = self.probes.shutdown().await;
+@@ -61,39 +65,41 @@ impl AppState {
+         };
+         let summary = match summary {
+             Ok(summary) => summary,
+             Err(failure) => {
+                 let _ = self.summaries.signal_closing();
+                 let _ = self.knowledge.shutdown_searches().await;
+                 let _ = self.shutdown_index_after_startup_failure().await;
+                 return Err(failure);
+             }
+         };
++        let publication = self.summary_publication(epoch);
+         let delivery = self
+             .summary_delivery
+-            .start_owned(self._process_lock.clone(), epoch, summary)
++            .start_published_owned(self._process_lock.clone(), epoch, summary, move |ready| {
++                publication.publish(ready)
++            })
+             .await;
+         match delivery {
+             Ok(ready) => {
+                 self.with_open_epoch(|| ready.require_epoch(epoch))?;
+-                self.orchestrator
+-                    .install_terminal_port(ready.terminal_port());
+                 Ok(())
+             }
+             Err(failure) => {
+                 let _ = self.summaries.signal_closing();
+                 let _ = self.shutdown_index_after_startup_failure().await;
+                 Err(failure)
+             }
+         }
+     }
+     async fn shutdown_index_after_startup_failure(&self) -> AppResult<()> {
++        self.summary_ready.lock().unwrap().take();
+         self.summaries.signal_closing()?;
+         self.summary_delivery.drain_failed_startup().await?;
+         self.summaries.drain_actual().await?;
+         let _direct_operations = self
+             .intelligence_operations
+             .clone()
+             .acquire_many_owned(16)
+             .await
+             .map_err(|_| super::lifecycle::closing_error())?;
+         self.index_owner.shutdown().await
+diff --git a/src-tauri/src/app/intelligence/tests/summary.rs b/src-tauri/src/app/intelligence/tests/summary.rs
+index e062af4..efc1c8c 100644
+--- a/src-tauri/src/app/intelligence/tests/summary.rs
++++ b/src-tauri/src/app/intelligence/tests/summary.rs
+@@ -1,12 +1,13 @@
+ use super::*;
+ use crate::{storage::StoredSession, summary::SummaryJobRequest};
++mod readiness;
+ fn session(app: &AppState) -> Uuid {
+     let id = Uuid::new_v4();
+     app.store
+         .create_session(&StoredSession {
+             id,
+             started_at: 1,
+             mode: "live".into(),
+             direction: "source_to_target".into(),
+             source_language: "en".into(),
+             target_language: "zh".into(),
+diff --git a/src-tauri/src/app/intelligence/tests/summary/readiness.rs b/src-tauri/src/app/intelligence/tests/summary/readiness.rs
+new file mode 100644
+index 0000000..de6f07d
+--- /dev/null
++++ b/src-tauri/src/app/intelligence/tests/summary/readiness.rs
+@@ -0,0 +1,710 @@
++use super::*;
++use crate::{
++    app::summary_test_support::{enable_automatic, with_runtime_http},
++    intelligence::test_support::RecordingHttp,
++    storage::{StoredSessionLifecycle, StoredTranscriptSegment},
++    summary::readiness_test_support,
++};
++use serde_json::{Value, json};
++use std::sync::atomic::Ordering;
++
++async fn app_with_http() -> (tempfile::TempDir, AppState, Arc<RecordingHttp>) {
++    let dir = tempfile::tempdir().unwrap();
++    let runtime = crate::app::tests::fixture();
++    let http = Arc::new(RecordingHttp::default());
++    let app = with_runtime_http(dir.path(), &runtime, http.clone());
++    enable_automatic(&app).await;
++    (dir, app, http)
++}
++
++async fn configured_runtime_app() -> (
++    tempfile::TempDir,
++    AppState,
++    crate::session::test_support::RuntimeHarness,
++    Arc<RecordingHttp>,
++) {
++    let dir = tempfile::tempdir().unwrap();
++    let runtime = crate::app::tests::fixture();
++    let http = Arc::new(RecordingHttp::default());
++    let app = with_runtime_http(dir.path(), &runtime, http.clone());
++    app.save_provider_config(crate::app::SaveProviderRequest {
++        config: runtime.saved.clone(),
++        credential: crate::app::CredentialChange::Keep,
++    })
++    .await
++    .unwrap();
++    enable_automatic(&app).await;
++    (dir, app, runtime, http)
++}
++
++fn retained_final(app: &AppState, session: Uuid) {
++    app.store
++        .append_final_segment(&StoredTranscriptSegment {
++            id: Uuid::new_v4(),
++            session_id: session,
++            direction: "source_to_target".into(),
++            sequence: 1,
++            occurred_at: 2,
++            language: "zh".into(),
++            text: "retained manual input".into(),
++            is_final: true,
++            details: None,
++            occurred_at_ms: None,
++        })
++        .unwrap();
++}
++
++fn mutation_snapshot(app: &AppState, session: Uuid) -> Value {
++    let (counter, jobs, witnesses) = app.store.transaction(|tx| {
++        let counter: i64 = tx.query_row(
++            "SELECT coalesce((SELECT last_version FROM summary_version_counters WHERE session_id=?1),0)",
++            [session.to_string()], |r| r.get(0),
++        )?;
++        let mut q = tx.prepare("SELECT id,status,payload_json,permanent_key,error_code FROM intelligence_jobs WHERE kind='summary' AND session_id=?1 ORDER BY id")?;
++        let jobs = q.query_map([session.to_string()], |r| Ok((
++            r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?,
++            r.get::<_, Option<String>>(3)?, r.get::<_, Option<String>>(4)?,
++        )))?.collect::<Result<Vec<_>, _>>()?;
++        let mut q = tx.prepare("SELECT id,job_id,job_payload_hash,deleting FROM session_summaries WHERE session_id=?1 ORDER BY id")?;
++        let witnesses = q.query_map([session.to_string()], |r| Ok((
++            r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, Option<String>>(2)?, r.get::<_, i64>(3)?,
++        )))?.collect::<Result<Vec<_>, _>>()?;
++        Ok((counter, jobs, witnesses))
++    }).unwrap();
++    json!({"summaries": app.list_summaries(session, None, None).unwrap(), "counter": counter, "jobs": jobs, "witnesses": witnesses})
++}
++
++fn is_fenced<T>(result: &AppResult<T>) -> bool {
++    matches!(
++        result,
++        Err(AppError::Intelligence(
++            IntelligenceErrorCode::Busy | IntelligenceErrorCode::Interrupted
++        ))
++    )
++}
++
++async fn drain_direct(app: &AppState) {
++    let all = tokio::time::timeout(
++        Duration::from_secs(2),
++        app.intelligence_operations.clone().acquire_many_owned(16),
++    )
++    .await
++    .unwrap()
++    .unwrap();
++    drop(all);
++}
++
++#[tokio::test]
++async fn summary_app_manual_mutations_reject_local_ready_bootstrap_without_durable_changes() {
++    let (_dir, app, http) = app_with_http().await;
++    let bootstrap_session = session(&app);
++    app.store
++        .update_session_lifecycle(&StoredSessionLifecycle {
++            session_id: bootstrap_session,
++            status: "completed".into(),
++            ended_at: Some(4),
++        })
++        .unwrap();
++    let target = session(&app);
++    let old = app
++        .store
++        .create_summary_job(SummaryJobRequest {
++            session_id: target,
++            profile: None,
++            automatic: false,
++            initial_failure: None,
++        })
++        .unwrap();
++    app.jobs.cancel(old.id).await.unwrap();
++    let (entered, release) = app.service_config.hold_next_summary_selection_for_tests();
++    let start_owner = app.clone();
++    let startup = tokio::spawn(async move { start_owner.start_intelligence().await });
++    tokio::time::timeout(Duration::from_secs(2), entered)
++        .await
++        .unwrap()
++        .unwrap();
++    app.summaries.require_epoch(0).unwrap();
++    assert!(app.summary_delivery.require_epoch(0).is_err());
++    let before = mutation_snapshot(&app, target);
++    let selections = app.service_config.summary_selection_entries_for_tests();
++    let (generate, delete) = tokio::join!(
++        tokio::time::timeout(
++            Duration::from_millis(200),
++            app.generate_summary(target, None)
++        ),
++        tokio::time::timeout(
++            Duration::from_millis(200),
++            app.delete_summary(old.object_id.unwrap())
++        ),
++    );
++    let after = mutation_snapshot(&app, target);
++    let calls = http.requests.lock().unwrap().len();
++    let selection_delta = app.service_config.summary_selection_entries_for_tests() - selections;
++    release.send(()).unwrap();
++    startup.await.unwrap().unwrap();
++    let live_job = app.generate_summary(target, None).await.unwrap();
++    terminal(&app, live_job.id).await;
++    app.delete_summary(live_job.object_id.unwrap())
++        .await
++        .unwrap();
++    app.close_all().await.unwrap();
++    println!(
++        "held bootstrap: generate={generate:?}, delete={delete:?}, unchanged={}, selections={selection_delta}, provider_requests={calls}",
++        before == after
++    );
++    assert!(
++        generate.as_ref().is_ok_and(|result| is_fenced(result)),
++        "generate must reject incomplete startup promptly: {generate:?}"
++    );
++    assert!(
++        delete.as_ref().is_ok_and(|result| is_fenced(result)),
++        "delete must reject incomplete startup promptly: {delete:?}"
++    );
++    assert_eq!(
++        after, before,
++        "held bootstrap cannot alter rows, deletion flags, counters, witnesses or permanent identities"
++    );
++    assert_eq!(selection_delta, 0);
++    assert_eq!(calls, 0);
++    assert!(http.requests.lock().unwrap().is_empty());
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn summary_app_manual_generation_rejects_started_scheduler_before_delivery_publication() {
++    let (_dir, app, http) = app_with_http().await;
++    let target = session(&app);
++    retained_final(&app, target);
++    http.block.store(true, Ordering::SeqCst);
++    let before = mutation_snapshot(&app, target);
++    let (entered, release) = readiness_test_support::hold_publication(&app.summary_delivery);
++    let start_owner = app.clone();
++    let startup = tokio::spawn(async move { start_owner.start_intelligence().await });
++    tokio::time::timeout(Duration::from_secs(2), entered)
++        .await
++        .unwrap()
++        .unwrap();
++    app.summaries.require_epoch(0).unwrap();
++    app.jobs
++        .admission_fence(JobKind::Summary)
++        .unwrap()
++        .run(|| Ok(()))
++        .unwrap();
++    assert!(!startup.is_finished());
++    let generated = tokio::time::timeout(
++        Duration::from_millis(200),
++        app.generate_summary(target, None),
++    )
++    .await;
++    let model_entered = if generated.as_ref().is_ok_and(Result::is_ok) {
++        tokio::time::timeout(Duration::from_secs(2), http.entered.notified())
++            .await
++            .is_ok()
++    } else {
++        false
++    };
++    let after = mutation_snapshot(&app, target);
++    let calls = http.requests.lock().unwrap().len();
++    release.send(()).unwrap();
++    startup.await.unwrap().unwrap();
++    http.block.store(false, Ordering::SeqCst);
++    http.resume.notify_one();
++    if let Ok(Ok(job)) = &generated {
++        terminal(&app, job.id).await;
++    }
++    let live_job = app.generate_summary(target, None).await.unwrap();
++    terminal(&app, live_job.id).await;
++    app.delete_summary(live_job.object_id.unwrap())
++        .await
++        .unwrap();
++    app.close_all().await.unwrap();
++    println!(
++        "held scheduler-to-Live: generation={generated:?}, unchanged={}, provider_requests={calls}, model_entered={model_entered}",
++        before == after
++    );
++    assert!(
++        generated.as_ref().is_ok_and(|result| is_fenced(result)),
++        "started jobs cannot authorize generation before combined publication: {generated:?}"
++    );
++    assert_eq!(after, before);
++    assert_eq!(
++        calls, 0,
++        "no provider dispatch before complete delivery readiness"
++    );
++    assert!(
++        !http.requests.lock().unwrap().is_empty(),
++        "generation after full readiness still executes the real handler"
++    );
++}
++
++#[tokio::test]
++async fn summary_app_manual_entered_config_rechecks_delivery_at_admission_after_observer_loss() {
++    let (_dir, app, http) = app_with_http().await;
++    app.start_intelligence().await.unwrap();
++    drain_direct(&app).await;
++    let target = session(&app);
++    retained_final(&app, target);
++    let before = mutation_snapshot(&app, target);
++    let (entered, release) = app.service_config.hold_next_summary_selection_for_tests();
++    let generate_owner = app.clone();
++    let observer = tokio::spawn(async move { generate_owner.generate_summary(target, None).await });
++    tokio::time::timeout(Duration::from_secs(2), entered)
++        .await
++        .unwrap()
++        .unwrap();
++    let key = app
++        .summary_delivery
++        .elect_closing(1, app.audio.actual_epoch().unwrap())
++        .unwrap();
++    app.summaries.require_epoch(0).unwrap();
++    app.jobs
++        .admission_fence(JobKind::Summary)
++        .unwrap()
++        .run(|| Ok(()))
++        .unwrap();
++    observer.abort();
++    assert!(observer.await.unwrap_err().is_cancelled());
++    let held = app.intelligence_operations.available_permits();
++    release.send(()).unwrap();
++    drain_direct(&app).await;
++    let after = mutation_snapshot(&app, target);
++    app.close_all().await.unwrap();
++    app.open_window().unwrap();
++    app.close_all().await.unwrap();
++    println!(
++        "entered ConfigIo observer lost: direct_slots={held}, delivery={} unchanged={}",
++        key.delivery_id(),
++        before == after
++    );
++    assert_eq!(
++        held, 15,
++        "cancelled observer must retain the actual ConfigIo/direct owner"
++    );
++    assert_eq!(
++        after, before,
++        "actual admission must consume the delivery fence even with local/jobs readiness still open"
++    );
++    assert!(http.requests.lock().unwrap().is_empty());
++}
++
++#[tokio::test]
++async fn summary_app_manual_entered_delete_sql_rechecks_delivery_mark_after_observer_loss() {
++    let (_dir, app, http) = app_with_http().await;
++    let target = session(&app);
++    let old = app
++        .store
++        .create_summary_job(SummaryJobRequest {
++            session_id: target,
++            profile: None,
++            automatic: false,
++            initial_failure: None,
++        })
++        .unwrap();
++    app.jobs.cancel(old.id).await.unwrap();
++    app.start_intelligence().await.unwrap();
++    drain_direct(&app).await;
++    let before = mutation_snapshot(&app, target);
++    let (entered, release) = readiness_test_support::hold_sql_entry(&app.summaries);
++    let delete_owner = app.clone();
++    let observer =
++        tokio::spawn(async move { delete_owner.delete_summary(old.object_id.unwrap()).await });
++    tokio::time::timeout(Duration::from_secs(2), entered)
++        .await
++        .unwrap()
++        .unwrap();
++    let key = app
++        .summary_delivery
++        .elect_closing(1, app.audio.actual_epoch().unwrap())
++        .unwrap();
++    app.summaries.require_epoch(0).unwrap();
++    app.jobs
++        .admission_fence(JobKind::Summary)
++        .unwrap()
++        .run(|| Ok(()))
++        .unwrap();
++    observer.abort();
++    assert!(observer.await.unwrap_err().is_cancelled());
++    let held = app.intelligence_operations.available_permits();
++    release.send(()).unwrap();
++    drain_direct(&app).await;
++    let after = mutation_snapshot(&app, target);
++    app.close_all().await.unwrap();
++    app.open_window().unwrap();
++    app.close_all().await.unwrap();
++    println!(
++        "entered SQLite observer lost: direct_slots={held}, delivery={} unchanged={}",
++        key.delivery_id(),
++        before == after
++    );
++    assert_eq!(
++        held, 15,
++        "cancelled observer must retain the actual SQL/direct owner"
++    );
++    assert_eq!(
++        after, before,
++        "actual deletion mark must consume complete delivery readiness"
++    );
++    assert!(http.requests.lock().unwrap().is_empty());
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn summary_app_cancelled_issued_ready_observer_preserves_actual_publication_and_repeated_startup()
++ {
++    use crate::app::{CredentialChange, SaveProviderRequest};
++    let dir = tempfile::tempdir().unwrap();
++    let runtime = crate::app::tests::fixture();
++    let http = Arc::new(RecordingHttp::default());
++    let app = with_runtime_http(dir.path(), &runtime, http.clone());
++    app.save_provider_config(SaveProviderRequest {
++        config: runtime.saved.clone(),
++        credential: CredentialChange::Keep,
++    })
++    .await
++    .unwrap();
++    enable_automatic(&app).await;
++    let target = session(&app);
++    let (entered, release, published) =
++        readiness_test_support::hold_ready_issued(&app.summary_delivery);
++    let start_owner = app.clone();
++    let observer = tokio::spawn(async move { start_owner.start_intelligence().await });
++    tokio::time::timeout(Duration::from_secs(2), entered)
++        .await
++        .unwrap()
++        .unwrap();
++    let index = app.index_epoch_for_test().unwrap();
++    observer.abort();
++    assert!(observer.await.unwrap_err().is_cancelled());
++    let repeat_before =
++        tokio::time::timeout(Duration::from_millis(200), app.start_intelligence()).await;
++    let manual_before = tokio::time::timeout(
++        Duration::from_millis(200),
++        app.generate_summary(target, None),
++    )
++    .await;
++    release.send(()).unwrap();
++    tokio::time::timeout(Duration::from_secs(2), published)
++        .await
++        .unwrap()
++        .unwrap();
++    if let Ok(Ok(job)) = &manual_before {
++        terminal(&app, job.id).await;
++    }
++    let repeated = app.start_intelligence().await;
++    let after_index = app.index_epoch_for_test().unwrap();
++    let runtime_session = app.create_session(runtime.launch.clone()).await.unwrap().id;
++    crate::app::tests::eventually(|| {
++        app.store
++            .get_session_lifecycle(runtime_session)
++            .unwrap()
++            .unwrap()
++            .status
++            == "running"
++    })
++    .await;
++    app.stop_session(runtime_session).await.unwrap();
++    crate::app::tests::eventually(|| {
++        !app.list_summaries(runtime_session, None, None)
++            .unwrap()
++            .rows
++            .is_empty()
++    })
++    .await;
++    let automatic = app
++        .list_summaries(runtime_session, None, None)
++        .unwrap()
++        .rows;
++    app.close_all().await.unwrap();
++    println!(
++        "cancelled issued Ready: repeated_before={repeat_before:?}, manual_before={manual_before:?}, automatic={automatic:?}"
++    );
++    assert!(
++        repeat_before.as_ref().is_ok_and(|result| is_fenced(result)),
++        "a missing actual App publication must not be reconstructed from started status"
++    );
++    assert!(manual_before.as_ref().is_ok_and(|result| is_fenced(result)));
++    assert!(repeated.is_ok());
++    assert_eq!(
++        after_index, index,
++        "repeat must preserve the actually published generation"
++    );
++    assert_eq!(automatic.len(), 1);
++    let crate::summary::types::SummaryView::Native(row) = &automatic[0] else {
++        panic!("automatic must be Native")
++    };
++    assert_eq!(
++        row.error,
++        Some(IntelligenceErrorCode::NoFinalText),
++        "actual publisher must install the live terminal port independently of its observer"
++    );
++    assert!(http.requests.lock().unwrap().is_empty());
++}
++
++#[tokio::test]
++async fn summary_app_manual_mutations_reject_foreign_and_retired_actual_ready_capabilities() {
++    let (_first_dir, first, first_http) = app_with_http().await;
++    let (_second_dir, second, second_http) = app_with_http().await;
++    let target = session(&second);
++    let old = second
++        .store
++        .create_summary_job(SummaryJobRequest {
++            session_id: target,
++            profile: None,
++            automatic: false,
++            initial_failure: None,
++        })
++        .unwrap();
++    second.jobs.cancel(old.id).await.unwrap();
++    first.start_intelligence().await.unwrap();
++    second.start_intelligence().await.unwrap();
++    let epoch = second.admitted_epoch().unwrap();
++    let foreign = first.summary_readiness(epoch).unwrap();
++    let retired = second.summary_readiness(epoch).unwrap();
++    foreign.require_epoch(epoch).unwrap();
++    retired.require_epoch(epoch).unwrap();
++
++    let before_foreign = mutation_snapshot(&second, target);
++    let foreign_selections = second.service_config.summary_selection_entries_for_tests();
++    let (foreign_generate, foreign_delete) = tokio::join!(
++        tokio::time::timeout(
++            Duration::from_millis(200),
++            second.summaries.generate_owned(
++                target,
++                None,
++                second.intelligence_lease().unwrap(),
++                foreign.clone(),
++            ),
++        ),
++        tokio::time::timeout(
++            Duration::from_millis(200),
++            second.summaries.delete_owned(
++                old.object_id.unwrap(),
++                second.intelligence_lease().unwrap(),
++                foreign,
++            ),
++        ),
++    );
++    let after_foreign = mutation_snapshot(&second, target);
++    let foreign_selection_delta =
++        second.service_config.summary_selection_entries_for_tests() - foreign_selections;
++
++    second.close_all().await.unwrap();
++    second.reopen_window().await.unwrap();
++    let new_epoch = second.admitted_epoch().unwrap();
++    second.summary_readiness(new_epoch).unwrap();
++    let before_retired = mutation_snapshot(&second, target);
++    let retired_selections = second.service_config.summary_selection_entries_for_tests();
++    let (retired_generate, retired_delete) = tokio::join!(
++        tokio::time::timeout(
++            Duration::from_millis(200),
++            second.summaries.generate_owned(
++                target,
++                None,
++                second.intelligence_lease().unwrap(),
++                retired.clone(),
++            ),
++        ),
++        tokio::time::timeout(
++            Duration::from_millis(200),
++            second.summaries.delete_owned(
++                old.object_id.unwrap(),
++                second.intelligence_lease().unwrap(),
++                retired,
++            ),
++        ),
++    );
++    let after_retired = mutation_snapshot(&second, target);
++    let retired_selection_delta =
++        second.service_config.summary_selection_entries_for_tests() - retired_selections;
++    first.close_all().await.unwrap();
++    second.close_all().await.unwrap();
++
++    println!(
++        "actual Ready identity: foreign_generate={foreign_generate:?}, foreign_delete={foreign_delete:?}, retired_generate={retired_generate:?}, retired_delete={retired_delete:?}, epochs={epoch}->{new_epoch}"
++    );
++    assert!(
++        foreign_generate
++            .as_ref()
++            .is_ok_and(|result| is_fenced(result))
++    );
++    assert!(
++        foreign_delete
++            .as_ref()
++            .is_ok_and(|result| is_fenced(result))
++    );
++    assert!(
++        retired_generate
++            .as_ref()
++            .is_ok_and(|result| is_fenced(result))
++    );
++    assert!(
++        retired_delete
++            .as_ref()
++            .is_ok_and(|result| is_fenced(result))
++    );
++    assert_eq!(after_foreign, before_foreign);
++    assert_eq!(after_retired, before_retired);
++    assert_ne!(new_epoch, epoch);
++    assert_eq!(foreign_selection_delta, 0);
++    assert_eq!(retired_selection_delta, 0);
++    assert!(first_http.requests.lock().unwrap().is_empty());
++    assert!(second_http.requests.lock().unwrap().is_empty());
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn summary_app_runtime_creation_rejects_issued_ready_before_actual_publication() {
++    let (_dir, app, runtime, http) = configured_runtime_app().await;
++    let (entered, release, published) =
++        readiness_test_support::hold_ready_issued(&app.summary_delivery);
++    let startup_owner = app.clone();
++    let startup = tokio::spawn(async move { startup_owner.start_intelligence().await });
++    tokio::time::timeout(Duration::from_secs(2), entered)
++        .await
++        .unwrap()
++        .unwrap();
++    let raw_delivery_ready = app.summary_delivery.require_epoch(0).is_ok();
++    let app_ready_missing = app.summary_readiness(0).is_err();
++    let before_sessions = app.list_sessions(Some(10), None).await.unwrap().len();
++    let creation = tokio::time::timeout(
++        Duration::from_millis(200),
++        app.create_session(runtime.launch.clone()),
++    )
++    .await;
++    if let Ok(Ok(record)) = &creation {
++        crate::app::tests::eventually(|| {
++            app.store
++                .get_session_lifecycle(record.id)
++                .unwrap()
++                .unwrap()
++                .status
++                == "running"
++        })
++        .await;
++    }
++    let after_sessions = app.list_sessions(Some(10), None).await.unwrap().len();
++    let inventory = runtime.audio.inventory_calls();
++    let opens = runtime.audio.open_calls();
++    let connections = runtime.provider.connect_counts();
++    release.send(()).unwrap();
++    tokio::time::timeout(Duration::from_secs(2), published)
++        .await
++        .unwrap()
++        .unwrap();
++    startup.await.unwrap().unwrap();
++    if let Ok(Ok(record)) = &creation {
++        app.stop_session(record.id).await.unwrap();
++    }
++    let after_publication = app.create_session(runtime.launch.clone()).await.unwrap();
++    app.stop_session(after_publication.id).await.unwrap();
++    app.close_all().await.unwrap();
++
++    println!(
++        "issued Ready creation: result={creation:?}, sessions={before_sessions}->{after_sessions}, inventory={inventory}, opens={opens}, connections={connections:?}"
++    );
++    assert!(raw_delivery_ready && app_ready_missing);
++    assert!(creation.as_ref().is_ok_and(|result| is_fenced(result)));
++    assert_eq!(after_sessions, before_sessions);
++    assert_eq!(inventory, 0);
++    assert_eq!(opens, 0);
++    assert_eq!(connections, [0, 0]);
++    assert!(http.requests.lock().unwrap().is_empty());
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn summary_app_runtime_resume_rejects_issued_ready_before_actual_publication() {
++    use crate::domain::launch::DirectionPhase;
++    let (_dir, app, runtime, http) = configured_runtime_app().await;
++    // Establish a genuine retained paused runtime through the production
++    // orchestrator, so this test can isolate the App resume admission gate.
++    let record = app
++        .orchestrator
++        .start(runtime.launch.clone(), runtime.saved.clone())
++        .await
++        .unwrap();
++    crate::app::tests::eventually(|| {
++        app.store
++            .get_session_lifecycle(record.id)
++            .unwrap()
++            .unwrap()
++            .status
++            == "running"
++    })
++    .await;
++    runtime.audio.lose("live-input");
++    crate::app::tests::eventually(|| {
++        app.store
++            .get_session_lifecycle(record.id)
++            .unwrap()
++            .unwrap()
++            .status
++            == "paused"
++    })
++    .await;
++    runtime.audio.restore("live-input");
++    let (entered, release, published) =
++        readiness_test_support::hold_ready_issued(&app.summary_delivery);
++    let startup_owner = app.clone();
++    let startup = tokio::spawn(async move { startup_owner.start_intelligence().await });
++    tokio::time::timeout(Duration::from_secs(2), entered)
++        .await
++        .unwrap()
++        .unwrap();
++    let raw_delivery_ready = app.summary_delivery.require_epoch(0).is_ok();
++    let app_ready_missing = app.summary_readiness(0).is_err();
++    let before_inventory = runtime.audio.inventory_calls();
++    let before_opens = runtime.audio.open_calls();
++    let before_connections = runtime.provider.connect_counts();
++    let resume = tokio::time::timeout(
++        Duration::from_millis(200),
++        app.resume_session_direction(record.id, SessionDirection::SourceToTarget),
++    )
++    .await;
++    let after_inventory = runtime.audio.inventory_calls();
++    let after_opens = runtime.audio.open_calls();
++    let after_connections = runtime.provider.connect_counts();
++    let remained_paused = app
++        .get_session(record.id)
++        .await
++        .unwrap()
++        .unwrap()
++        .runtime
++        .unwrap()
++        .directions
++        .iter()
++        .any(|direction| {
++            direction.direction == SessionDirection::SourceToTarget
++                && direction.phase == DirectionPhase::Paused
++        });
++    release.send(()).unwrap();
++    tokio::time::timeout(Duration::from_secs(2), published)
++        .await
++        .unwrap()
++        .unwrap();
++    startup.await.unwrap().unwrap();
++    if let Ok(Ok(())) = &resume {
++        runtime.audio.lose("live-input");
++        crate::app::tests::eventually(|| {
++            app.store
++                .get_session_lifecycle(record.id)
++                .unwrap()
++                .unwrap()
++                .status
++                == "paused"
++        })
++        .await;
++        runtime.audio.restore("live-input");
++    }
++    app.resume_session_direction(record.id, SessionDirection::SourceToTarget)
++        .await
++        .unwrap();
++    app.close_all().await.unwrap();
++
++    println!(
++        "issued Ready resume: result={resume:?}, inventory={before_inventory}->{after_inventory}, opens={before_opens}->{after_opens}, connections={before_connections:?}->{after_connections:?}, remained_paused={remained_paused}"
++    );
++    assert!(raw_delivery_ready && app_ready_missing);
++    assert!(resume.as_ref().is_ok_and(|result| is_fenced(result)));
++    assert!(remained_paused);
++    assert_eq!(after_inventory, before_inventory);
++    assert_eq!(after_opens, before_opens);
++    assert_eq!(after_connections, before_connections);
++    assert!(http.requests.lock().unwrap().is_empty());
++}
+diff --git a/src-tauri/src/app/lifecycle.rs b/src-tauri/src/app/lifecycle.rs
+index ff8b400..2222b73 100644
+--- a/src-tauri/src/app/lifecycle.rs
++++ b/src-tauri/src/app/lifecycle.rs
+@@ -33,29 +33,59 @@ type CloseResult = Option<Result<(), String>>;
+ pub(super) struct CloseState {
+     #[cfg(test)]
+     pub(super) observation_timeout: Option<Duration>,
+     epoch: u64,
+     closing: bool,
+     close_succeeded: bool,
+     completion: Option<watch::Receiver<CloseResult>>,
+     audio: Option<crate::audio::join::AudioCloseJoin>,
+     audio_key: Option<crate::audio::join::AudioCloseKey>,
+     audio_ack: Option<crate::audio::join::AudioCloseAck>,
++    terminal_effects_repaired: bool,
+     failures: [Option<String>; 9],
+     first_failure: Option<[Option<String>; 9]>,
+     facade_task: Option<tokio::task::JoinHandle<()>>,
+ }
+ pub(super) fn closing_error() -> AppError {
+     AppError::InvalidRequest("window is closing; retry after close completes".into())
+ }
++// The retained startup publisher consumes only these narrow ports. It never
++// owns an AppState/final facade and is dropped before the live worker loop.
++pub(super) struct SummaryPublication {
++    state: Arc<std::sync::Mutex<CloseState>>,
++    readiness: Arc<std::sync::Mutex<Option<crate::summary::SummaryDeliveryReady>>>,
++    orchestrator: crate::session::SessionOrchestrator,
++    epoch: u64,
++}
++impl SummaryPublication {
++    pub(super) fn publish(self, ready: &crate::summary::SummaryDeliveryReady) -> AppResult<()> {
++        let state = self.state.lock().map_err(|_| closing_error())?;
++        if state.closing || state.epoch != self.epoch {
++            return Err(closing_error());
++        }
++        ready.require_epoch(self.epoch)?;
++        self.orchestrator
++            .install_terminal_port(ready.terminal_port());
++        *self.readiness.lock().map_err(|_| closing_error())? = Some(ready.clone());
++        Ok(())
++    }
++}
+ 
+ impl AppState {
++    pub(super) fn summary_publication(&self, epoch: u64) -> SummaryPublication {
++        SummaryPublication {
++            state: self.close_state.clone(),
++            readiness: self.summary_ready.clone(),
++            orchestrator: self.orchestrator.clone(),
++            epoch,
++        }
++    }
+     pub(super) fn with_open_epoch<T>(
+         &self,
+         operation: impl FnOnce() -> AppResult<T>,
+     ) -> AppResult<T> {
+         let state = self.close_state.lock().unwrap();
+         if state.closing {
+             return Err(closing_error());
+         }
+         operation()
+     }
+@@ -171,29 +201,43 @@ impl AppState {
+         }
+     }
+     fn record_close_failure(&self, branch: usize, result: &AppResult<()>) {
+         self.close_state.lock().unwrap().failures[branch] =
+             result.as_ref().err().map(ToString::to_string);
+     }
+     async fn close_intelligence_owner(
+         &self,
+         key: crate::audio::join::AudioCloseKey,
+         audio: crate::audio::join::AudioCloseJoin,
++        terminal_effects: tokio::sync::oneshot::Receiver<()>,
++        repair_tail: bool,
+     ) -> AppResult<()> {
+         let _startup = self.intelligence_startup.lock().await;
+         let (jobs, probes, subscriptions, summaries, delivery) = tokio::join!(
+             self.jobs.shutdown(),
+             self.probes.shutdown(),
+             self.intelligence_subscriptions.close_all(),
+             self.summaries.drain_actual(),
+-            self.summary_delivery
+-                .close_join_owned(self._process_lock.clone(), key, audio),
++            async {
++                // Recovery can create a new terminal journal after an earlier
++                // successful delivery close. Its tail must follow that write.
++                terminal_effects.await.map_err(|_| closing_error())?;
++                if repair_tail {
++                    self.summary_delivery
++                        .close_after_terminal_repair_owned(self._process_lock.clone(), key, audio)
++                        .await
++                } else {
++                    self.summary_delivery
++                        .close_join_owned(self._process_lock.clone(), key, audio)
++                        .await
++                }
++            },
+         );
+         self.record_close_failure(2, &jobs);
+         self.record_close_failure(3, &probes);
+         self.record_close_failure(4, &subscriptions);
+         self.record_close_failure(5, &summaries);
+         self.record_close_failure(6, &delivery);
+         let knowledge = self.knowledge.shutdown_searches().await;
+         self.record_close_failure(7, &knowledge);
+         // Job cleanup may still need already-issued index ownership. The
+         // independent index sender remains alive until the scheduler confirms
+@@ -224,20 +268,22 @@ impl AppState {
+             let ack = state.audio_ack.as_ref().ok_or_else(closing_error)?;
+             self.summary_delivery.validate_reopen_after_close(ack)?;
+             self.audio.validate_reopen_after_close(ack.backend())?;
+             self.orchestrator.validate_reopen_after_close(ack.key())?;
+             self.audio.reopen_after_close(ack.backend())?;
+             self.orchestrator.reopen_after_close(ack.key())?;
+             self.summary_delivery.reopen_after_close(ack)?;
+             state.audio = None;
+             state.audio_key = None;
+             state.audio_ack = None;
++            state.terminal_effects_repaired = false;
++            self.summary_ready.lock().unwrap().take();
+         }
+         state.epoch = state.epoch.wrapping_add(1);
+         state.closing = false;
+         self.close_epoch.send_replace(state.epoch);
+         Ok(())
+     }
+ 
+     /// An owned, coalesced shutdown operation. Stops the authoritative runtime,
+     /// drains prior subscription work, and leaves admission closed until the host
+     /// explicitly begins a new window lifecycle.
+@@ -263,20 +309,21 @@ impl AppState {
+                 completion.clone()
+             } else {
+                 self._final_facade.record_executor();
+                 let retry = state.audio_ack.is_some();
+                 if !state.closing {
+                     state.epoch = state.epoch.checked_add(1).ok_or_else(closing_error)?;
+                     self.close_epoch.send_replace(state.epoch);
+                 }
+                 state.closing = true;
+                 state.close_succeeded = false;
++                self.summary_ready.lock().unwrap().take();
+                 let key = self
+                     .summary_delivery
+                     .elect_closing(state.epoch, self.audio.actual_epoch()?)?;
+                 self.summary_delivery.signal_closing(&key)?;
+                 self.summaries.signal_closing()?;
+                 let audio_join = if let Some(join) = &state.audio {
+                     join.clone()
+                 } else {
+                     let native = self.audio.begin_close(key.clone())?;
+                     let session = self.orchestrator.capture_close_join(key.clone())?;
+@@ -297,39 +344,62 @@ impl AppState {
+                     state.audio_key = Some(key.clone());
+                     join
+                 };
+                 let (finished, completion) = watch::channel(None);
+                 state.completion = Some(completion.clone());
+                 // Signal intelligence/probes before waiting for any config or
+                 // driver admission; prompt audio stop starts in the same owner.
+                 self.jobs.signal_shutdown();
+                 self.probes.request_shutdown();
+                 let owner = self.clone();
++                let repair_tail = retry && audio_join.outcome().is_err();
++                let (terminal_effects, before_tail) = tokio::sync::oneshot::channel();
+                 tokio::spawn(async move {
+                     let (audio, frontend, intelligence) = tokio::join!(
+                         async {
+-                            let ack = audio_join.wait().await?;
+-                            ack.require_key(&key)?;
+-                            owner.close_state.lock().unwrap().audio_ack = Some(ack);
+-                            if retry && audio_join.outcome().is_err() {
+-                                owner.orchestrator.retry_terminal_close_effects(&key)
+-                            } else {
+-                                audio_join.outcome()
++                            let result = async {
++                                let ack = audio_join.wait().await?;
++                                ack.require_key(&key)?;
++                                owner.close_state.lock().unwrap().audio_ack = Some(ack);
++                                if repair_tail {
++                                    if !owner.close_state.lock().unwrap().terminal_effects_repaired
++                                    {
++                                        owner.orchestrator.retry_terminal_close_effects(&key)?;
++                                        // Cache only this producer's verified same-key result;
++                                        // a later failed delivery tail still needs its own retry.
++                                        owner
++                                            .close_state
++                                            .lock()
++                                            .unwrap()
++                                            .terminal_effects_repaired = true;
++                                    }
++                                    Ok(())
++                                } else {
++                                    audio_join.outcome()
++                                }
+                             }
++                            .await;
++                            let _ = terminal_effects.send(());
++                            result
+                         },
+                         async {
+                             let _mutation = owner.subscription_mutation.lock().await;
+                             owner.close_registry(None).await
+                         },
+                         async {
+                             owner
+-                                .close_intelligence_owner(key.clone(), audio_join.clone())
++                                .close_intelligence_owner(
++                                    key.clone(),
++                                    audio_join.clone(),
++                                    before_tail,
++                                    repair_tail,
++                                )
+                                 .await
+                         }
+                     );
+                     owner.record_close_failure(0, &audio);
+                     owner.record_close_failure(1, &frontend);
+                     let result = audio
+                         .and(frontend)
+                         .and(intelligence)
+                         .map_err(|error| error.to_string());
+                     let mut state = owner.close_state.lock().unwrap();
+diff --git a/src-tauri/src/app/lifecycle/errors_tests.rs b/src-tauri/src/app/lifecycle/errors_tests.rs
+index 79a0608..b808990 100644
+--- a/src-tauri/src/app/lifecycle/errors_tests.rs
++++ b/src-tauri/src/app/lifecycle/errors_tests.rs
+@@ -128,10 +128,224 @@ async fn window_close_jobs_shutdown_error_still_joins_delivery_and_retry_keeps_t
+         .unwrap();
+     app.close_all().await.unwrap();
+     assert!(app.close_state.lock().unwrap().audio_key.as_ref() == Some(&key));
+     assert_eq!(
+         app.get_job(queued.id).unwrap().unwrap().status,
+         JobStatus::Cancelled
+     );
+     app.open_window().unwrap();
+     app.close_all().await.unwrap();
+ }
++
++#[tokio::test]
++async fn window_close_sql_repair_disposes_automatic_journal_before_same_key_reopen() {
++    use crate::{
++        app::summary_test_support::{enable_automatic, with_runtime_http},
++        audio::PcmSpec,
++        intelligence::test_support::RecordingHttp,
++        providers::{
++            ProviderEvent,
++            fixture::{FixtureScript, FixtureStep},
++        },
++        session::test_support::{RuntimeHarness, final_text, metadata},
++        summary::types::SummaryView,
++    };
++    let h = RuntimeHarness::live(
++        FixtureScript::with_output_audio(
++            PcmSpec::pcm16_mono(24_000),
++            [
++                FixtureStep::Emit(ProviderEvent::SessionStarted {
++                    metadata: metadata(),
++                }),
++                FixtureStep::Emit(ProviderEvent::TranslationFinal {
++                    metadata: metadata(),
++                    text: final_text("zh", "retained final for repaired close"),
++                }),
++                FixtureStep::WaitForFinish,
++            ],
++        )
++        .unwrap(),
++    )
++    .unwrap();
++    let dir = tempfile::tempdir().unwrap();
++    let http = Arc::new(RecordingHttp::default());
++    let app = with_runtime_http(dir.path(), &h, http.clone());
++    app.save_provider_config(SaveProviderRequest {
++        config: h.saved.clone(),
++        credential: CredentialChange::Keep,
++    })
++    .await
++    .unwrap();
++    enable_automatic(&app).await;
++    app.start_intelligence().await.unwrap();
++    let session = app.create_session(h.launch.clone()).await.unwrap().id;
++    crate::app::tests::eventually(|| app.store.count_segments(session).unwrap() == 1).await;
++    app.store
++        .fail_lifecycle_status_for_tests("completed")
++        .unwrap();
++    let first = app.close_all().await;
++    let (key, original_failure) = {
++        let state = app.close_state.lock().unwrap();
++        let key = state.audio_key.clone().unwrap();
++        state.audio_ack.as_ref().unwrap().require_key(&key).unwrap();
++        assert!(state.failures[0].is_some());
++        assert!(state.failures[6].is_none());
++        (key, state.first_failure.clone())
++    };
++    let journal = || {
++        app.store
++            .transaction(|tx| {
++                Ok(tx.query_row(
++                    "SELECT summary_terminal_pending FROM session_lifecycle WHERE session_id=?1",
++                    [session.to_string()],
++                    |r| r.get::<_, i64>(0),
++                )?)
++            })
++            .unwrap()
++    };
++    assert!(first.is_err());
++    assert_eq!(journal(), 0);
++    assert!(
++        app.list_summaries(session, None, None)
++            .unwrap()
++            .rows
++            .is_empty()
++    );
++    assert!(http.requests.lock().unwrap().is_empty());
++    assert!(app.open_window().is_err());
++    assert!(
++        app.close_all().await.is_err(),
++        "unresolved SQL must stay fenced"
++    );
++    assert_eq!(journal(), 0);
++    assert!(app.open_window().is_err());
++    app.store
++        .transaction(|tx| {
++            tx.execute_batch("DROP TRIGGER fail_completed")?;
++            Ok(())
++        })
++        .unwrap();
++    let repaired = app.close_all().await;
++    // Capture the actual effects before any reopen could run startup recovery.
++    let pending = journal();
++    let rows = app.list_summaries(session, None, None).unwrap().rows;
++    let identities = app.store.transaction(|tx| Ok(tx.query_row(
++        "SELECT count(*) FROM intelligence_jobs WHERE kind='summary' AND session_id=?1 AND permanent_key='auto-summary:' || ?1",
++        [session.to_string()], |r| r.get::<_, i64>(0),
++    )?)).unwrap();
++    let state = app.close_state.lock().unwrap();
++    assert!(state.audio_key.as_ref() == Some(&key));
++    state.audio_ack.as_ref().unwrap().require_key(&key).unwrap();
++    assert_eq!(state.first_failure, original_failure);
++    drop(state);
++    assert!(
++        repaired.is_ok(),
++        "corrected same-key close failed: {repaired:?}"
++    );
++    assert_eq!(
++        pending, 0,
++        "current delivery tail must consume the repaired journal before reopen"
++    );
++    assert_eq!(rows.len(), 1);
++    let SummaryView::Native(row) = &rows[0] else {
++        panic!("repair must materialize Native")
++    };
++    assert_eq!(row.version, 1);
++    assert_eq!(row.status, JobStatus::Failed);
++    assert_eq!(row.error, Some(IntelligenceErrorCode::Interrupted));
++    assert_eq!(
++        identities, 1,
++        "automatic identity must already be permanent"
++    );
++    assert!(http.requests.lock().unwrap().is_empty());
++    app.open_window().unwrap();
++    app.close_all().await.unwrap();
++}
++
++#[tokio::test]
++async fn window_close_sql_repair_result_survives_a_failed_delivery_tail_retry() {
++    use crate::app::summary_test_support::{enable_automatic, with_runtime_http};
++    let h = crate::app::tests::fixture();
++    let dir = tempfile::tempdir().unwrap();
++    let http = Arc::new(crate::intelligence::test_support::RecordingHttp::default());
++    let app = with_runtime_http(dir.path(), &h, http.clone());
++    app.save_provider_config(SaveProviderRequest {
++        config: h.saved.clone(),
++        credential: CredentialChange::Keep,
++    })
++    .await
++    .unwrap();
++    enable_automatic(&app).await;
++    app.start_intelligence().await.unwrap();
++    let session = app.create_session(h.launch.clone()).await.unwrap().id;
++    crate::app::tests::eventually(|| {
++        app.store
++            .get_session_lifecycle(session)
++            .unwrap()
++            .unwrap()
++            .status
++            == "running"
++    })
++    .await;
++    app.store
++        .fail_lifecycle_status_for_tests("completed")
++        .unwrap();
++    assert!(app.close_all().await.is_err());
++    let key = app.close_state.lock().unwrap().audio_key.clone().unwrap();
++    let first_failure = app.close_state.lock().unwrap().first_failure.clone();
++    app.store.transaction(|tx| {
++        tx.execute_batch("DROP TRIGGER fail_completed; CREATE TRIGGER reject_repaired_summary BEFORE INSERT ON session_summaries BEGIN SELECT RAISE(FAIL,'injected repaired delivery failure'); END;")?;
++        Ok(())
++    }).unwrap();
++    assert!(app.close_all().await.is_err());
++    let journal =
++        app.store
++            .transaction(|tx| {
++                Ok(tx.query_row(
++        "SELECT status,summary_terminal_pending FROM session_lifecycle WHERE session_id=?1",
++        [session.to_string()], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
++    )?)
++            })
++            .unwrap();
++    assert_eq!(journal, ("completed".into(), 1));
++    assert!(app.open_window().is_err());
++    {
++        let state = app.close_state.lock().unwrap();
++        assert!(
++            state.failures[0].is_none(),
++            "the real terminal repair already succeeded"
++        );
++        assert!(
++            state.failures[6].is_some(),
++            "failed current delivery must stay visible"
++        );
++    }
++    app.store
++        .transaction(|tx| {
++            tx.execute_batch("DROP TRIGGER reject_repaired_summary")?;
++            Ok(())
++        })
++        .unwrap();
++    app.close_all().await.unwrap();
++    let state = app.close_state.lock().unwrap();
++    assert!(state.audio_key.as_ref() == Some(&key));
++    assert_eq!(state.first_failure, first_failure);
++    drop(state);
++    let journal = app
++        .store
++        .transaction(|tx| {
++            Ok(tx.query_row(
++                "SELECT summary_terminal_pending FROM session_lifecycle WHERE session_id=?1",
++                [session.to_string()],
++                |r| r.get::<_, i64>(0),
++            )?)
++        })
++        .unwrap();
++    assert_eq!(journal, 0);
++    assert_eq!(
++        app.list_summaries(session, None, None).unwrap().rows.len(),
++        1
++    );
++    assert!(http.requests.lock().unwrap().is_empty());
++    app.open_window().unwrap();
++    app.close_all().await.unwrap();
++}
+diff --git a/src-tauri/src/app/mod.rs b/src-tauri/src/app/mod.rs
+index 66cec8b..2a1a524 100644
+--- a/src-tauri/src/app/mod.rs
++++ b/src-tauri/src/app/mod.rs
+@@ -38,20 +38,22 @@ use uuid::Uuid;
+ pub use crate::commands::subscriptions::{FrontendEmitter, SubscriptionTicket};
+ pub use crate::config;
+ pub use profiles::{CredentialChange, ProviderConfigView, SaveProviderRequest};
+ #[cfg(test)]
+ pub(crate) mod document_test_support;
+ mod documents;
+ mod intelligence;
+ mod lifecycle;
+ mod profiles;
+ mod summary;
++#[cfg(test)]
++pub(crate) mod summary_test_support;
+ 
+ #[derive(serde::Serialize)]
+ pub struct LaunchValidation {
+     pub context: SessionContext,
+     pub input_audio: PcmSpec,
+     pub output_audio: PcmSpec,
+ }
+ 
+ #[derive(Clone)]
+ pub struct AppState {
+@@ -78,20 +80,21 @@ pub struct AppState {
+     json_http: Arc<dyn crate::intelligence::http::JsonHttp>,
+     probes: Arc<crate::intelligence::probes::ProbeOwner>,
+     intelligence_subscriptions: crate::intelligence::subscriptions::IntelligenceSubscriptions,
+     intelligence_operations: Arc<Semaphore>,
+     intelligence_startup: Arc<Mutex<()>>,
+     index_owner: crate::knowledge::index::IndexOwner,
+     documents: Arc<crate::knowledge::documents::DocumentService>,
+     knowledge: Arc<crate::knowledge::service::KnowledgeService>,
+     summaries: Arc<crate::summary::SummaryService>,
+     summary_delivery: crate::summary::SummaryDeliveryOwner,
++    summary_ready: Arc<std::sync::Mutex<Option<crate::summary::SummaryDeliveryReady>>>,
+     // External App clones share this guard; narrow delivery/native workers do
+     // not retain it, so final disappearance can elect actual source cleanup.
+     _final_facade: Arc<lifecycle::FinalAppFacade>,
+ }
+ 
+ impl AppState {
+     pub fn new(data_dir: PathBuf) -> AppResult<Self> {
+         Self::with_document_parser(
+             data_dir,
+             Arc::new(crate::knowledge::parser::ProcessDocumentParser::new()?),
+@@ -196,57 +199,87 @@ impl AppState {
+     fn compose(
+         data_dir: PathBuf,
+         lock: File,
+         secrets: Arc<SecretStore>,
+         audio: Arc<dyn AudioBackend>,
+         factory: Arc<ProviderFactory>,
+         driver: Arc<dyn DriverOperations>,
+         parser: Arc<dyn crate::knowledge::parser::DocumentParser>,
+     ) -> AppResult<Self> {
+         Self::compose_with_embeddings(
+-            data_dir, lock, secrets, audio, factory, driver, parser, None,
++            data_dir,
++            lock,
++            secrets,
++            audio,
++            factory,
++            driver,
++            parser,
++            None,
++            #[cfg(test)]
++            None,
++            #[cfg(test)]
++            None,
+         )
+     }
+     #[allow(clippy::too_many_arguments)]
+     fn compose_with_embeddings(
+         data_dir: PathBuf,
+         lock: File,
+         secrets: Arc<SecretStore>,
+         audio: Arc<dyn AudioBackend>,
+         factory: Arc<ProviderFactory>,
+         driver: Arc<dyn DriverOperations>,
+         parser: Arc<dyn crate::knowledge::parser::DocumentParser>,
+         embeddings: Option<Arc<dyn crate::knowledge::embedding::Embeddings>>,
++        #[cfg(test)] json_http: Option<Arc<dyn crate::intelligence::http::JsonHttp>>,
++        #[cfg(test)] config_slots: Option<Arc<Semaphore>>,
+     ) -> AppResult<Self> {
+         let store = Arc::new(LocalStore::open(&data_dir)?);
+         let now = SystemTime::now()
+             .duration_since(UNIX_EPOCH)
+             .unwrap_or_default()
+             .as_secs() as i64;
+         store.interrupt_incomplete_sessions(now)?;
+         let event_bus = EventBus::new();
+-        let config_io = ConfigIo::new(ConfigStore::new(&data_dir, secrets)?);
++        let config_store = ConfigStore::new(&data_dir, secrets)?;
++        #[cfg(test)]
++        let config_io = if let Some(slots) = config_slots {
++            ConfigIo::with_runtime_for_tests(
++                config_store,
++                slots,
++                std::time::Duration::from_secs(10),
++            )
++        } else {
++            ConfigIo::new(config_store)
++        };
++        #[cfg(not(test))]
++        let config_io = ConfigIo::new(config_store);
+         let service_config = Arc::new(crate::intelligence::config::ServiceConfigStore::new(
+             config_io.clone(),
+             store.clone(),
+         ));
+         let jobs = Arc::new(crate::intelligence::jobs::JobScheduler::new(store.clone()));
+         let index_owner =
+             crate::knowledge::index::IndexOwner::new(data_dir.join("indexes"), store.clone());
+         let documents = Arc::new(crate::knowledge::documents::DocumentService::new(
+             store.clone(),
+             service_config.clone(),
+             jobs.clone(),
+             parser,
+             data_dir.clone(),
+         ));
+-        let json_http = Arc::new(crate::intelligence::http::ReqwestJsonHttp::new()?);
++        let default_http: Arc<dyn crate::intelligence::http::JsonHttp> =
++            Arc::new(crate::intelligence::http::ReqwestJsonHttp::new()?);
++        #[cfg(test)]
++        let json_http = json_http.unwrap_or(default_http);
++        #[cfg(not(test))]
++        let json_http = default_http;
+         let embeddings = embeddings.unwrap_or_else(|| {
+             Arc::new(
+                 crate::knowledge::embedding::OpenAiCompatibleEmbeddings::new(
+                     service_config.clone(),
+                     json_http.clone(),
+                 ),
+             )
+         });
+         let knowledge = Arc::new(crate::knowledge::service::KnowledgeService::new(
+             store.clone(),
+@@ -313,20 +346,21 @@ impl AppState {
+             probes: Arc::new(crate::intelligence::probes::ProbeOwner::new()),
+             intelligence_subscriptions:
+                 crate::intelligence::subscriptions::IntelligenceSubscriptions::new(),
+             intelligence_operations: Arc::new(Semaphore::new(16)),
+             intelligence_startup: Arc::new(Mutex::new(())),
+             index_owner,
+             documents,
+             knowledge,
+             summaries,
+             summary_delivery,
++            summary_ready: Arc::default(),
+             _final_facade: final_facade,
+         })
+     }
+     pub fn data_dir(&self) -> &Path {
+         self.config_io.data_dir()
+     }
+     pub fn event_bus(&self) -> &EventBus {
+         &self.event_bus
+     }
+     pub fn store(&self) -> &LocalStore {
+@@ -378,49 +412,50 @@ impl AppState {
+             output_audio: PcmSpec::pcm16_mono(24_000),
+         })
+     }
+     pub async fn create_session(&self, launch: SessionLaunch) -> AppResult<SessionRecord> {
+         let mut closed = self.close_epoch.subscribe();
+         let mut driver = self.driver_active.subscribe();
+         if *driver.borrow_and_update() {
+             return Err(crate::audio::platform::driver::busy_error());
+         }
+         let epoch = self.admitted_epoch()?;
+-        self.summary_delivery.require_epoch(epoch)?;
++        let ready = self.summary_readiness(epoch)?;
+         tokio::select! {
+                    biased;
+                    _ = closed.changed() => Err(lifecycle::closing_error()),
+                    _ = driver.changed() => Err(crate::audio::platform::driver::busy_error()),
+                    result = async {
+                        let _guard = self.admission.lock().await;
+                        self.check_epoch(epoch)?;
+-                       self.summary_delivery.require_epoch(epoch)?;
++                       ready.require_epoch(epoch)?;
+                        self._final_facade.record_executor();
+                        let id = launch.provider_config_id;
+                        let saved = self.load_launch_provider_config(id).await?;
+                        self.check_epoch(epoch)?;
++                       ready.require_epoch(epoch)?;
+                        self.orchestrator.start(launch,
+         saved).await
+                    }
+         => result,
+                }
+     }
+     pub async fn stop_session(&self, session_id: Uuid) -> AppResult<SessionRecord> {
+         self.orchestrator.stop_session(session_id).await
+     }
+     pub async fn resume_session_direction(
+         &self,
+         session_id: Uuid,
+         direction: SessionDirection,
+     ) -> AppResult<()> {
+         let epoch = self.admitted_epoch()?;
+-        self.summary_delivery.require_epoch(epoch)?;
++        self.summary_readiness(epoch)?;
+         self.orchestrator
+             .resume_direction(session_id, direction)
+             .await
+     }
+     pub async fn get_session(&self, session_id: Uuid) -> AppResult<Option<SessionRecord>> {
+         self.orchestrator.get(session_id).await
+     }
+     pub async fn list_sessions(
+         &self,
+         limit: Option<u32>,
+diff --git a/src-tauri/src/app/summary.rs b/src-tauri/src/app/summary.rs
+index 85a9616..7b570c0 100644
+--- a/src-tauri/src/app/summary.rs
++++ b/src-tauri/src/app/summary.rs
+@@ -1,36 +1,50 @@
+ use super::AppState;
+ use crate::{
+-    error::AppResult,
+-    intelligence::types::JobView,
++    error::{AppError, AppResult},
++    intelligence::types::{IntelligenceErrorCode, JobView},
+     summary::types::{SummaryCursor, SummaryPage},
+ };
+ use uuid::Uuid;
+ impl AppState {
++    pub(super) fn summary_readiness(
++        &self,
++        epoch: u64,
++    ) -> AppResult<crate::summary::SummaryDeliveryReady> {
++        let ready = {
++            self.summary_ready
++                .lock()
++                .map_err(|_| AppError::Intelligence(IntelligenceErrorCode::Storage))?
++                .clone()
++                .ok_or(AppError::Intelligence(IntelligenceErrorCode::Busy))?
++        };
++        ready.require_epoch(epoch)?;
++        Ok(ready)
++    }
+     pub async fn generate_summary(
+         &self,
+         session_id: Uuid,
+         profile_id: Option<Uuid>,
+     ) -> AppResult<JobView> {
+         let epoch = self.admitted_epoch()?;
+-        self.summaries.require_epoch(epoch)?;
++        let ready = self.summary_readiness(epoch)?;
+         self.summaries
+-            .generate_owned(session_id, profile_id, self.intelligence_lease()?)
++            .generate_owned(session_id, profile_id, self.intelligence_lease()?, ready)
+             .await
+     }
+     pub fn list_summaries(
+         &self,
+         session_id: Uuid,
+         after_version: Option<SummaryCursor>,
+         limit: Option<u32>,
+     ) -> AppResult<SummaryPage> {
+         self.summaries
+             .list(session_id, after_version, limit.unwrap_or(50))
+     }
+     pub async fn delete_summary(&self, summary_id: Uuid) -> AppResult<()> {
+         let epoch = self.admitted_epoch()?;
+-        self.summaries.require_epoch(epoch)?;
++        let ready = self.summary_readiness(epoch)?;
+         self.summaries
+-            .delete_owned(summary_id, self.intelligence_lease()?)
++            .delete_owned(summary_id, self.intelligence_lease()?, ready)
+             .await
+     }
+ }
+diff --git a/src-tauri/src/app/summary_test_support.rs b/src-tauri/src/app/summary_test_support.rs
+new file mode 100644
+index 0000000..af21c53
+--- /dev/null
++++ b/src-tauri/src/app/summary_test_support.rs
+@@ -0,0 +1,44 @@
++//! Controlled transport with the real App summary/config/job composition.
++use super::*;
++use crate::intelligence::{test_support::RecordingHttp, types::*};
++
++pub(crate) fn with_runtime_http(
++    path: &Path,
++    runtime: &crate::session::test_support::RuntimeHarness,
++    http: Arc<RecordingHttp>,
++) -> AppState {
++    let secrets = Arc::new(SecretStore::for_tests(path).unwrap());
++    AppState::compose_with_embeddings(
++        path.into(),
++        AppState::lock_data_dir(path).unwrap(),
++        secrets.clone(),
++        runtime.audio.clone(),
++        Arc::new(ProviderFactory::new(secrets).with_test_provider(runtime.provider.clone())),
++        Arc::new(UnavailableDriverOperations),
++        Arc::new(crate::knowledge::parser::ProcessDocumentParser::new().unwrap()),
++        None,
++        Some(http),
++        Some(Arc::new(Semaphore::new(2))),
++    )
++    .unwrap()
++}
++
++pub(crate) async fn enable_automatic(app: &AppState) -> ModelProfile {
++    let profile = crate::intelligence::test_support::test_llm_profile();
++    app.save_model_profile(SaveModelProfile {
++        profile: profile.clone(),
++        credential: CredentialChange::Replace {
++            api_key: "synthetic-summary-key".into(),
++        },
++    })
++    .await
++    .unwrap();
++    app.save_intelligence_settings(IntelligenceSettings {
++        automatic_summary: true,
++        summary_profile_id: Some(profile.id),
++        ..Default::default()
++    })
++    .await
++    .unwrap();
++    profile
++}
+diff --git a/src-tauri/src/audio/platform/inventory.rs b/src-tauri/src/audio/platform/inventory.rs
+index 087bd25..e928f0e 100644
+--- a/src-tauri/src/audio/platform/inventory.rs
++++ b/src-tauri/src/audio/platform/inventory.rs
+@@ -120,28 +120,32 @@ impl Drop for Lease {
+         if !self.released.load(Ordering::Acquire) {
+             self.quarantine();
+         }
+     }
+ }
+ pub struct PlatformAudioBackend {
+     actual: crate::audio::join::AudioRegistry,
+     state: Arc<Mutex<State>>,
+     spawner: Arc<dyn ProcessSpawner>,
+     use_pulse: bool,
++    #[cfg(test)]
++    pulse_entry: Arc<pulse_io::entry_test_support::EntryControl>,
+ }
+ impl PlatformAudioBackend {
+     pub fn new() -> Self {
+         Self {
+             actual: crate::audio::join::AudioRegistry::new(),
+             state: Arc::default(),
+             spawner: Arc::new(SystemProcessSpawner),
+             use_pulse: cfg!(target_os = "linux"),
++            #[cfg(test)]
++            pulse_entry: Arc::default(),
+         }
+     }
+     #[cfg(test)]
+     pub(crate) fn with_spawner(spawner: Arc<dyn ProcessSpawner>) -> Self {
+         Self {
+             spawner,
+             use_pulse: true,
+             ..Self::new()
+         }
+     }
+@@ -378,20 +382,22 @@ impl AudioBackend for PlatformAudioBackend {
+             ) => {
+                 pulse_io::open(
+                     request,
+                     input,
+                     source,
+                     output,
+                     sink,
+                     self.spawner.clone(),
+                     lease,
+                     parent,
++                    #[cfg(test)]
++                    Some(self.pulse_entry.clone()),
+                 )
+                 .await
+             }
+             _ => {
+                 lease.release();
+                 parent.finish().await?;
+                 Err(audio_error("audio routes cannot mix backends"))
+             }
+         }
+     }
+@@ -811,11 +817,24 @@ pub(crate) mod driver_test_support {
+     ) -> AppResult<Arc<Lease>> {
+         backend.claim(request).map(|(_, _, lease)| lease)
+     }
+ }
+ 
+ #[cfg(test)]
+ pub(crate) mod actual_test_support {
+     pub(crate) fn stream(backend: &super::PlatformAudioBackend) -> crate::audio::join::AudioParent {
+         backend.actual.stream().unwrap()
+     }
++    pub(crate) fn hold_pulse_open(
++        backend: &super::PlatformAudioBackend,
++        boundary: super::pulse_io::entry_test_support::Boundary,
++    ) -> (
++        tokio::sync::oneshot::Receiver<()>,
++        tokio::sync::oneshot::Sender<()>,
++    ) {
++        backend.pulse_entry.hold(boundary)
++    }
++    pub(crate) fn pair_health(backend: &super::PlatformAudioBackend) -> (usize, usize) {
++        let state = backend.state.lock().unwrap();
++        (state.leases.len(), state.quarantined.len())
++    }
+ }
+diff --git a/src-tauri/src/audio/platform/pulse_io.rs b/src-tauri/src/audio/platform/pulse_io.rs
+index e1f1b1a..c3a7057 100644
+--- a/src-tauri/src/audio/platform/pulse_io.rs
++++ b/src-tauri/src/audio/platform/pulse_io.rs
+@@ -18,20 +18,22 @@ use std::{
+         Arc,
+         atomic::{AtomicBool, Ordering},
+     },
+     time::{Duration, SystemTime},
+ };
+ use tokio::{
+     io::{AsyncReadExt, AsyncWriteExt},
+     sync::{Mutex, mpsc, watch},
+ };
+ use uuid::Uuid;
++#[cfg(test)]
++pub(crate) mod entry_test_support;
+ #[derive(Clone)]
+ struct Device {
+     index: u32,
+     name: String,
+     description: String,
+     rate: u32,
+     channels: u16,
+     monitor: Option<u32>,
+ }
+ fn json(bytes: &[u8]) -> AppResult<Value> {
+@@ -524,31 +526,34 @@ impl AudioControl for Control {
+ }
+ pub(crate) async fn open(
+     request: AudioOpenRequest,
+     input: String,
+     source: u32,
+     output: String,
+     sink: u32,
+     spawner: Arc<dyn ProcessSpawner>,
+     lease: Arc<Lease>,
+     parent: crate::audio::join::AudioParent,
++    #[cfg(test)] entry: Option<Arc<entry_test_support::EntryControl>>,
+ ) -> AppResult<AudioPorts> {
+     open_timed(
+         request,
+         input,
+         source,
+         output,
+         sink,
+         spawner,
+         lease,
+         Deadlines::default(),
+         parent,
++        #[cfg(test)]
++        entry,
+     )
+     .await
+ }
+ #[derive(Clone, Copy)]
+ struct Deadlines {
+     open: Duration,
+     close: Duration,
+     drain: Duration,
+ }
+ impl Default for Deadlines {
+@@ -563,27 +568,39 @@ impl Default for Deadlines {
+ async fn open_timed(
+     request: AudioOpenRequest,
+     input: String,
+     source: u32,
+     output: String,
+     sink: u32,
+     spawner: Arc<dyn ProcessSpawner>,
+     lease: Arc<Lease>,
+     deadlines: Deadlines,
+     parent: crate::audio::join::AudioParent,
++    #[cfg(test)] entry: Option<Arc<entry_test_support::EntryControl>>,
+ ) -> AppResult<AudioPorts> {
+     let (source_owner, actual) = crate::audio::join::AudioOwnerSource::new();
+     let (publish, receive) = tokio::sync::oneshot::channel();
+     let entered = parent.clone();
+     let task = tokio::spawn(async move {
+         match open_inner(
+-            request, input, source, output, sink, spawner, lease, deadlines, entered, actual,
++            request,
++            input,
++            source,
++            output,
++            sink,
++            spawner,
++            lease,
++            deadlines,
++            entered,
++            actual,
++            #[cfg(test)]
++            entry,
+         )
+         .await
+         {
+             Ok(Opened {
+                 ports,
+                 capture,
+                 playback,
+                 monitor,
+                 streams,
+             }) => {
+@@ -614,23 +631,44 @@ async fn open_inner(
+     request: AudioOpenRequest,
+     input: String,
+     source: u32,
+     output: String,
+     sink: u32,
+     spawner: Arc<dyn ProcessSpawner>,
+     lease: Arc<Lease>,
+     deadlines: Deadlines,
+     parent: crate::audio::join::AudioParent,
+     actual: crate::audio::join::AudioOwnerJoin,
++    #[cfg(test)] entry: Option<Arc<entry_test_support::EntryControl>>,
+ ) -> AppResult<Opened> {
+-    parent.require_ready()?;
+-    let streams = parent.streams()?.begin()?;
++    #[cfg(test)]
++    if let Some(entry) = &entry {
++        entry.enter(entry_test_support::Boundary::OwnerReady).await;
++    }
++    let streams = async {
++        parent.require_ready()?;
++        #[cfg(test)]
++        if let Some(entry) = &entry {
++            entry.enter(entry_test_support::Boundary::StreamGroup).await;
++        }
++        parent.streams()?.begin()
++    }
++    .await;
++    let streams = match streams {
++        Ok(streams) => streams,
++        Err(error) => {
++            // No native leaf or process can enter before these checks finish.
++            // The registered parent still joins its real empty groups below.
++            lease.release();
++            return Err(error);
++        }
++    };
+     let helpers = parent.helpers();
+     let capture = BoundedAudioQueue::default();
+     let shared = AudioShared::new(capture.clone());
+     let capture_name = format!("{}-capture", Uuid::new_v4());
+     let playback_name = format!("{}-playback", Uuid::new_v4());
+     let mut capture_process = None;
+     let mut playback_process = None;
+     let prepared=tokio::time::timeout(deadlines.open,async{
+         capture_process=Some(spawner.spawn_audio_owned(stream_spec(true,&input,&capture_name), streams.leaf()?).await?.into_parts().0);
+         playback_process=Some(spawner.spawn_audio_owned(stream_spec(false,&output,&playback_name), streams.leaf()?).await?.into_parts().0);
+@@ -1041,20 +1079,21 @@ mod tests {
+         fn poll_shutdown(
+             self: std::pin::Pin<&mut Self>,
+             _: &mut std::task::Context<'_>,
+         ) -> std::task::Poll<std::io::Result<()>> {
+             std::task::Poll::Ready(Ok(()))
+         }
+     }
+     struct Fixture {
+         rows: StdMutex<HashMap<String, Value>>,
+         specs: StdMutex<Vec<ProcessSpec>>,
++        spawn_audio_calls: std::sync::atomic::AtomicUsize,
+         children: StdMutex<Vec<(String, Arc<TestControl>)>>,
+         capture: StdMutex<Option<tokio::io::DuplexStream>>,
+         playback: StdMutex<Option<tokio::io::DuplexStream>>,
+         omit_stdin: AtomicBool,
+         fail_playback: AtomicBool,
+         cleanup_mode: Arc<AtomicU8>,
+         cleanup_release: watch::Sender<bool>,
+         held_helper: StdMutex<Option<String>>,
+         held_children: StdMutex<Vec<Arc<TestControl>>>,
+     }
+@@ -1087,20 +1126,21 @@ mod tests {
+                     serde_json::json!([
+                         {"index":1,"name":"module-null-sink","argument":"sink_name=VoxBridge_M1"},
+                         {"index":2,"name":"module-null-sink","argument":"sink_name=VoxBridge_Output"},
+                         {"index":3,"name":"module-remap-source","argument":"source_name=VoxBridge_Input master=VoxBridge_M1.monitor"}
+                     ]),
+                 ),
+             ]);
+             Arc::new(Self {
+                 rows: StdMutex::new(rows),
+                 specs: StdMutex::default(),
++                spawn_audio_calls: std::sync::atomic::AtomicUsize::new(0),
+                 children: StdMutex::default(),
+                 capture: StdMutex::default(),
+                 playback: StdMutex::default(),
+                 omit_stdin: AtomicBool::new(false),
+                 fail_playback: AtomicBool::new(false),
+                 cleanup_mode: Arc::new(AtomicU8::new(CLEANUP_NORMAL)),
+                 cleanup_release,
+                 held_helper: StdMutex::default(),
+                 held_children: StdMutex::default(),
+             })
+@@ -1145,20 +1185,21 @@ mod tests {
+             }
+         }
+     }
+     #[async_trait]
+     impl ProcessSpawner for Fixture {
+         async fn spawn_audio_owned(
+             &self,
+             spec: ProcessSpec,
+             execution: crate::audio::join::AudioLeafExecution,
+         ) -> AppResult<process_io::AudioOwnedProcess> {
++            self.spawn_audio_calls.fetch_add(1, AtomicOrdering::SeqCst);
+             if spec.program.to_str() == Some("pacat") && self.fail_playback.load(Ordering::Acquire)
+             {
+                 return Err(audio_error("injected missing playback utility"));
+             }
+             let (source, actual) = execution.enter()?;
+             let pipes = self.spawn(spec).await?;
+             // Fixture wait reads the controlled positive exit independently
+             // of its termination-error observer. It is an actual producer.
+             let exit = pipes.control.clone();
+             let process = process_io::AudioOwnedProcess::attach(pipes, actual, &source);
+@@ -1280,20 +1321,21 @@ mod tests {
+             "VoxBridge_M1".into(),
+             30,
+             fixture,
+             lease,
+             Deadlines {
+                 open: Duration::from_millis(100),
+                 close,
+                 drain: Duration::from_millis(100),
+             },
+             super::super::inventory::actual_test_support::stream(&backend),
++            None,
+         )
+         .await;
+         (backend, request, result)
+     }
+     #[tokio::test]
+     async fn exact_virtual_roles_and_process_argv_are_verified_before_ready() {
+         let fixture = Fixture::new();
+         let (_, _, result) =
+             ports(fixture.clone(), "VoxBridge_Output.monitor", "VoxBridge_M1").await;
+         let ports = result.unwrap();
+@@ -1685,20 +1727,21 @@ mod tests {
+             "VoxBridge_M1".into(),
+             30,
+             fixture.clone(),
+             lease,
+             Deadlines {
+                 open: Duration::from_millis(60),
+                 close: Duration::from_millis(100),
+                 drain: Duration::from_millis(100),
+             },
+             super::super::inventory::actual_test_support::stream(&backend),
++            None,
+         )
+         .await;
+         assert!(matches!(
+             result,
+             Err(crate::error::AppError::Audio {
+                 code: RuntimeFailureCode::StartupTimeout,
+                 ..
+             })
+         ));
+         for name in ["parec", "pacat"] {
+diff --git a/src-tauri/src/audio/platform/pulse_io/entry_test_support.rs b/src-tauri/src/audio/platform/pulse_io/entry_test_support.rs
+new file mode 100644
+index 0000000..20cc692
+--- /dev/null
++++ b/src-tauri/src/audio/platform/pulse_io/entry_test_support.rs
+@@ -0,0 +1,44 @@
++//! Per-backend control before Pulse enters native work; tests retain real owners.
++use std::sync::Mutex;
++use tokio::sync::oneshot;
++
++#[derive(Clone, Copy, PartialEq, Eq)]
++pub(crate) enum Boundary {
++    OwnerReady,
++    StreamGroup,
++}
++struct Gate {
++    boundary: Boundary,
++    entered: oneshot::Sender<()>,
++    release: oneshot::Receiver<()>,
++}
++#[derive(Default)]
++pub(crate) struct EntryControl {
++    next: Mutex<Option<Gate>>,
++}
++impl EntryControl {
++    pub(crate) fn hold(&self, boundary: Boundary) -> (oneshot::Receiver<()>, oneshot::Sender<()>) {
++        let (entered, receive) = oneshot::channel();
++        let (release, wait) = oneshot::channel();
++        *self.next.lock().unwrap() = Some(Gate {
++            boundary,
++            entered,
++            release: wait,
++        });
++        (receive, release)
++    }
++    pub(crate) async fn enter(&self, boundary: Boundary) {
++        let gate = {
++            let mut next = self.next.lock().unwrap();
++            if next.as_ref().is_some_and(|gate| gate.boundary == boundary) {
++                next.take()
++            } else {
++                None
++            }
++        };
++        if let Some(gate) = gate {
++            let _ = gate.entered.send(());
++            let _ = gate.release.await;
++        }
++    }
++}
+diff --git a/src-tauri/src/audio/platform/pulse_io/tests/owned.rs b/src-tauri/src/audio/platform/pulse_io/tests/owned.rs
+index bc824ef..c399b68 100644
+--- a/src-tauri/src/audio/platform/pulse_io/tests/owned.rs
++++ b/src-tauri/src/audio/platform/pulse_io/tests/owned.rs
+@@ -117,10 +117,98 @@ async fn pulse_cancelled_monitor_keeps_its_original_helper_after_multiple_ticks(
+     assert_eq!(
+         starts, 9,
+         "open and every monitor tick share the same two-helper group"
+     );
+     assert!(
+         failed && pending,
+         "joining the monitor and both stream children must not omit its cancelled helper"
+     );
+     assert_eq!(*ports.health.borrow(), AudioHealth::NeedsRestart);
+ }
++
++async fn zero_entry_closing_preserves_rearm(boundary: entry_test_support::Boundary) {
++    use super::super::super::inventory::{PlatformAudioBackend, actual_test_support};
++    use crate::audio::join::AudioCloseJoin;
++    let fixture = Fixture::new();
++    let backend = Arc::new(PlatformAudioBackend::with_spawner(fixture.clone()));
++    let inventory = backend.inventory().await.unwrap();
++    let request = AudioOpenRequest {
++        inventory_generation: inventory.generation,
++        input_id: "pulse:source:mic".into(),
++        output_id: "pulse:sink:VoxBridge_M1".into(),
++        source: AudioSource::Microphone,
++    };
++    let before_calls = fixture.spawn_audio_calls.load(AtomicOrdering::SeqCst);
++    let before_specs = fixture.specs.lock().unwrap().len();
++    let before_children = fixture.children.lock().unwrap().len();
++    let (entered, release) = actual_test_support::hold_pulse_open(&backend, boundary);
++    let acquired = backend.clone();
++    let original_request = request.clone();
++    let open = tokio::spawn(async move { acquired.open(original_request).await });
++    tokio::time::timeout(Duration::from_secs(2), entered)
++        .await
++        .unwrap()
++        .unwrap();
++    assert_eq!(actual_test_support::pair_health(&backend), (2, 0));
++    let key = AudioCloseKey::new(1, Uuid::new_v4(), backend.actual_epoch().unwrap());
++    let native = backend.begin_close(key.clone()).unwrap();
++    let runtime = crate::session::test_support::RuntimeHarness::live(
++        crate::providers::fixture::FixtureScript::with_output_audio(
++            PcmSpec::pcm16_mono(24_000),
++            [crate::providers::fixture::FixtureStep::WaitForFinish],
++        )
++        .unwrap(),
++    )
++    .unwrap();
++    let orchestrator = runtime.orchestrator();
++    let session = orchestrator.capture_close_join(key.clone()).unwrap();
++    let stop = orchestrator.clone();
++    let audio =
++        AudioCloseJoin::start_owned(Arc::new(()), key.clone(), session, native, async move {
++            stop.stop_active().await
++        })
++        .unwrap();
++    let pending = tokio::time::timeout(Duration::from_millis(30), audio.wait())
++        .await
++        .is_err();
++    release.send(()).unwrap();
++    let rejected = open.await.unwrap().is_err();
++    let ack = tokio::time::timeout(Duration::from_secs(2), audio.wait())
++        .await
++        .unwrap()
++        .unwrap();
++    ack.require_key(&key).unwrap();
++    assert!(
++        pending,
++        "the held original acquisition parent must block actual close"
++    );
++    assert!(rejected);
++    assert_eq!(
++        fixture.spawn_audio_calls.load(AtomicOrdering::SeqCst),
++        before_calls
++    );
++    assert_eq!(fixture.specs.lock().unwrap().len(), before_specs);
++    assert_eq!(fixture.children.lock().unwrap().len(), before_children);
++    assert_eq!(
++        actual_test_support::pair_health(&backend),
++        (0, 0),
++        "a proven zero-entry rejection must release its pair without quarantine"
++    );
++    backend.validate_reopen_after_close(ack.backend()).unwrap();
++    orchestrator.validate_reopen_after_close(&key).unwrap();
++    backend.reopen_after_close(ack.backend()).unwrap();
++    orchestrator.reopen_after_close(&key).unwrap();
++    assert_eq!(backend.actual_epoch().unwrap(), key.backend_epoch() + 1);
++    let lease =
++        super::super::super::inventory::driver_test_support::claim(&backend, &request).unwrap();
++    lease.release();
++}
++
++#[tokio::test]
++async fn pulse_zero_entry_owner_closing_rejection_preserves_pair_health_and_actual_rearm() {
++    zero_entry_closing_preserves_rearm(entry_test_support::Boundary::OwnerReady).await;
++}
++
++#[tokio::test]
++async fn pulse_zero_entry_stream_group_closing_rejection_preserves_pair_health_and_actual_rearm() {
++    zero_entry_closing_preserves_rearm(entry_test_support::Boundary::StreamGroup).await;
++}
+diff --git a/src-tauri/src/intelligence/jobs/tests/reap.rs b/src-tauri/src/intelligence/jobs/tests/reap.rs
+index bcae882..c5d2154 100644
+--- a/src-tauri/src/intelligence/jobs/tests/reap.rs
++++ b/src-tauri/src/intelligence/jobs/tests/reap.rs
+@@ -553,21 +553,26 @@ async fn summary_reap_claim_before_handler_entry_keeps_delete_and_recovery_fence
+         h.store.transaction(|tx| {tx.execute("UPDATE intelligence_jobs SET status='interrupted',error_code='interrupted' WHERE id=?1",[job.id.to_string()])?;if recovery {tx.execute("UPDATE session_summaries SET deleting=1 WHERE id=?1",[stored.object_id.unwrap().to_string()])?;}Ok(())}).unwrap();
+         assert!(!proved(&h, job.id).unwrap());
+         let id = stored.object_id.unwrap();
+         let mut operation = Box::pin(async {
+             if recovery {
+                 summary
+                     .reconcile_local_owned(owner.clone(), 1, h.jobs.reap_port())
+                     .await
+                     .map(|_| ())
+             } else {
+-                summary.delete_owned(id, owner.clone()).await
++                crate::summary::readiness_test_support::delete_local_owned(
++                    &summary,
++                    id,
++                    owner.clone(),
++                )
++                .await
+             }
+         });
+         let pending = tokio::time::timeout(Duration::from_millis(50), operation.as_mut())
+             .await
+             .is_err();
+         let retained = h
+             .store
+             .transaction(|tx| {
+                 Ok(tx.query_row(
+                     "SELECT deleting FROM session_summaries WHERE id=?1",
+diff --git a/src-tauri/src/llm/openai_compatible/owned_tests.rs b/src-tauri/src/llm/openai_compatible/owned_tests.rs
+index e266b59..e636bd6 100644
+--- a/src-tauri/src/llm/openai_compatible/owned_tests.rs
++++ b/src-tauri/src/llm/openai_compatible/owned_tests.rs
+@@ -208,24 +208,28 @@ async fn llm_real_summary_terminal_after_entered_resolver_timeout_cannot_reap_or
+             sequence: 0,
+             occurred_at: 1,
+             language: "zh".into(),
+             text: "entered resolver input".into(),
+             is_final: true,
+             details: None,
+             occurred_at_ms: None,
+         })
+         .unwrap();
+     backend.block.store(true, Ordering::SeqCst);
+-    let job = summaries
+-        .generate_owned(session, None, owner.clone())
+-        .await
+-        .unwrap();
++    let job = crate::summary::readiness_test_support::generate_local_owned(
++        &summaries,
++        session,
++        None,
++        owner.clone(),
++    )
++    .await
++    .unwrap();
+     let observed = tokio::time::timeout(Duration::from_secs(2), entry).await;
+     if !matches!(observed, Ok(Ok(()))) {
+         drop(release);
+         let _ = jobs.shutdown().await;
+         panic!("real summary credential resolver never entered");
+     }
+     let terminal = tokio::time::timeout(Duration::from_secs(2), async {
+         loop {
+             let row = store.get_job(job.id).unwrap().unwrap();
+             if row.status == JobStatus::Failed {
+@@ -238,21 +242,25 @@ async fn llm_real_summary_terminal_after_entered_resolver_timeout_cannot_reap_or
+     if terminal.is_err() {
+         drop(release);
+         let _ = jobs.shutdown().await;
+         panic!("real summary worker did not publish the resolver timeout failure");
+     }
+     let terminal = terminal.unwrap();
+     let unproved = store
+         .transaction(|tx| jobs.reap_port().prove(tx, job.id).map(|p| p.is_none()))
+         .unwrap();
+     let retained_requests = llm.requests.available_permits();
+-    let mut deletion = Box::pin(summaries.delete_owned(job.object_id.unwrap(), owner));
++    let mut deletion = Box::pin(crate::summary::readiness_test_support::delete_local_owned(
++        &summaries,
++        job.object_id.unwrap(),
++        owner,
++    ));
+     let pending = tokio::time::timeout(Duration::from_millis(50), deletion.as_mut())
+         .await
+         .is_err();
+     drop(release);
+     let deleted = if pending {
+         tokio::time::timeout(Duration::from_secs(2), deletion)
+             .await
+             .unwrap()
+     } else {
+         Err(crate::error::AppError::Intelligence(Code::Interrupted))
+diff --git a/src-tauri/src/summary/mod.rs b/src-tauri/src/summary/mod.rs
+index 80c170b..efcfbeb 100644
+--- a/src-tauri/src/summary/mod.rs
++++ b/src-tauri/src/summary/mod.rs
+@@ -1,67 +1,89 @@
+ pub mod content;
+ mod handler;
+ mod job_proof;
+ mod operations;
+ mod planner;
+ mod recovery;
+ mod snapshot;
+ mod store;
+ mod terminal;
++#[cfg(test)]
++pub(crate) use terminal::readiness_test_support;
+ pub mod types;
+ use crate::{
+     error::AppResult,
+     intelligence::{
+         config::ServiceConfigStore,
+         jobs::{JobReapPort, JobScheduler, OperationLease},
+         types::*,
+     },
+     llm::LlmProvider,
+     storage::LocalStore,
+ };
+ pub(crate) use operations::SummarySessionDeleteGuard;
+ pub(crate) use recovery::SummaryReady;
+ #[allow(
+     unused_imports,
+     reason = "Backend-private recovery capability is reserved for Task2"
+ )]
+ pub(crate) use recovery::SummaryRecoveryFence;
+ use std::sync::Arc;
+ pub(crate) use store::SummaryJobRequest;
+-pub(crate) use terminal::{SessionTerminalPort, SummaryDeliveryOwner, TerminalCommitIntent};
++pub(crate) use terminal::{
++    SessionTerminalPort, SummaryDeliveryOwner, SummaryDeliveryReady, TerminalCommitIntent,
++};
+ use uuid::Uuid;
+ pub struct SummaryService {
+     store: Arc<LocalStore>,
+     config: Arc<ServiceConfigStore>,
+     jobs: Arc<JobScheduler>,
+     core: Arc<SummaryCore>,
+     delivery: Arc<terminal::DeliveryFacade>,
+ }
+ pub(crate) struct SummaryCore {
+     store: Arc<LocalStore>,
+     llm: Arc<dyn LlmProvider>,
+     attempts: operations::AttemptRegistry,
+     recovery: Arc<recovery::RecoveryControl>,
++    #[cfg(test)]
++    sql_entry: Arc<readiness_test_support::BoundaryControl>,
++}
++enum ManualReadiness {
++    Delivery(SummaryDeliveryReady),
++    #[cfg(test)]
++    Local(SummaryReady),
++}
++impl ManualReadiness {
++    fn run<T>(&self, operation: impl FnOnce() -> AppResult<T>) -> AppResult<T> {
++        match self {
++            Self::Delivery(ready) => ready.run(operation),
++            #[cfg(test)]
++            Self::Local(ready) => ready.run(operation),
++        }
++    }
+ }
+ impl SummaryService {
+     pub fn new(
+         store: Arc<LocalStore>,
+         config: Arc<ServiceConfigStore>,
+         jobs: Arc<JobScheduler>,
+         llm: Arc<dyn LlmProvider>,
+     ) -> Self {
+         Self {
+             core: Arc::new(SummaryCore {
+                 store: store.clone(),
+                 llm,
+                 attempts: operations::AttemptRegistry::default(),
+                 recovery: recovery::RecoveryControl::new(),
++                #[cfg(test)]
++                sql_entry: Arc::default(),
+             }),
+             store,
+             delivery: terminal::DeliveryFacade::new(),
+             config,
+             jobs,
+         }
+     }
+     pub(crate) fn register_handler(&self) -> AppResult<()> {
+         self.jobs.register(
+             JobKind::Summary,
+@@ -84,23 +106,39 @@ impl SummaryService {
+     }
+     pub(crate) async fn drain_actual(&self) -> AppResult<()> {
+         self.core.recovery.drain().await?;
+         self.core.attempts.drain().await
+     }
+     pub(crate) async fn generate_owned(
+         &self,
+         session_id: Uuid,
+         profile_id: Option<Uuid>,
+         owner: OperationLease,
++        ready: SummaryDeliveryReady,
++    ) -> AppResult<JobView> {
++        ready.require_owner(&self.delivery)?;
++        self.generate_with_readiness_owned(
++            session_id,
++            profile_id,
++            owner,
++            ManualReadiness::Delivery(ready),
++        )
++        .await
++    }
++    async fn generate_with_readiness_owned(
++        &self,
++        session_id: Uuid,
++        profile_id: Option<Uuid>,
++        owner: OperationLease,
++        ready: ManualReadiness,
+     ) -> AppResult<JobView> {
+         let fence = self.jobs.admission_fence(JobKind::Summary)?;
+-        let ready = self.core.recovery.ready()?;
+         let events = self.jobs.event_port();
+         let wake = self.jobs.wake_port();
+         self.config
+             .scoped(owner)
+             .with_summary_selection_completion(
+                 crate::intelligence::config::SummarySelection::Manual { profile_id },
+                 move |tx, snapshot| {
+                     ready.run(|| {
+                         fence.run(|| {
+                             LocalStore::create_summary_job_in_tx(
+@@ -130,27 +168,29 @@ impl SummaryService {
+         session_id: Uuid,
+         after: Option<types::SummaryCursor>,
+         limit: u32,
+     ) -> AppResult<types::SummaryPage> {
+         self.store.summary_page(session_id, after, limit)
+     }
+     pub(crate) async fn delete_owned(
+         &self,
+         summary_id: Uuid,
+         owner: OperationLease,
++        ready: SummaryDeliveryReady,
+     ) -> AppResult<()> {
++        ready.require_owner(&self.delivery)?;
+         operations::delete_summary(
+             self.core.clone(),
+             self.jobs.clone(),
+             summary_id,
+             owner,
+-            self.core.recovery.ready()?,
++            operations::DeleteFence::Delivery(ready),
+         )
+         .await
+     }
+     pub(crate) async fn prepare_session_delete_owned(
+         &self,
+         session_id: Uuid,
+         owner: OperationLease,
+     ) -> AppResult<SummarySessionDeleteGuard> {
+         operations::prepare_session_delete(
+             self.core.clone(),
+diff --git a/src-tauri/src/summary/operations.rs b/src-tauri/src/summary/operations.rs
+index 18837f5..ef2fa8e 100644
+--- a/src-tauri/src/summary/operations.rs
++++ b/src-tauri/src/summary/operations.rs
+@@ -118,41 +118,45 @@ pub(super) fn deadline_check(deadline: Instant) -> AppResult<()> {
+ /// An observer never owns the actual SQLite lease. Even a dropped/timed-out
+ /// JoinHandle leaves this blocking closure and its original direct slot owned.
+ pub(super) async fn sql_owned<T: Send + 'static>(
+     core: Arc<SummaryCore>,
+     owner: OperationLease,
+     deadline: Instant,
+     operation: impl FnOnce(&Transaction<'_>) -> AppResult<T> + Send + 'static,
+ ) -> AppResult<T> {
+     tokio::task::spawn_blocking(move || {
+         let _owner = owner;
++        #[cfg(test)]
++        core.sql_entry.enter();
+         core.store
+             .transaction(|tx| {
+                 deadline_check(deadline)?;
+                 let result = operation(tx)?;
+                 deadline_check(deadline)?;
+                 Ok(result)
+             })
+             .map_err(crate::intelligence::store::safe_store_error)
+     })
+     .await
+     .map_err(|_| error(Code::Interrupted))?
+ }
+ #[derive(Clone)]
+ pub(super) enum DeleteFence {
+     Ready(SummaryReady),
++    Delivery(super::SummaryDeliveryReady),
+     Recovery(SummaryRecoveryFence),
+ }
+ impl DeleteFence {
+     pub(super) fn run<T>(&self, operation: impl FnOnce() -> AppResult<T>) -> AppResult<T> {
+         match self {
+             Self::Ready(f) => f.run(operation),
++            Self::Delivery(f) => f.run(operation),
+             Self::Recovery(f) => f.run(operation),
+         }
+     }
+ }
+ #[derive(Clone)]
+ struct DeleteRecord {
+     id: Uuid,
+     session: Uuid,
+     native: Option<SummaryJobProof>,
+ }
+@@ -378,24 +382,23 @@ async fn wait_scope(
+             return Ok(());
+         }
+         tokio::time::sleep(Duration::from_millis(20)).await;
+     }
+ }
+ pub(super) async fn delete_summary(
+     core: Arc<SummaryCore>,
+     jobs: Arc<JobScheduler>,
+     id: Uuid,
+     owner: OperationLease,
+-    ready: SummaryReady,
++    fence: DeleteFence,
+ ) -> AppResult<()> {
+     let deadline = Instant::now() + Duration::from_secs(10);
+-    let fence = DeleteFence::Ready(ready);
+     let (sent, observed) = tokio::sync::oneshot::channel();
+     tokio::spawn(async move {
+         let result = async {
+             let mark_fence = fence.clone();
+             let scope = sql_owned(core.clone(), owner.clone(), deadline, move |tx| {
+                 mark_fence.run(|| {
+                     let Some(record) = record(tx, id)? else {
+                         return Ok(None);
+                     };
+                     let scope = Scope::Summary(record);
+diff --git a/src-tauri/src/summary/terminal.rs b/src-tauri/src/summary/terminal.rs
+index 7ce94d0..29c3494 100644
+--- a/src-tauri/src/summary/terminal.rs
++++ b/src-tauri/src/summary/terminal.rs
+@@ -141,20 +141,26 @@ struct State {
+     worker_done: Option<watch::Receiver<Option<Result<(), Code>>>>,
+     close_key: Option<AudioCloseKey>,
+     close_done: Option<watch::Receiver<Option<Result<(), Code>>>>,
+ }
+ pub(super) struct DeliveryControl {
+     state: Mutex<State>,
+     child: Arc<Semaphore>,
+     worker: AsyncMutex<Option<JoinHandle<()>>>,
+     closer: AsyncMutex<Option<JoinHandle<()>>>,
+     actual_join_failed: AtomicBool,
++    #[cfg(test)]
++    publication: Arc<readiness_test_support::BoundaryControl>,
++    #[cfg(test)]
++    ready_issued: Arc<readiness_test_support::BoundaryControl>,
++    #[cfg(test)]
++    ready_published: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+ }
+ // Only external service/delivery facades hold this guard. The narrow worker
+ // retains control, never the guard whose disappearance ends live admission.
+ pub(super) struct DeliveryFacade {
+     control: Arc<DeliveryControl>,
+ }
+ impl DeliveryFacade {
+     pub(super) fn new() -> Arc<Self> {
+         Arc::new(Self {
+             control: DeliveryControl::new(),
+@@ -186,31 +192,46 @@ impl DeliveryControl {
+                 rescan: Arc::new(Notify::new()),
+                 seal: None,
+                 worker_done: None,
+                 close_key: None,
+                 close_done: None,
+             }),
+             child: Arc::new(Semaphore::new(1)),
+             worker: AsyncMutex::new(None),
+             closer: AsyncMutex::new(None),
+             actual_join_failed: AtomicBool::new(false),
++            #[cfg(test)]
++            publication: Arc::default(),
++            #[cfg(test)]
++            ready_issued: Arc::default(),
++            #[cfg(test)]
++            ready_published: Mutex::new(None),
+         })
+     }
+     fn local(self: &Arc<Self>, id: Uuid) -> SummaryLocalFence {
+         SummaryLocalFence {
+             control: self.clone(),
+             delivery_id: id,
+         }
+     }
+-    fn run_live<T>(&self, id: Uuid, operation: impl FnOnce() -> AppResult<T>) -> AppResult<T> {
++    fn run_live<T>(
++        &self,
++        id: Uuid,
++        epoch: u64,
++        operation: impl FnOnce() -> AppResult<T>,
++    ) -> AppResult<T> {
+         let state = self.state.lock().map_err(|_| storage())?;
+-        if state.id != id || state.stage != Stage::Live || !state.live.load(Ordering::Acquire) {
++        if state.id != id
++            || state.epoch != Some(epoch)
++            || state.stage != Stage::Live
++            || !state.live.load(Ordering::Acquire)
++        {
+             return Err(error(Code::Interrupted));
+         }
+         operation()
+     }
+     fn fail(&self, id: Uuid) {
+         if let Ok(mut state) = self.state.lock() {
+             if state.id == id && !matches!(state.stage, Stage::Closing | Stage::Joined) {
+                 state.live.store(false, Ordering::Release);
+                 state.stage = Stage::Failed;
+             }
+@@ -328,22 +349,32 @@ pub(crate) struct SummaryDeliveryReady {
+     delivery_id: Uuid,
+     epoch: u64,
+     local_ready: SummaryReady,
+     terminal: SessionTerminalPort,
+ }
+ impl SummaryDeliveryReady {
+     pub(crate) fn require_epoch(&self, epoch: u64) -> AppResult<()> {
+         if epoch != self.epoch {
+             return Err(error(Code::Interrupted));
+         }
+-        self.control
+-            .run_live(self.delivery_id, || self.local_ready.require_epoch(epoch))
++        self.run(|| Ok(()))
++    }
++    pub(crate) fn run<T>(&self, operation: impl FnOnce() -> AppResult<T>) -> AppResult<T> {
++        self.control.run_live(self.delivery_id, self.epoch, || {
++            self.local_ready.run(operation)
++        })
++    }
++    pub(super) fn require_owner(&self, delivery: &Arc<DeliveryFacade>) -> AppResult<()> {
++        if !Arc::ptr_eq(&self.control, &delivery.control) {
++            return Err(error(Code::Interrupted));
++        }
++        self.require_epoch(self.epoch)
+     }
+     pub(crate) fn terminal_port(&self) -> SessionTerminalPort {
+         self.terminal.clone()
+     }
+ }
+ #[derive(Clone)]
+ struct AutomaticPort {
+     store: Arc<LocalStore>,
+     config: Arc<ServiceConfigStore>,
+     jobs: Weak<JobScheduler>,
+@@ -368,20 +399,27 @@ impl FinalDeliveryJoin {
+ }
+ struct ChildOwner {
+     _process: OperationLease,
+     _slot: OwnedSemaphorePermit,
+ }
+ struct ChildFactory {
+     process: Weak<dyn Send + Sync>,
+     slot: Arc<Semaphore>,
+     closed: AtomicBool,
+ }
++struct Startup {
++    epoch: u64,
++    local_ready: SummaryReady,
++    terminal: SessionTerminalPort,
++    started: watch::Sender<Option<Result<SummaryDeliveryReady, Code>>>,
++    publish: Box<dyn FnOnce(&SummaryDeliveryReady) -> AppResult<()> + Send>,
++}
+ impl ChildFactory {
+     async fn enter(&self) -> AppResult<OperationLease> {
+         if self.closed.load(Ordering::Acquire) {
+             return Err(error(Code::Interrupted));
+         }
+         let slot = self
+             .slot
+             .clone()
+             .acquire_owned()
+             .await
+@@ -431,20 +469,22 @@ impl SummaryService {
+             .port
+             .admit(session_id, attempt, owner, false)
+             .await?
+         {
+             Decision::ReadOnlyExisting => Ok(()),
+             decision => decision.result(),
+         }
+     }
+ }
+ 
++#[cfg(test)]
++pub(crate) mod readiness_test_support;
+ #[cfg(test)]
+ mod tests;
+ enum Decision {
+     Job(JobAdmissionResult),
+     Cleared,
+     Skipped,
+     ReadOnlyExisting,
+     ResourceLimit,
+ }
+ impl Decision {
+@@ -653,20 +693,21 @@ impl SummaryDeliveryOwner {
+                 sender: Some(sender),
+                 rescan: rescan.clone(),
+             },
+             receiver,
+             rescan,
+         ))
+     }
+     pub(crate) fn delivery_id(&self) -> AppResult<Uuid> {
+         Ok(self.port.control.state.lock().map_err(|_| storage())?.id)
+     }
++    #[cfg(test)]
+     pub(crate) fn require_epoch(&self, epoch: u64) -> AppResult<()> {
+         let state = self.port.control.state.lock().map_err(|_| storage())?;
+         if state.stage != Stage::Live
+             || state.epoch != Some(epoch)
+             || !state.live.load(Ordering::Acquire)
+         {
+             return Err(error(Code::Interrupted));
+         }
+         Ok(())
+     }
+@@ -764,25 +805,42 @@ impl SummaryDeliveryOwner {
+             .unwrap_or_else(|| AudioCloseKey::new(application_epoch, state.id, backend_epoch));
+         if key.application_epoch() != application_epoch || key.backend_epoch() != backend_epoch {
+             return Err(error(Code::Interrupted));
+         }
+         state.live.store(false, Ordering::Release);
+         state.stage = Stage::Closing;
+         state.close_key = Some(key.clone());
+         state.rescan.notify_one();
+         Ok(key)
+     }
++    #[cfg_attr(
++        not(test),
++        expect(
++            dead_code,
++            reason = "Owned standalone delivery companion; App supplies its narrow startup publication"
++        )
++    )]
+     pub(crate) async fn start_owned(
+         &self,
+         owner: OperationLease,
+         epoch: u64,
+         local_ready: SummaryReady,
++    ) -> AppResult<SummaryDeliveryReady> {
++        self.start_published_owned(owner, epoch, local_ready, |_| Ok(()))
++            .await
++    }
++    pub(crate) async fn start_published_owned(
++        &self,
++        owner: OperationLease,
++        epoch: u64,
++        local_ready: SummaryReady,
++        publish: impl FnOnce(&SummaryDeliveryReady) -> AppResult<()> + Send + 'static,
+     ) -> AppResult<SummaryDeliveryReady> {
+         local_ready.require_epoch(epoch)?;
+         self.ensure_startable()?;
+         let _ = self.port.control.join_worker().await;
+         self.port.control.child_barrier().await?;
+         let (started, mut ready) = watch::channel(None);
+         let (receiver, seal, id, terminal) = {
+             let mut state = self.port.control.state.lock().map_err(|_| storage())?;
+             if matches!(
+                 state.stage,
+@@ -808,21 +866,27 @@ impl SummaryDeliveryOwner {
+                 sender: Some(sender),
+                 rescan: state.rescan.clone(),
+             };
+             (receiver, sealed, id, terminal)
+         };
+         self.spawn_worker(
+             owner,
+             receiver,
+             seal,
+             id,
+-            Some((epoch, local_ready, terminal, started)),
++            Some(Startup {
++                epoch,
++                local_ready,
++                terminal,
++                started,
++                publish: Box::new(publish),
++            }),
+         )?;
+         let observed = tokio::time::timeout(START_OBSERVATION, async {
+             loop {
+                 if let Some(result) = ready.borrow_and_update().clone() {
+                     return result.map_err(error);
+                 }
+                 ready
+                     .changed()
+                     .await
+                     .map_err(|_| error(Code::Interrupted))?;
+@@ -836,26 +900,21 @@ impl SummaryDeliveryOwner {
+                 Err(error(Code::Timeout))
+             }
+         }
+     }
+     fn spawn_worker(
+         &self,
+         owner: OperationLease,
+         mut receiver: mpsc::Receiver<Uuid>,
+         mut sealed: watch::Receiver<bool>,
+         id: Uuid,
+-        startup: Option<(
+-            u64,
+-            SummaryReady,
+-            SessionTerminalPort,
+-            watch::Sender<Option<Result<SummaryDeliveryReady, Code>>>,
+-        )>,
++        startup: Option<Startup>,
+     ) -> AppResult<()> {
+         let mut worker_slot = self
+             .port
+             .control
+             .worker
+             .try_lock()
+             .map_err(|_| error(Code::Busy))?;
+         let factory = ChildFactory {
+             process: Arc::downgrade(&owner),
+             slot: self.port.control.child.clone(),
+@@ -864,46 +923,64 @@ impl SummaryDeliveryOwner {
+         let (done, completion) = watch::channel(None);
+         self.port
+             .control
+             .state
+             .lock()
+             .map_err(|_| storage())?
+             .worker_done = Some(completion);
+         let port = self.port.clone();
+         let task = tokio::spawn(async move {
+             let mut failure = None;
+-            if let Some((epoch, local_ready, terminal, started)) = startup {
++            if let Some(Startup {
++                epoch,
++                local_ready,
++                terminal,
++                started,
++                publish,
++            }) = startup
++            {
+                 let bootstrap = port.scan(&factory, true).await.and_then(|()| {
+                     local_ready.require_epoch(epoch)?;
+                     let mut state = port.control.state.lock().map_err(|_| storage())?;
+                     if state.id != id || state.stage != Stage::Bootstrapping {
+                         return Err(error(Code::Interrupted));
+                     }
+                     let jobs = port
+                         .jobs
+                         .upgrade()
+                         .ok_or_else(|| error(Code::Interrupted))?;
+                     jobs.start_owned(owner.clone())?;
+                     jobs.admission_fence(JobKind::Summary)?.run(|| Ok(()))?;
++                    #[cfg(test)]
++                    port.control.publication.enter();
+                     state.stage = Stage::Live;
+                     state.live.store(true, Ordering::Release);
+-                    Ok(SummaryDeliveryReady {
++                    let ready = SummaryDeliveryReady {
+                         control: port.control.clone(),
+                         delivery_id: id,
+                         epoch,
+                         local_ready,
+                         terminal,
+-                    })
++                    };
++                    // App publication takes CloseState before delivery/local
++                    // readiness. Never hold the inverse delivery→App order.
++                    drop(state);
++                    #[cfg(test)]
++                    port.control.ready_issued.enter();
++                    publish(&ready)?;
++                    Ok(ready)
+                 });
+                 match bootstrap {
+                     Ok(ready) => {
+                         started.send_replace(Some(Ok(ready)));
++                        #[cfg(test)]
++                        readiness_test_support::published(&port.control);
+                     }
+                     Err(error) => {
+                         let code = safe_code(error);
+                         port.control.fail(id);
+                         failure = Some(code);
+                         started.send_replace(Some(Err(code)));
+                     }
+                 }
+             }
+             if failure.is_none() {
+@@ -983,25 +1060,47 @@ impl SummaryDeliveryOwner {
+         state.stage = Stage::Closing;
+         state.close_key = Some(key.clone());
+         state.rescan.notify_one();
+         Ok(())
+     }
+     pub(crate) async fn close_join_owned(
+         &self,
+         owner: OperationLease,
+         key: AudioCloseKey,
+         audio: AudioCloseJoin,
++    ) -> AppResult<()> {
++        self.close_join(owner, key, audio, false).await
++    }
++    pub(crate) async fn close_after_terminal_repair_owned(
++        &self,
++        owner: OperationLease,
++        key: AudioCloseKey,
++        audio: AudioCloseJoin,
++    ) -> AppResult<()> {
++        self.close_join(owner, key, audio, true).await
++    }
++    async fn close_join(
++        &self,
++        owner: OperationLease,
++        key: AudioCloseKey,
++        audio: AudioCloseJoin,
++        repair_tail: bool,
+     ) -> AppResult<()> {
+         self.signal_closing(&key)?;
+         let completion = {
+             let mut state = self.port.control.state.lock().map_err(|_| storage())?;
+-            if let Some(completion) = &state.close_done {
++            if repair_tail {
++                // The prior closer is joined below before another bounded
++                // worker is started, even if that earlier tail succeeded.
++                state.close_done = None;
++                None
++            } else if let Some(completion) = &state.close_done {
+                 if completion.borrow().is_none_or(|result| result.is_ok()) {
+                     Some(completion.clone())
+                 } else {
+                     state.close_done = None;
+                     None
+                 }
+             } else {
+                 None
+             }
+         };
+@@ -1033,21 +1132,21 @@ impl SummaryDeliveryOwner {
+                         .lock()
+                         .map_err(|_| storage())?
+                         .worker_done
+                         .clone();
+                     let inactive = worker_done
+                         .as_ref()
+                         .is_none_or(|done| done.borrow().is_some());
+                     let finished = worker_done
+                         .as_ref()
+                         .is_some_and(|done| done.borrow().as_ref().is_some_and(Result::is_ok));
+-                    if finished {
++                    if finished && !repair_tail {
+                         delivery.port.control.join_worker().await
+                     } else if inactive {
+                         let _ = delivery.port.control.join_worker().await;
+                         let (sender, receiver) = mpsc::channel(CHANNEL);
+                         let (seal, sealed) = watch::channel(true);
+                         let id = key.delivery_id();
+                         {
+                             let mut state =
+                                 delivery.port.control.state.lock().map_err(|_| storage())?;
+                             state.stage = Stage::Closing;
+diff --git a/src-tauri/src/summary/terminal/readiness_test_support.rs b/src-tauri/src/summary/terminal/readiness_test_support.rs
+new file mode 100644
+index 0000000..5341e7e
+--- /dev/null
++++ b/src-tauri/src/summary/terminal/readiness_test_support.rs
+@@ -0,0 +1,92 @@
++//! Holds publication or an entered SQL owner before SQLite acquisition.
++use super::*;
++use crate::intelligence::types::JobView;
++use std::sync::mpsc;
++use tokio::sync::oneshot;
++
++// Accepted local producer fixtures share the real mutation implementation;
++// production callers must pass the completed combined delivery capability.
++pub(crate) async fn generate_local_owned(
++    service: &SummaryService,
++    session: Uuid,
++    profile: Option<Uuid>,
++    owner: OperationLease,
++) -> AppResult<JobView> {
++    service
++        .generate_with_readiness_owned(
++            session,
++            profile,
++            owner,
++            crate::summary::ManualReadiness::Local(service.core.recovery.ready()?),
++        )
++        .await
++}
++
++pub(crate) async fn delete_local_owned(
++    service: &SummaryService,
++    id: Uuid,
++    owner: OperationLease,
++) -> AppResult<()> {
++    crate::summary::operations::delete_summary(
++        service.core.clone(),
++        service.jobs.clone(),
++        id,
++        owner,
++        crate::summary::operations::DeleteFence::Ready(service.core.recovery.ready()?),
++    )
++    .await
++}
++
++struct Gate {
++    entered: oneshot::Sender<()>,
++    release: mpsc::Receiver<()>,
++}
++#[derive(Default)]
++pub(crate) struct BoundaryControl {
++    next: Mutex<Option<Gate>>,
++}
++impl BoundaryControl {
++    fn hold(&self) -> (oneshot::Receiver<()>, mpsc::Sender<()>) {
++        let (entered, receive) = oneshot::channel();
++        let (release, wait) = mpsc::channel();
++        *self.next.lock().unwrap() = Some(Gate {
++            entered,
++            release: wait,
++        });
++        (receive, release)
++    }
++    pub(crate) fn enter(&self) {
++        let gate = self.next.lock().unwrap().take();
++        if let Some(gate) = gate {
++            let _ = gate.entered.send(());
++            let _ = gate.release.recv();
++        }
++    }
++}
++pub(crate) fn hold_publication(
++    delivery: &SummaryDeliveryOwner,
++) -> (oneshot::Receiver<()>, mpsc::Sender<()>) {
++    delivery.port.control.publication.hold()
++}
++pub(crate) fn hold_sql_entry(
++    service: &SummaryService,
++) -> (oneshot::Receiver<()>, mpsc::Sender<()>) {
++    service.core.sql_entry.hold()
++}
++pub(crate) fn hold_ready_issued(
++    delivery: &SummaryDeliveryOwner,
++) -> (
++    oneshot::Receiver<()>,
++    mpsc::Sender<()>,
++    oneshot::Receiver<()>,
++) {
++    let (sent, published) = oneshot::channel();
++    *delivery.port.control.ready_published.lock().unwrap() = Some(sent);
++    let (entered, release) = delivery.port.control.ready_issued.hold();
++    (entered, release, published)
++}
++pub(super) fn published(control: &DeliveryControl) {
++    if let Some(published) = control.ready_published.lock().unwrap().take() {
++        let _ = published.send(());
++    }
++}
+diff --git a/src-tauri/src/summary/tests/harness.rs b/src-tauri/src/summary/tests/harness.rs
+index 684a6f3..bd46684 100644
+--- a/src-tauri/src/summary/tests/harness.rs
++++ b/src-tauri/src/summary/tests/harness.rs
+@@ -1,14 +1,16 @@
+ use super::super::{
+     SummaryJobRequest, SummaryService,
+     types::{NativeSummaryView, SummaryView},
+ };
++use crate::summary::readiness_test_support::delete_local_owned;
++pub(in crate::summary) use crate::summary::readiness_test_support::generate_local_owned;
+ use crate::{
+     app::CredentialChange,
+     config::{ConfigIo, ConfigStore, SecretStore},
+     error::AppResult,
+     intelligence::{
+         config::ServiceConfigStore,
+         jobs::{JobScheduler, OperationLease},
+         types::*,
+     },
+     llm::{LlmExecution, LlmProvider, LlmRequest, LlmResponse},
+@@ -177,23 +179,21 @@ impl SummaryHarness {
+                 language: "zh".into(),
+                 text: text.into(),
+                 is_final: true,
+                 details: None,
+                 occurred_at_ms: None,
+             })
+             .unwrap();
+         id
+     }
+     pub async fn generate(&self, session: Uuid, profile: Option<Uuid>) -> AppResult<JobView> {
+-        self.service
+-            .generate_owned(session, profile, self.process.clone())
+-            .await
++        generate_local_owned(&self.service, session, profile, self.process.clone()).await
+     }
+     pub async fn run_jobs(&self, id: Uuid) -> JobView {
+         self.jobs.wake();
+         tokio::time::timeout(Duration::from_secs(5), async {
+             loop {
+                 let row = self.store.get_job(id).unwrap().unwrap();
+                 if !matches!(row.status, JobStatus::Queued | JobStatus::Running) {
+                     return row;
+                 }
+                 tokio::time::sleep(Duration::from_millis(5)).await;
+@@ -236,21 +236,21 @@ impl SummaryHarness {
+             Ok(rows)
+         })
+     }
+     pub fn coverage(&self, id: Uuid) -> AppResult<Vec<(String, u32, u32)>> {
+         self.store.transaction(|tx| {
+             let mut q=tx.prepare("SELECT segment_id,part_index,part_count FROM summary_coverage WHERE summary_id=?1 ORDER BY segment_id,part_index LIMIT 100001")?;
+             Ok(q.query_map([id.to_string()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?.collect::<Result<Vec<_>,_>>()?)
+         })
+     }
+     pub async fn delete(&self, id: Uuid) -> AppResult<()> {
+-        self.service.delete_owned(id, self.process.clone()).await
++        delete_local_owned(&self.service, id, self.process.clone()).await
+     }
+     pub async fn close(&self) {
+         self.jobs.shutdown().await.unwrap();
+     }
+     pub fn create_stored(&self, session: Uuid, automatic: bool) -> AppResult<JobView> {
+         self.store.create_summary_job(SummaryJobRequest {
+             session_id: session,
+             profile: Some(self.profile.clone()),
+             automatic,
+             initial_failure: None,
+diff --git a/src-tauri/src/summary/tests/recovery.rs b/src-tauri/src/summary/tests/recovery.rs
+index 8f7b1e0..9ef605d 100644
+--- a/src-tauri/src/summary/tests/recovery.rs
++++ b/src-tauri/src/summary/tests/recovery.rs
+@@ -3,23 +3,21 @@ use crate::{intelligence::types::*, summary::SummaryService};
+ #[tokio::test]
+ async fn summary_readiness_cannot_be_inferred_from_started_jobs_without_local_recovery() {
+     let h = SummaryHarness::new().await;
+     let session = h.completed_session(&["完整输入"]).await;
+     let unready = SummaryService::new(
+         h.store.clone(),
+         h.config.clone(),
+         h.jobs.clone(),
+         h.llm.clone(),
+     );
+-    let result = unready
+-        .generate_owned(session, None, h.process.clone())
+-        .await;
++    let result = generate_local_owned(&unready, session, None, h.process.clone()).await;
+     if let Ok(job) = &result {
+         h.wait(job.id).await;
+     }
+     h.close().await;
+     assert!(
+         matches!(
+             result,
+             Err(crate::error::AppError::Intelligence(
+                 IntelligenceErrorCode::Interrupted
+             ))
+@@ -73,20 +71,23 @@ async fn summary_recovery_sql_acquisition_timeout_keeps_readiness_closed_and_own
+  {
+     use std::{sync::Arc, time::Duration};
+     let h = SummaryHarness::new().await;
+     let service = SummaryService::new(
+         h.store.clone(),
+         h.config.clone(),
+         h.jobs.clone(),
+         h.llm.clone(),
+     );
+     let session = h.completed_session(&[]).await;
++    // Join initial empty claims so both Tokio workers remain available while
++    // this local recovery fixture deliberately holds SQLite.
++    h.close().await;
+     let file = std::fs::File::options()
+         .read(true)
+         .write(true)
+         .create_new(true)
+         .open(h.dir.path().join("recovery-owner.lock"))
+         .unwrap();
+     fs2::FileExt::try_lock_exclusive(&file).unwrap();
+     let slots = Arc::new(tokio::sync::Semaphore::new(16));
+     let owner: crate::intelligence::jobs::OperationLease = Arc::new(RecoveryLease {
+         _file: file,
+@@ -142,21 +143,20 @@ async fn summary_recovery_sql_acquisition_timeout_keeps_readiness_closed_and_own
+     ));
+     assert!(held && closed && waits);
+     assert_eq!(available, 15);
+     assert!(matches!(
+         retry,
+         Some(crate::error::AppError::Intelligence(
+             IntelligenceErrorCode::Busy
+         ))
+     ));
+     assert!(
+-        service
+-            .generate_owned(session, None, h.process.clone())
++        generate_local_owned(&service, session, None, h.process.clone())
+             .await
+             .is_err()
+     );
+     service
+         .reconcile_local_owned(h.process.clone(), 1, h.jobs.reap_port())
+         .await
+         .unwrap();
+     h.close().await;
+ }
+Task2 scoped review fix round1
+FIX BASE TREE dab8869d0da319cb2aa8af099b6d57b07b5e43b0
+FINAL VERIFIED-CANDIDATE TREE d1dd2c7aa27501ac817c24f3ada28778dfd1cb86
+Accepted source HEAD remains 85eda3a8bca3ddabd72edad0763b4d5776166f9a; these are immutable source trees, not invented commits.
+
+

@@ -1,0 +1,29 @@
+{
+  "utc": "2026-11-10T04:09:56.115594+00:00",
+  "tree": "d1dd2c7aa27501ac817c24f3ada28778dfd1cb86",
+  "source_sha256": {
+    "src-tauri/src/summary/types.rs": "c47978473d2705748a9401a387afd16ee387bbc69ec2a8f70a62ca7bc75b6f48",
+    "src-tauri/src/summary/content.rs": "d2a6284537cccb7fecf6e70bd176ac108629b38631262430a5ec46eb4dd5d359",
+    "src-tauri/src/summary/store.rs": "3ef4fa3b45d5742cfcefcf91569560f279131336945334c6ab0efaecbf7674cb",
+    "src-tauri/src/commands/summary.rs": "6dfada4288bc0985926268fc8c5ccdfb41f504a7fe79a4930a1b952140757ed5",
+    "src-tauri/src/commands/summary/tests.rs": "46f0f9fb414ace528e906f5f47c16fed2b6c2356dfab9894adb84678d0f9eb75",
+    "src-tauri/src/app/summary.rs": "71f059e491561b826b0ca82f1ecdb23d9942b166e16fa5317c00cf390d73c024",
+    "src-tauri/src/intelligence/types.rs": "ab943422a0c28d98376ba1a09e6b416ed66fe8ce05d4dd68a41e869d5ccfc330",
+    "src-tauri/src/commands/intelligence.rs": "f97b4541ab2b7a56fae9b949845fc0d4eff5647dee546fbf25921de930fb3a96",
+    "src-tauri/src/export/mod.rs": "d764f06c9d180bf845312ef169522ee2e6518f111d8094a6ce3fd0d22968d749",
+    "src-tauri/src/export/json.rs": "832c58653b9402839cbd12c3000d363e145dbd19225bc4cba483e6b53d1ebce0",
+    "src-tauri/src/export/markdown.rs": "d30119debd2399839b29d774944aa94178d8d597974dc5031e374db3e16e4f75",
+    "src-tauri/src/export/plain_text.rs": "3f7c0df33f5354eb89d00cbd81945d64a29673c936db54a3b2684ba1d07542b7"
+  },
+  "whole_file_changed_paths_since_initial_handoff": [
+    "src-tauri/src/app/summary.rs"
+  ],
+  "eleven_producers_byte_identical_to_accepted_manual": true,
+  "public_wire_shapes_changed": false,
+  "handoff": "task-6-summary-ui-handoff-round1.md",
+  "handoff_sha256": "8d425ca862080ea3d16ee107e1c8b1166db4da837a30a63aff9ffb280b772d08",
+  "root_gates": "final-automatic-task2-round1-repaired/final-verification.json",
+  "root_gates_sha256": "2c873a01e6dca08e4064ad1df5d705e99ddc6f52b28432ed823bfb522af9cdd0",
+  "activation": "Pending scoped Task2 and whole-plan integration approval",
+  "source_cargo_mutated": false
+}

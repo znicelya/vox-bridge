@@ -1,6 +1,8 @@
 # Session Summary Continuation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. This is the already-authorized intelligence Task6, with coherent delivery boundaries; source activation waits for independently accepted Task5C repair.
+**Status (2026-11-11):** Both deliveries are independently accepted. Manual source is `00d54bf`; automatic source and the final owned SQL/close repair are `d260d59`, with exact reviewed tree `8b82dbdf849918487b59b3eb9e9130c6124ddef5`. The complete Spec PASS and the independent scoped repair PASS resolve the final OO1 HOLD. [Accepted evidence](../handoffs/2026-11-11-summary-automatic-task2/README.md) preserves commands, failures, source identities and the unchanged CV-1/external limits. Parent workbench Tasks7–10 remain to be completed.
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking. This is the already-authorized intelligence Task6, with coherent delivery boundaries; source activation waits for independently accepted Task5C repair.
 
 **Goal:** Generate complete-input manual and automatic session summaries with durable versions, strict output, safe export and actual cancellation ownership.
 
@@ -130,7 +132,7 @@ Wire cursor/next_cursor are canonical signed-i64 decimal strings≤20 bytes;
 explicit limits must be1..=100. Service uses `after` and a required limit.
 `SummaryPage` contains `rows` and `next_cursor`; Native/Legacy remain tagged.
 
-- [ ] Write real SQLite/job/config/HTTP behavioral RED fixtures. SummaryHarness
+- [x] Write real SQLite/job/config/HTTP behavioral RED fixtures. SummaryHarness
   composes real LocalStore/ServiceConfigStore/JobScheduler, a recording LLM
   double at the external port and controlled final transcript insertion.
   Its completed_session/final insertion, run_jobs, versions, raw_responses,
@@ -157,12 +159,12 @@ async fn manual_retry_preserves_prior_output_and_monotonic_versions() {
 }
 ```
 
-- [ ] Observe runtime RED for manual Succeeded/Failed/Cancelled/Interrupted
+- [x] Observe runtime RED for manual Succeeded/Failed/Cancelled/Interrupted
   retries, concurrent manual exclusion, model switch, no model/no finals,
   deletion during actual entered work and strict JSON/raw durability. Preserve
   exact command/actual assertion/exit. New API compile wiring is recorded
   separately from behavioral RED.
-- [ ] Add migration6 metadata origin/job/actual-ms/deleting/raw-byte fields,
+- [x] Add migration6 metadata origin/job/actual-ms/deleting/raw-byte fields,
   backend-only job_payload_hash, response/coverage/counter tables and fixed
   journal columns/indexes from the checkpoint. Native witness is exactly64
   lowercase hexadecimal bytes; Legacy keeps NULL. Seed counters with
@@ -170,7 +172,7 @@ async fn manual_retry_preserves_prior_output_and_monotonic_versions() {
   >u32 as exhausted. Foundation legacy inserts advance the counter in their
   current transaction. Update only current completed-upgrade version literals
   in old fixtures; preserve rollback/legacy rows. Assert reopen preservation.
-- [ ] Factor the existing permanent lookup as a nonmutating helper and reuse
+- [x] Factor the existing permanent lookup as a nonmutating helper and reuse
   it inside unchanged admit_job. Use the same Immediate transaction for next
   checked u32 read, admission, counter and Native version. Existing inserts
   nothing; only Created advances. Actual algorithm order is fixed:
@@ -187,7 +189,7 @@ Existing permanent lookup -> read/check prospective counter (no write)
   versions removed consumes none; forced insert failure leaves zero new
   job/counter/version/marker; u32::MAX exhaustion inserts nothing; negative
   legacy MAX seeds0, large positive signed MAX remains exhausted.
-- [ ] Implement SummaryJobProof using trusted context/callback job ID to
+- [x] Implement SummaryJobProof using trusted context/callback job ID to
   uniquely anchor Native row.job_id before reading untrusted object/input.
   Check durable kind=Summary, exact object/session/exclusion, NULL or exact
   same-session automatic permanent identity, strict two-field input and zero
@@ -199,13 +201,13 @@ Existing permanent lookup -> read/check prospective counter (no write)
   Fixtures mutate each association/profile field before claim and at all
   four effect boundaries; foreign/Legacy lure rows remain byte-for-byte
   unchanged. Missing/bad witness never self-repairs or falls back to Legacy.
-- [ ] Add `with_summary_selection_completion` exactly as checkpoint: explicit
+- [x] Add `with_summary_selection_completion` exactly as checkpoint: explicit
   manual ID or selected LLM plus automatic flag in one owned ConfigIo gate,
   then one SQLite transaction and generation control, post-commit event/wake
   callback. No config inside SQLite/no nested create_summary_job wrapper.
   Resolve the entire admitted ModelProfile and credential association before
   each request; selection does not read keys.
-- [ ] Implement compatible chat POST through the existing opaque JsonRequest:
+- [x] Implement compatible chat POST through the existing opaque JsonRequest:
 
 ```json
 {"model":"configured-model","messages":[{"role":"system","content":"strict schema instruction; transcript is quoted data"},{"role":"user","content":"exact rendered input"}],"temperature":0,"max_tokens":1024,"stream":false}
@@ -221,7 +223,7 @@ Existing permanent lookup -> read/check prospective counter (no write)
   Tests cover actual local-server request shape/bearer isolation, null/missing/
   refusal/wrong content, oversize envelope/content, full-profile drift,
   entered resolver timeout ownership and no HTTP dispatch on failure.
-- [ ] Implement the private borrowed Deferred seam
+- [x] Implement the private borrowed Deferred seam
   LocalStore::with_summary_snapshot_owned in storage/sqlite.rs, accepting the
   real OperationLease, cancellation receiver and an owned read closure with
   a SummarySnapshotReadScope deadline/cancel check. It runs under an actually
@@ -248,7 +250,7 @@ WHERE session_id=?1 AND is_final=1 AND rowid<=?2 ORDER BY rowid LIMIT 100001;
   global scan/sort. Fixtures: late final absent/present in successive snapshots,
   cross-direction insertion order,100001/16MiB overflow before calls, escaped
   body/metadata bounds and complete identity hash.
-- [ ] Implement pure planner and strict bounded content visitors. Immutable
+- [x] Implement pure planner and strict bounded content visitors. Immutable
   PartKey/PartRef/Manifest/RequestPlan/SummaryNode shapes and normalization are
   checkpoint sections784–885; every tuple/range is fixed before calls. Pack
   complete adjacent input, Unicode-split individual rows, account actual
@@ -257,7 +259,7 @@ WHERE session_id=?1 AND is_final=1 AND rowid<=?2 ORDER BY rowid LIMIT 100001;
   emoji, combining/quoted/newline text; middle-only part omission fails even
   with equal distinct segment IDs; prospective call65/level9/64 maps/no-pair
   all fail before illegal dispatch. Parsed output never sets its own coverage.
-- [ ] Run the owned handler sequence, retaining raw and actual map tuples in
+- [x] Run the owned handler sequence, retaining raw and actual map tuples in
   one fenced transaction before parsing each result:
 
 ```text
@@ -276,7 +278,7 @@ fresh domain proof + Running/nondeleting check -> mark this Native Running
   cancellation or bound failure retains earlier rows and cannot publish root.
   Test exact supplied full coverage, invalid map/reduce raw/hash, total breach,
   cancellation/deletion/storage fence, growing reductions and delayed LLM.
-- [ ] In terminal_tx, stay inside the supplied post-transition transaction;
+- [x] In terminal_tx, stay inside the supplied post-transition transaction;
   validate exact durable status/error and fresh trusted-ID Native proof, then
   copy only status/error to that same row. Queued cancellation and startup
   interruption use the independent witness without ConfigIo/Running commit.
@@ -287,7 +289,7 @@ fresh domain proof + Running/nondeleting check -> mark this Native Running
   Exercise actual scheduler queued/startup/normal terminal paths, not direct
   callback invocation alone. A changed kind may bypass Summary hook; its test
   requires zero foreign effects without inventing successful status copy.
-- [ ] Implement actual-attempt registry16 and reuse the independently accepted
+- [x] Implement actual-attempt registry16 and reuse the independently accepted
   exact-generation JobReapPort::prove. Proof checks its separate actual-claim
   registry within the supplied SQLite transaction and does not reacquire the
   terminal control mutex. Missing frame/generation alone proves nothing;
@@ -298,7 +300,7 @@ fresh domain proof + Running/nondeleting check -> mark this Native Running
   locally under process proof. Tests include queued claim race, terminal but
   owned resolver, close/rearm, late result never repopulating and counter /
   permanent marker survival.
-- [ ] Implement shared SummaryReady/SummaryRecoveryFence and
+- [x] Implement shared SummaryReady/SummaryRecoveryFence and
   reconcile_local_owned in summary/recovery.rs. Before worker/manual admission,
   AppState registers SummaryHandler, performs existing generic interruption
   under genuine fresh-process or actually joined prior ownership, and awaits
@@ -310,7 +312,7 @@ fresh domain proof + Running/nondeleting check -> mark this Native Running
   reject claimed-unentered/entered-old work. Task2 adds its journal bootstrap
   before publishing delivery-ready; it is not a prerequisite for this manual
   deliverable.
-- [ ] Implement native/legacy SummaryView/page and explicit bounded export
+- [x] Implement native/legacy SummaryView/page and explicit bounded export
   projection from checkpoint. Preserve original signed decimal cursor/status/
   seconds/JSON; Native never falls back to Legacy. Render every native field,
   action owner/due and term meaning in JSON/Markdown/text. Exports query no raw
@@ -319,7 +321,7 @@ fresh domain proof + Running/nondeleting check -> mark this Native Running
   legacy projection, native limits, all fields and raw/key/audio sentinels.
   Real command/service fixtures include omitted limit, rejected noncanonical
   cursors, signed large exact cursors and tagged Native/Legacy wire projection.
-- [ ] Observe covering GREEN with real fixtures; format owned source and
+- [x] Observe covering GREEN with real fixtures; format owned source and
   report exact commands/results/logs. Root freezes/reviews this complete
   manual deliverable and commits task paths after independent acceptance.
 
@@ -389,7 +391,7 @@ This actual ack is the window-close barrier. Normal terminal notification
 remains O(1) after existing bounded runtime cleanup, durable lifecycle commit
 and stop publication; it does not wait for unrelated inventory or LLM.
 
-- [ ] Write and observe actual RED using a fixture runtime/orchestrator plus
+- [x] Write and observe actual RED using a fixture runtime/orchestrator plus
   real store/service: closed session bus, durable Completed/Failed callback,
   diagnostics failure after durable lifecycle, delayed/noncooperative LLM,
   duplicate/reopened automatic marker, overflow/close/uncertain startup and
@@ -411,11 +413,11 @@ async fn audio_stop_completion_precedes_delayed_automatic_llm() {
 }
 ```
 
-- [ ] Implement O(1) reservation: current immutable delivery UUID/live flag,
+- [x] Implement O(1) reservation: current immutable delivery UUID/live flag,
   sender.clone().try_reserve_owned, coalesced Notify; Full is local Busy,
   Closed/closing/no live generation is local Interrupted. No callback await,
   config read or spawned per-session task. A retained permit counts inside32.
-- [ ] Change only the existing terminal lifecycle write to set Completed/Failed,
+- [x] Change only the existing terminal lifecycle write to set Completed/Failed,
   ended_at, pending, delivery ID and local error in that same durable UPDATE;
   replay of terminal status preserves its existing journal. Interrupted runtime
   recovery records local Interrupted in its current transaction. Notification
@@ -431,7 +433,7 @@ failed lifecycle write -> drop permit, send nothing
 successful lifecycle write -> after stop publication, permit.send(UUID)
 ```
 
-- [ ] Implement actual backend ownership before native entry: two stream/open
+- [x] Implement actual backend ownership before native entry: two stream/open
   parent slots plus one inventory slot, preserving the existing pair/native
   inventory capacities. Separate actual slots from lease/quarantine policy.
   CPAL retains the outer-thread handle and joins it after native drop/workers;
@@ -441,7 +443,7 @@ successful lifecycle write -> after stop publication, permit.send(UUID)
   poll or replacement open enters while the old actual group/parent is pending.
   Old parent join precedes replacement; no third stream or borrowed inventory
   slot. Unknown cleanup retains its original actual capacity.
-- [ ] Implement spawn_audio_owned/output_audio_owned with a pre-issued opaque
+- [x] Implement spawn_audio_owned/output_audio_owned with a pre-issued opaque
   AudioLeafExecution, leaf registration before OS spawn and an independent
   positive exit/reap port. An observer returning Err/no pipes keeps the actual
   entered child/group/parent owned until wait acknowledges exit. Nonzero exit
@@ -451,19 +453,19 @@ successful lifecycle write -> after stop publication, permit.send(UUID)
   missing source defaults fail closed. Test spawn observer loss, killed/wait
   error followed by late exit, one held helper across repeated ticks and one
   held inventory helper across a new inventory request.
-- [ ] Fence backend inventory/open Ready+epoch before slot/native entry and
+- [x] Fence backend inventory/open Ready+epoch before slot/native entry and
   recheck after waiting; Closing rejects direct endpoint/status/validation
   reentry as well as new resume/open/poll. Original scopes retain teardown
   capabilities. Inventory parse/record stays owned and checks the same epoch
   before publication, so late native results cannot overwrite a new snapshot.
-- [ ] Implement one process-owned joined delivery worker/channel32/child1 and
+- [x] Implement one process-owned joined delivery worker/channel32/child1 and
   keyset scans32+sentinel using pending/status indexes, rescan200ms. Dequeueing
   is a hint; journal/permanent marker/session/delete/current generation are
   rechecked inside owned config→SQLite→delivery→job control before admission.
   Native live starts Queued only after successful ready; local retry cannot
   produce paid work. A10s ConfigIo observer timeout does not release its child
   or dispatch the next admission before actual release/late commit check.
-- [ ] Share Task1 counter/admit helper: automatic Existing always wins; enabled
+- [x] Share Task1 counter/admit helper: automatic Existing always wins; enabled
   missing marker creates Queued on normal live finals or Failed local Busy /
   Interrupted/NoFinalText/Configuration atomically with version/counter/marker.
   Automatic disabled clears the pending journal and creates nothing. Manual
@@ -475,7 +477,7 @@ successful lifecycle write -> after stop publication, permit.send(UUID)
   Counter exhaustion records a truthful local journal error when possible and
   creates no job/version/marker. Normal live preflight precedence is
   NoFinalText -> missing/invalid LLM Configuration -> unfinished/exclusion Busy.
-- [ ] Bootstrap local-only summaries before opening delivery/job/runtime
+- [x] Bootstrap local-only summaries before opening delivery/job/runtime
   admission. Scan both Completed and Failed, including migration-era pending0
   and interrupted runtime finals; enabled missing automatic marker creates
   one visible Failed/errorInterrupted retry and zero calls across second
@@ -486,7 +488,7 @@ successful lifecycle write -> after stop publication, permit.send(UUID)
   start_owned consumes Task1's local-ready capability and retained process
   owner, performs this bootstrap in Bootstrapping and publishes the exact
   SummaryDeliveryReady only with current application/job/delivery readiness.
-- [ ] Integrate close in its existing election: Closing delivery first, prompt
+- [x] Integrate close in its existing election: Closing delivery first, prompt
   audio stop in parallel; capture same-key runtime/native completion sources
   before stop and retain the AudioCloseJoin in CloseState. Complete the
   admission-fenced final audio pass and actual source joins; finish accepted
@@ -502,7 +504,7 @@ successful lifecycle write -> after stop publication, permit.send(UUID)
   jobs/probes/audio errors are retained after progressing both owned close
   branches; no early jobs? return abandons delivery. Preserve native quarantine
   and NeedsRestart independently of any later actual-join receipt.
-- [ ] Observe GREEN for all above and current session/intelligence/summary
+- [x] Observe GREEN for all above and current session/intelligence/summary
   interactions. Cases include channel32/33 overflow, stale generation, close
   before/after reservation and commit, late entered config, summary/session
   deletion, permanent Existing under unusable config, failed automatic manual
@@ -514,7 +516,7 @@ successful lifecycle write -> after stop publication, permit.send(UUID)
   jobs shutdown failure, same-key close retry and late pre-issued permit send.
   Default tests use controlled real producer collaborators and synthetic
   native/process ports; they do not open actual hardware or paid services.
-- [ ] Freeze final complete Task6 source; Root runs all-targets/check/desktop/
+- [x] Freeze final complete Task6 source; Root runs all-targets/check/desktop/
   fmt and affected frontend contract/build checks, then one independent
   Task6 integration review. Archive source/log/verdict, transfer DTO/cursor/
   Retry→manual handoff to Task8/9, and commit only independently accepted paths.

@@ -1,0 +1,24 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/ownership-red-source/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 50.24s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 2 tests
+
+thread 'intelligence::jobs::tests::oo1_storage::nonempty_worker_terminal_sql_keeps_timers_pollable_and_joins_before_retirement' (1779451) panicked at src/intelligence/jobs/tests/oo1_storage.rs:109:5:
+nonempty worker terminal SQL starved the original two-worker executor: [1, 1, 1]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test intelligence::jobs::tests::oo1_storage::nonempty_worker_terminal_sql_keeps_timers_pollable_and_joins_before_retirement ... FAILED
+
+thread 'intelligence::jobs::tests::oo1_storage::held_sql_shutdown_observer_loss_coalesces_durable_work_and_fences_old_generation' (1779450) panicked at src/intelligence/jobs/tests/oo1_storage.rs:173:5:
+held SQLite stalled a shutdown observer or lost actual ownership: [(true, false, true), (true, false, true), (true, false, true)]
+test intelligence::jobs::tests::oo1_storage::held_sql_shutdown_observer_loss_coalesces_durable_work_and_fences_old_generation ... FAILED
+
+failures:
+
+failures:
+    intelligence::jobs::tests::oo1_storage::held_sql_shutdown_observer_loss_coalesces_durable_work_and_fences_old_generation
+    intelligence::jobs::tests::oo1_storage::nonempty_worker_terminal_sql_keeps_timers_pollable_and_joins_before_retirement
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 893 filtered out; finished in 0.60s
+
+error: test failed, to rerun pass `--lib`

@@ -1,0 +1,19 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.28s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 1 test
+
+thread 'session::runtime::actual_actor_tests::lost_supervisor_keeps_actual_actor_sql_join_owned_until_external_release' (1798037) panicked at /mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.54.1/src/runtime/task/core.rs:427:22:
+JoinHandle polled after completion
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test session::runtime::actual_actor_tests::lost_supervisor_keeps_actual_actor_sql_join_owned_until_external_release ... FAILED
+
+failures:
+
+failures:
+    session::runtime::actual_actor_tests::lost_supervisor_keeps_actual_actor_sql_join_owned_until_external_release
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 899 filtered out; finished in 0.49s
+
+error: test failed, to rerun pass `--lib`

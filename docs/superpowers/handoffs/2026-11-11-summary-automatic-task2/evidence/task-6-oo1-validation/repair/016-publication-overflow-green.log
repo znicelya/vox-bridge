@@ -1,0 +1,11 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.60s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 4 tests
+test session::orchestrator_tests::running_persistence_failure_cleans_resources_and_never_publishes_running ... ok
+test session::orchestrator_tests::replayed_storage_failure_is_the_same_diagnostic_as_durable_history ... ok
+test session::runtime_tests::playback_overflow_replaces_only_audio_and_keeps_provider_stream ... ok
+test session::runtime_tests::repair_output_overflow_coalesces_one_replacement_and_discards_stale_carry ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 896 filtered out; finished in 0.16s
+

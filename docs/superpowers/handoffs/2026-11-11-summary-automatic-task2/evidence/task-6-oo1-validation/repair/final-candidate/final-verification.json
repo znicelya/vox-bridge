@@ -1,0 +1,125 @@
+{
+  "candidate_tree": "8b82dbdf849918487b59b3eb9e9130c6124ddef5",
+  "all_required_gates_exit_zero": true,
+  "warning_hygiene_pass": true,
+  "all_gates_match_complete_frozen_source": true,
+  "gates": [
+    {
+      "name": "044-final-affected-ownership-gate",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "src-tauri/Cargo.toml",
+        "--lib",
+        "--",
+        "intelligence::jobs::tests",
+        "session::",
+        "summary::terminal::tests",
+        "summary::tests::automatic",
+        "app::lifecycle::",
+        "app::intelligence::tests::summary",
+        "audio::runtime_tests",
+        "storage::owned::tests",
+        "app::intelligence::tests::oo1",
+        "app::subscription_tests",
+        "knowledge::document_tests::admission",
+        "summary::tests::pipeline::summary_pipeline_single_raw_and_total_raw_breaches_keep_prior_committed_rows_only",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 17.799863985012053,
+      "warnings": [],
+      "results": [
+        "test result: ok. 225 passed; 0 failed; 0 ignored; 0 measured; 677 filtered out; finished in 17.09s"
+      ],
+      "source_unchanged": true,
+      "record_sha256": "edc195dd1836b8c85d7294adb203fab56409a173bc978943950b89b4f83a0ec1",
+      "log_sha256": "a4f0aaf5eea0852aeef89a200ce2b75c36c4c79885a0eabe8367ba68bb20c40a"
+    },
+    {
+      "name": "051-final-all-targets",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "src-tauri/Cargo.toml",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 96.1662189560011,
+      "warnings": [],
+      "results": [
+        "test result: ok. 902 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 94.62s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s",
+        "test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "source_unchanged": true,
+      "record_sha256": "c20b8bc9fa37d12ea6a0cb2010558783a2e1842c75f4ff742aed171ef54d0a88",
+      "log_sha256": "4a4efb9ad7b91ef9ae999743a9cf65b937824ebe4e3a21cd22c387b1bd1b6d82"
+    },
+    {
+      "name": "052-final-lib-check",
+      "command": [
+        "cargo",
+        "check",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "src-tauri/Cargo.toml",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 10.734786916989833,
+      "warnings": [],
+      "results": [],
+      "source_unchanged": true,
+      "record_sha256": "0c941a4d7bb7cb9e94088d1840cb732d5a961e811da3abddf3efa72fd7975642",
+      "log_sha256": "3c3ca0c98b2b123f458f40a7f616f0404591d56057435c4b029c6a900ac5f372"
+    },
+    {
+      "name": "053-final-desktop-build",
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "src-tauri/Cargo.toml",
+        "--bin",
+        "vox-bridge"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 40.795378600014374,
+      "warnings": [],
+      "results": [],
+      "source_unchanged": true,
+      "record_sha256": "b71d77e21f5726cd2cc4981ab1dc86604f4967db92cfd8666557f8f84514720d",
+      "log_sha256": "402cd6be6febac5ffcb6bf0c081dceccae7a3bf5a081fe70dea2cb2da15894ba"
+    },
+    {
+      "name": "054-final-format-check",
+      "command": [
+        "cargo",
+        "fmt",
+        "--manifest-path",
+        "src-tauri/Cargo.toml",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 1.1666024639853276,
+      "warnings": [],
+      "results": [],
+      "source_unchanged": true,
+      "record_sha256": "f2a8b80ccd682e3e0e0c0075fe925ff28f0c8cc25c2e3fa0d3f6c396fabe42b2",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

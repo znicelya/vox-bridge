@@ -1,5 +1,11 @@
 # Vox Bridge release gates
 
+## Summary source acceptance — 2026-11-11
+
+Task6 manual and automatic summaries are independently accepted at `00d54bf` and `d260d59`. The final source tree is `8b82dbdf849918487b59b3eb9e9130c6124ddef5`; the complete review's OO1 HOLD is resolved by the separate scoped Spec PASS / Quality PASS. [Accepted evidence](../handoffs/2026-11-11-summary-automatic-task2/README.md) preserves the original full review and final scoped review.
+
+The unchanged final candidate passed `cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --all-targets`: 918 passes, zero failures, one intentionally ignored paid provider case. Offline locked library check, desktop binary build and full Rust formatting also passed. Preserved earlier document-worker timeouts remain unattributed, with subsequent unchanged-source focused/default-parallel/full gates passing. The 200000-row CV-1 recovery result remains Timeout with availability=false. Tavily, full tool/history UI and smoke completion remain pending, together with the existing real-platform/signing/paid release gates.
+
 Implementation order: Session Foundation → Platform Audio primitives and acceptance harness → Provider Adapters → Runtime Composition → Workbench and Intelligence. Software implementation can proceed while external acceptance is pending; pending hardware/service evidence still blocks a release claim.
 
 | Gate | Required evidence | Current boundary |

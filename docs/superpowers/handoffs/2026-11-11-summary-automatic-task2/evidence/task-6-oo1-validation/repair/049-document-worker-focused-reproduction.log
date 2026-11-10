@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.36s
+     Running ../tests/knowledge/document_worker.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/document_worker-0f017d3bb14bde13)
+
+running 1 test
+test worker_limits::real_worker_waiting_for_request_is_terminated_and_reaped_with_replayable_exit ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.04s
+

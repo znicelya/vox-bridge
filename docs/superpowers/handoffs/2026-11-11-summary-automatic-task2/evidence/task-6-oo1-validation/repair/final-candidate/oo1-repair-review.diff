@@ -1,0 +1,4131 @@
+Scoped Task6 OO1 repair
+BASE TREE d1dd2c7aa27501ac817c24f3ada28778dfd1cb86
+CANDIDATE TREE 8b82dbdf849918487b59b3eb9e9130c6124ddef5
+HEAD 85eda3a8bca3ddabd72edad0763b4d5776166f9a
+Complete source includes existing untracked implementation files.
+No commit, live index or ref change.
+
+ src-tauri/src/app/intelligence/tests.rs            |   1 +
+ src-tauri/src/app/intelligence/tests/oo1.rs        | 524 +++++++++++++++++++++
+ src-tauri/src/app/subscription_tests.rs            |   6 +-
+ src-tauri/src/intelligence/jobs.rs                 | 336 +++++++++----
+ src-tauri/src/intelligence/jobs/maintenance.rs     | 208 ++++++++
+ src-tauri/src/intelligence/jobs/tests.rs           |  52 ++
+ .../src/intelligence/jobs/tests/oo1_storage.rs     | 318 +++++++++++++
+ src-tauri/src/intelligence/jobs/tests/reap.rs      |  47 +-
+ src-tauri/src/intelligence/jobs/tests/stop_race.rs | 155 ++++++
+ .../src/knowledge/document_tests/admission.rs      |  22 +-
+ src-tauri/src/session/direction.rs                 |  26 +-
+ src-tauri/src/session/orchestrator.rs              | 111 ++++-
+ src-tauri/src/session/runtime.rs                   | 182 +++++--
+ .../src/session/runtime/actual_actor_tests.rs      |  92 ++++
+ src-tauri/src/session/runtime_tests.rs             |   3 +
+ src-tauri/src/session/test_support.rs              |  60 ++-
+ src-tauri/src/storage/mod.rs                       |   2 +
+ src-tauri/src/storage/owned.rs                     |  77 +++
+ src-tauri/src/storage/owned/tests.rs               |  92 ++++
+ src-tauri/src/storage/sqlite.rs                    |   8 +
+ src-tauri/src/summary/terminal.rs                  | 117 +++--
+ src-tauri/src/summary/terminal/tests.rs            |   6 +-
+ src-tauri/src/summary/tests/harness.rs             |   7 +-
+ src-tauri/src/summary/tests/pipeline.rs            |   5 +-
+ 24 files changed, 2226 insertions(+), 231 deletions(-)
+
+diff --git a/src-tauri/src/app/intelligence/tests.rs b/src-tauri/src/app/intelligence/tests.rs
+index b91420a..b1a29b8 100644
+--- a/src-tauri/src/app/intelligence/tests.rs
++++ b/src-tauri/src/app/intelligence/tests.rs
+@@ -1,13 +1,14 @@
+ use super::*;
+ mod child_operations;
+ mod knowledge;
++mod oo1;
+ mod summary;
+ use crate::intelligence::{
+     jobs::{JobContext, JobHandler},
+     test_support::payload,
+ };
+ use std::time::Duration;
+ struct Wait;
+ #[async_trait::async_trait]
+ impl JobHandler for Wait {
+     async fn run(
+diff --git a/src-tauri/src/app/intelligence/tests/oo1.rs b/src-tauri/src/app/intelligence/tests/oo1.rs
+new file mode 100644
+index 0000000..4187d1b
+--- /dev/null
++++ b/src-tauri/src/app/intelligence/tests/oo1.rs
+@@ -0,0 +1,524 @@
++use super::*;
++use futures_util::FutureExt;
++use serde_json::{Value, json};
++use std::{
++    collections::HashSet,
++    future::Future,
++    sync::{
++        Mutex,
++        atomic::{AtomicBool, AtomicUsize, Ordering},
++        mpsc,
++    },
++    time::Instant,
++};
++use tokio::sync::{Notify, oneshot, watch};
++
++#[derive(Clone, Copy)]
++enum Action {
++    OrdinaryStop,
++    AppClose,
++}
++
++impl Action {
++    fn name(self) -> &'static str {
++        match self {
++            Self::OrdinaryStop => "ordinary_stop",
++            Self::AppClose => "app_close",
++        }
++    }
++}
++
++struct Timeline {
++    start: Instant,
++    events: Mutex<Vec<Value>>,
++}
++
++impl Timeline {
++    fn new() -> Arc<Self> {
++        Arc::new(Self {
++            start: Instant::now(),
++            events: Mutex::new(Vec::new()),
++        })
++    }
++
++    fn record(&self, name: &str, details: Value) {
++        self.events.lock().unwrap().push(json!({
++            "at_us": u64::try_from(self.start.elapsed().as_micros()).unwrap(),
++            "name": name,
++            "thread": format!("{:?}", std::thread::current().id()),
++            "details": details,
++        }));
++    }
++}
++
++fn capture_probe(audio: &crate::session::test_support::FixtureAudioBackend) -> &'static str {
++    let frame = crate::audio::AudioFrame::new(
++        crate::domain::audio::AudioSource::Microphone,
++        0,
++        PcmSpec::pcm16_mono(16_000),
++        vec![0; 320],
++    )
++    .unwrap();
++    // This existing collaborator forwards to BoundedAudioQueue::push_sync.
++    // One poll observes the actual capture gate without running another executor.
++    match audio.send_capture("live-input", frame).now_or_never() {
++        Some(Ok(())) => "accepted",
++        Some(Err(_)) => "closed",
++        None => "pending",
++    }
++}
++
++async fn observe(action: Action) -> Value {
++    let dir = tempfile::tempdir().unwrap();
++    let h = crate::app::tests::fixture();
++    let app = crate::app::tests::injected(
++        dir.path(),
++        &h,
++        Arc::new(SecretStore::for_tests(dir.path()).unwrap()),
++    );
++    let timeline = Timeline::new();
++    let (claim_gate_open, claim_gate_watch) = watch::channel(false);
++    let (workers_ready_tx, workers_ready) = oneshot::channel();
++    let workers_ready_tx = Arc::new(Mutex::new(Some(workers_ready_tx)));
++    let worker_tasks = Arc::new(Mutex::new(HashSet::new()));
++    *app.jobs.oo1_claim_gate.lock().unwrap() = Some(Arc::new({
++        let timeline = timeline.clone();
++        let worker_tasks = worker_tasks.clone();
++        move || -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>> {
++            let timeline = timeline.clone();
++            let worker_tasks = worker_tasks.clone();
++            let workers_ready_tx = workers_ready_tx.clone();
++            let mut open = claim_gate_watch.clone();
++            Box::pin(async move {
++                let task = format!("{:?}", tokio::task::id());
++                let (first, count) = {
++                    let mut tasks = worker_tasks.lock().unwrap();
++                    let first = tasks.insert(task.clone());
++                    (first, tasks.len())
++                };
++                if first {
++                    timeline.record(
++                        "actual_worker_received_original_token",
++                        json!({
++                            "task": task,
++                        }),
++                    );
++                }
++                if count == 2 {
++                    if let Some(ready) = workers_ready_tx.lock().unwrap().take() {
++                        let _ = ready.send(());
++                    }
++                }
++                loop {
++                    if *open.borrow_and_update() {
++                        break;
++                    }
++                    if open.changed().await.is_err() {
++                        break;
++                    }
++                }
++                timeline.record("pre_claim_rendezvous_opened", json!({"task": task}));
++            })
++        }
++    }));
++    app.save_provider_config(SaveProviderRequest {
++        config: h.saved.clone(),
++        credential: CredentialChange::Keep,
++    })
++    .await
++    .unwrap();
++    app.start_intelligence().await.unwrap();
++    let (native_finished, release_native) = h.audio.delay_actual_join("live-input");
++    let session = app.create_session(h.launch.clone()).await.unwrap();
++    crate::app::tests::eventually(|| {
++        app.store
++            .get_session_lifecycle(session.id)
++            .unwrap()
++            .unwrap()
++            .status
++            == "running"
++    })
++    .await;
++    app.close_state.lock().unwrap().observation_timeout = Some(Duration::from_millis(30));
++
++    let workers_prepositioned = matches!(
++        tokio::time::timeout(Duration::from_secs(2), workers_ready).await,
++        Ok(Ok(()))
++    );
++    let queued_jobs = app
++        .store
++        .transaction(|tx| {
++            Ok(tx.query_row(
++                "SELECT COUNT(*) FROM intelligence_jobs WHERE status='queued'",
++                [],
++                |row| row.get::<_, i64>(0),
++            )?)
++        })
++        .unwrap();
++    timeline.record(
++        "ready_running_session",
++        json!({"action": action.name(), "queued_jobs": queued_jobs}),
++    );
++    let held = Arc::new(AtomicBool::new(false));
++    let claim_threads = Arc::new(Mutex::new(HashSet::<String>::new()));
++    let (claim_tx, claim_rx) = mpsc::channel::<String>();
++    *app.jobs.oo1_claim_probe.lock().unwrap() = Some(Arc::new({
++        let held = held.clone();
++        let timeline = timeline.clone();
++        let threads = claim_threads.clone();
++        move |phase, admission_closed| {
++            let thread = format!("{:?}", std::thread::current().id());
++            if phase == "before_sql_lock" && held.load(Ordering::Acquire) {
++                let first = threads.lock().unwrap().insert(thread.clone());
++                timeline.record(phase, json!({"admission_closed": admission_closed}));
++                if first {
++                    let _ = claim_tx.send(thread);
++                }
++            } else if phase == "after_sql_lock" && threads.lock().unwrap().contains(&thread) {
++                timeline.record(phase, json!({"admission_closed": admission_closed}));
++            }
++        }
++    }));
++
++    let heartbeat_count = Arc::new(AtomicUsize::new(0));
++    let (cancel_heartbeat, mut heartbeat_cancelled) = watch::channel(false);
++    let (heartbeat_ready, heartbeat_started) = oneshot::channel();
++    let heartbeat = tokio::spawn({
++        let timeline = timeline.clone();
++        let count = heartbeat_count.clone();
++        async move {
++            let mut ready = Some(heartbeat_ready);
++            let mut interval = tokio::time::interval(Duration::from_millis(25));
++            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
++            loop {
++                tokio::select! {
++                    biased;
++                    _ = heartbeat_cancelled.changed() => break,
++                    _ = interval.tick() => {
++                        let count = count.fetch_add(1, Ordering::AcqRel) + 1;
++                        timeline.record("heartbeat_tick", json!({"count": count}));
++                        if let Some(ready) = ready.take() {
++                            let _ = ready.send(());
++                        }
++                    }
++                }
++            }
++        }
++    });
++    heartbeat_started.await.unwrap();
++
++    let timer_polled = Arc::new(AtomicBool::new(false));
++    let (timer_ready, timer_started) = oneshot::channel();
++    let timer = tokio::spawn({
++        let timeline = timeline.clone();
++        let polled = timer_polled.clone();
++        async move {
++            let sleep = tokio::time::sleep(Duration::from_millis(100));
++            tokio::pin!(sleep);
++            let mut ready = Some(timer_ready);
++            std::future::poll_fn(|cx| {
++                let result = sleep.as_mut().poll(cx);
++                if let Some(ready) = ready.take() {
++                    timeline.record("timer_first_polled", json!({"deadline_after_ms": 100}));
++                    let _ = ready.send(());
++                }
++                result
++            })
++            .await;
++            polled.store(true, Ordering::Release);
++            timeline.record("timer_deadline_polled", json!({}));
++        }
++    });
++    timer_started.await.unwrap();
++
++    let trigger = Arc::new(Notify::new());
++    let (action_ready, action_started) = oneshot::channel();
++    let action_task = tokio::spawn({
++        let app = app.clone();
++        let timeline = timeline.clone();
++        let trigger = trigger.clone();
++        async move {
++            let _ = action_ready.send(());
++            trigger.notified().await;
++            timeline.record("action_first_polled", json!({"action": action.name()}));
++            let result = match action {
++                Action::OrdinaryStop => app
++                    .stop_session(session.id)
++                    .await
++                    .map(|record| json!({"status": format!("{:?}", record.status)})),
++                Action::AppClose => app.close_all().await.map(|_| json!({"closed": true})),
++            };
++            timeline.record(
++                "action_observer_returned",
++                json!({
++                    "action": action.name(),
++                    "ok": result.is_ok(),
++                    "error": result.as_ref().err().map(ToString::to_string),
++                }),
++            );
++            result
++        }
++    });
++    action_started.await.unwrap();
++
++    let (blocker_done, blocker_returned) = oneshot::channel();
++    let blocker = std::thread::spawn({
++        let store = app.store.clone();
++        let jobs = app.jobs.clone();
++        let app = app.clone();
++        let audio = h.audio.clone();
++        let timeline = timeline.clone();
++        let held = held.clone();
++        let heartbeat_count = heartbeat_count.clone();
++        let timer_polled = timer_polled.clone();
++        move || {
++            let result = store.transaction(|_| {
++                held.store(true, Ordering::Release);
++                timeline.record("sqlite_hold_entered", json!({}));
++                // Both genuine token-owning worker futures are already waiting.
++                // Opening from this OS thread makes both continuations runnable;
++                // the following claim/SQLite acquisition is unchanged and synchronous.
++                claim_gate_open.send_replace(true);
++                jobs.wake();
++                let claims_deadline = Instant::now() + Duration::from_secs(2);
++                let mut threads = HashSet::new();
++                while threads.len() < 2 {
++                    let remaining = claims_deadline.saturating_duration_since(Instant::now());
++                    if remaining.is_zero() {
++                        break;
++                    }
++                    match claim_rx.recv_timeout(remaining) {
++                        Ok(thread) => {
++                            threads.insert(thread);
++                        }
++                        Err(_) => break,
++                    }
++                }
++                let heartbeat_at_claims = heartbeat_count.load(Ordering::Acquire);
++                let timer_at_claims = timer_polled.load(Ordering::Acquire);
++                timeline.record("actual_claim_entries_observed", json!({
++                    "distinct_threads": threads,
++                    "heartbeat_count": heartbeat_at_claims,
++                    "timer_already_polled": timer_at_claims,
++                }));
++                timeline.record("action_requested", json!({"action": action.name()}));
++                trigger.notify_one();
++                let observation_start = Instant::now();
++                let mut samples = Vec::new();
++                for at_ms in [200, 450, 700] {
++                    let due = observation_start + Duration::from_millis(at_ms);
++                    loop {
++                        let remaining = due.saturating_duration_since(Instant::now());
++                        if remaining.is_zero() { break; }
++                        std::thread::sleep(remaining);
++                    }
++                    let sample = json!({
++                        "window_ms": at_ms,
++                        "heartbeat_count": heartbeat_count.load(Ordering::Acquire),
++                        "timer_polled": timer_polled.load(Ordering::Acquire),
++                    });
++                    timeline.record("held_sql_progress_sample", sample.clone());
++                    samples.push(sample);
++                }
++                let release_due = observation_start + Duration::from_millis(750);
++                loop {
++                    let remaining = release_due.saturating_duration_since(Instant::now());
++                    if remaining.is_zero() { break; }
++                    std::thread::sleep(remaining);
++                }
++                let heartbeat_before_release = heartbeat_count.load(Ordering::Acquire);
++                let timer_before_release = timer_polled.load(Ordering::Acquire);
++                let capture_before_release = capture_probe(&audio);
++                let admission_fenced = app.admitted_epoch().is_err();
++                let observation = json!({
++                    "distinct_actual_claim_threads": threads,
++                    "two_actual_claim_entries": threads.len() == 2,
++                    "timer_already_polled_at_claim_entries": timer_at_claims,
++                    "heartbeat_count_at_claim_entries": heartbeat_at_claims,
++                    "heartbeat_count_before_release": heartbeat_before_release,
++                    "heartbeat_progress_before_release": heartbeat_before_release > heartbeat_at_claims,
++                    "timer_polled_before_release": timer_before_release,
++                    "capture_probe_before_release": capture_before_release,
++                    "app_admission_fenced_before_release": admission_fenced,
++                    "external_hold_after_claim_entries_ms": 750,
++                    "progress_windows": samples,
++                });
++                timeline.record("sqlite_release_requested", observation.clone());
++                held.store(false, Ordering::Release);
++                Ok(observation)
++            });
++            timeline.record("sqlite_transaction_returned", json!({"ok": result.is_ok()}));
++            let _ = blocker_done.send(());
++            result
++        }
++    });
++    // No assertion during the held period: the independent thread always releases.
++    let blocker_notified = blocker_returned.await.is_ok();
++    let hold_result = blocker.join();
++    timeline.record(
++        "sqlite_holder_thread_joined",
++        json!({"ok": hold_result.is_ok()}),
++    );
++    let hold = hold_result.unwrap().unwrap();
++    let action_result = action_task.await.unwrap();
++    let native_worker_finished = matches!(
++        tokio::time::timeout(Duration::from_secs(2), native_finished).await,
++        Ok(Ok(()))
++    );
++    timeline.record(
++        "native_workers_joined_parent_still_held",
++        json!({
++            "observed": native_worker_finished,
++        }),
++    );
++
++    let first_close_timed_out = match action {
++        Action::OrdinaryStop => {
++            timeline.record("cleanup_close_first_polled", json!({}));
++            app.close_all().await.is_err()
++        }
++        Action::AppClose => action_result.is_err(),
++    };
++    // The close observer can now time out during the hold, before the session
++    // observer's yielding terminal write. Native leaf completion alone is not
++    // durable lifecycle completion. Observe that original stop owner as well,
++    // still retaining its native parent, before reading the durable status.
++    let terminal_complete_observed = matches!(
++        tokio::time::timeout(Duration::from_secs(2), app.stop_session(session.id)).await,
++        Ok(Ok(record)) if record.status == crate::session::SessionStatus::Completed
++    );
++    timeline.record(
++        "original_terminal_completion_observed",
++        json!({
++            "completed": terminal_complete_observed,
++        }),
++    );
++    let open_fenced = app.open_window().is_err();
++    let reopen_fenced = app.reopen_window().await.is_err();
++    let durable_status = app
++        .store
++        .get_session_lifecycle(session.id)
++        .unwrap()
++        .unwrap()
++        .status;
++    let capture_after_stop = capture_probe(&h.audio);
++    timeline.record(
++        "terminal_and_reopen_observed_with_original_parent_held",
++        json!({
++            "durable_status": durable_status,
++            "capture_probe": capture_after_stop,
++            "close_observer_timed_out": first_close_timed_out,
++            "open_fenced": open_fenced,
++            "reopen_fenced": reopen_fenced,
++        }),
++    );
++    timeline.record("actual_native_parent_release_sent", json!({}));
++    let native_release_sent = release_native.send(()).is_ok();
++    app.close_state.lock().unwrap().observation_timeout = Some(Duration::from_secs(2));
++    let close_joined = app.close_all().await.is_ok();
++    let jobs_joined = app.jobs.shutdown().await.is_ok();
++    let summary_attempts_joined = app.summaries.drain_actual().await.is_ok();
++    timeline.record(
++        "actual_app_close_and_scheduler_joins_returned",
++        json!({
++            "close_joined": close_joined,
++            "jobs_joined": jobs_joined,
++            "summary_attempts_joined": summary_attempts_joined,
++        }),
++    );
++    *app.jobs.oo1_claim_probe.lock().unwrap() = None;
++    *app.jobs.oo1_claim_gate.lock().unwrap() = None;
++    cancel_heartbeat.send_replace(true);
++    let heartbeat_joined = heartbeat.await.is_ok();
++    let timer_joined = timer.await.is_ok();
++    timeline.record(
++        "all_fixture_tasks_joined",
++        json!({
++            "heartbeat_joined": heartbeat_joined,
++            "timer_joined": timer_joined,
++        }),
++    );
++    drop(app);
++    json!({
++        "action": action.name(),
++        "both_original_token_workers_prepositioned": workers_prepositioned,
++        "queued_jobs_before_hold": queued_jobs,
++        "hold": hold,
++        "cleanup": {
++            "blocker_notified": blocker_notified,
++            "native_worker_finished": native_worker_finished,
++            "first_close_observer_timed_out_with_actual_parent_held": first_close_timed_out,
++            "original_terminal_completion_observed": terminal_complete_observed,
++            "open_fenced_until_actual_parent_release": open_fenced,
++            "reopen_fenced_until_actual_parent_release": reopen_fenced,
++            "durable_status_after_sqlite_release": durable_status,
++            "capture_probe_after_stop": capture_after_stop,
++            "native_release_sent": native_release_sent,
++            "actual_close_joined": close_joined,
++            "both_actual_scheduler_workers_joined": jobs_joined,
++            "summary_attempts_joined": summary_attempts_joined,
++            "heartbeat_joined": heartbeat_joined,
++            "timer_joined": timer_joined,
++        },
++        "timeline": timeline.events.lock().unwrap().clone(),
++    })
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn actual_scheduler_keeps_timer_and_capture_stop_pollable_while_sqlite_claims_wait() {
++    let ordinary = observe(Action::OrdinaryStop).await;
++    let close = observe(Action::AppClose).await;
++    let observations = vec![ordinary, close];
++    println!(
++        "OO1_OBSERVATIONS {}",
++        json!({
++            "configured_tokio_workers": 2,
++            "host_available_parallelism": std::thread::available_parallelism().map(|n| n.get()).ok(),
++            "observations": observations,
++        })
++    );
++    // Validate the fault and every genuine cleanup before evaluating progress.
++    assert!(
++        observations.iter().all(|observation| {
++            let hold = &observation["hold"];
++            let cleanup = &observation["cleanup"];
++            hold["two_actual_claim_entries"] == true
++                && observation["both_original_token_workers_prepositioned"] == true
++                && observation["queued_jobs_before_hold"] == 0
++                && hold["timer_already_polled_at_claim_entries"] == false
++                && cleanup["blocker_notified"] == true
++                && cleanup["native_worker_finished"] == true
++                && cleanup["first_close_observer_timed_out_with_actual_parent_held"] == true
++                && cleanup["original_terminal_completion_observed"] == true
++                && cleanup["open_fenced_until_actual_parent_release"] == true
++                && cleanup["reopen_fenced_until_actual_parent_release"] == true
++                && cleanup["durable_status_after_sqlite_release"] == "completed"
++                && cleanup["capture_probe_after_stop"] == "closed"
++                && cleanup["native_release_sent"] == true
++                && cleanup["actual_close_joined"] == true
++                && cleanup["both_actual_scheduler_workers_joined"] == true
++                && cleanup["summary_attempts_joined"] == true
++                && cleanup["heartbeat_joined"] == true
++                && cleanup["timer_joined"] == true
++        }),
++        "OO1 fixture entry/release/actual cleanup evidence is incomplete"
++    );
++    assert!(
++        observations.iter().all(|observation| {
++            let hold = &observation["hold"];
++            let samples = hold["progress_windows"].as_array().unwrap();
++            let counts: Vec<u64> = samples
++                .iter()
++                .map(|sample| sample["heartbeat_count"].as_u64().unwrap())
++                .collect();
++            hold["heartbeat_progress_before_release"] == true
++                && hold["timer_polled_before_release"] == true
++                && hold["capture_probe_before_release"] == "closed"
++                && counts.len() == 3
++                && counts[0] > hold["heartbeat_count_at_claim_entries"].as_u64().unwrap()
++                && counts.windows(2).all(|pair| pair[1] > pair[0])
++                && samples[0]["timer_polled"] == true
++        }),
++        "OO1 availability regression: both actual scheduler SQLite claims prevented timer/capture-stop progress until independent release"
++    );
++}
+diff --git a/src-tauri/src/app/subscription_tests.rs b/src-tauri/src/app/subscription_tests.rs
+index 07ca0bf..1e1d45d 100644
+--- a/src-tauri/src/app/subscription_tests.rs
++++ b/src-tauri/src/app/subscription_tests.rs
+@@ -474,23 +474,27 @@ async fn retry_delete_after_registry_admission_failure_preserves_durable_row_unt
+     let first = app.delete_session(session.id).await.unwrap_err();
+     assert!(first.to_string().contains("close admission timed out"));
+     assert!(app.get_session(session.id).await.unwrap().is_some());
+     drop(release);
+     let retry = app.delete_session(session.id).await;
+     let delivered = delivery.recv().await;
+     let forwarder_closed =
+         tokio::time::timeout(std::time::Duration::from_secs(2), delivery.recv()).await;
+     let removed = app.get_session(session.id).await.unwrap().is_none();
+     // Release every owner before asserting the recovery contract.
+-    app.close_all().await.unwrap();
++    let close_result = app.close_all().await;
+     drop(waiting);
+     let _ = replacement.await.unwrap();
++    assert!(
++        close_result.is_ok(),
++        "close after deletion retry failed: {close_result:?}"
++    );
+     assert!(
+         retry.is_ok(),
+         "deletion retry must observe pending cleanup; got {retry:?}"
+     );
+     assert!(removed);
+     assert!(matches!(delivered, Some(SessionEvent::Status { status, .. }) if status == "occupied"));
+     assert!(matches!(forwarder_closed, Ok(None)));
+ }
+ 
+ #[tokio::test]
+diff --git a/src-tauri/src/intelligence/jobs.rs b/src-tauri/src/intelligence/jobs.rs
+index 1f4e7f2..d353a9c 100644
+--- a/src-tauri/src/intelligence/jobs.rs
++++ b/src-tauri/src/intelligence/jobs.rs
+@@ -1,34 +1,36 @@
+ //! Durable bounded execution. Workers own ports and operation leases, never the scheduler.
+ use super::{
+     config::ServiceConfigStore,
+     http::cancelled,
+     store::{self, JobDraft},
+     types::*,
+ };
+ use crate::{
+     error::{AppError, AppResult},
+-    storage::LocalStore,
++    storage::{LocalStore, SqlSlot},
+ };
+ use std::{
+     collections::HashMap,
+     sync::{
+         Arc, Mutex,
+         atomic::{AtomicBool, Ordering},
+     },
+     time::Duration,
+ };
+ use tokio::sync::{Notify, Semaphore, broadcast, mpsc, watch};
+ use uuid::Uuid;
+ mod child_operations;
++mod maintenance;
+ pub(crate) mod reap;
+ use child_operations::ChildOperations;
++use maintenance::Maintenance;
+ pub(crate) use reap::{JobReapEvidence, JobReapPort};
+ pub struct JobContext {
+     pub id: Uuid,
+     pub cancel: watch::Receiver<bool>,
+     fence: JobAdmissionFence,
+     children: ChildOperations,
+ }
+ #[derive(Clone)]
+ pub(crate) struct JobPublicationFence {
+     id: Uuid,
+@@ -111,20 +113,21 @@ pub trait JobHandler: Send + Sync {
+     async fn cleanup(&self, _reaped: Option<Uuid>) -> AppResult<()> {
+         Ok(())
+     }
+     async fn cleanup_after_stop(&self) -> AppResult<()> {
+         self.cleanup(None).await
+     }
+     fn reconcile_startup(&self) -> AppResult<()> {
+         Ok(())
+     }
+ }
++#[derive(Clone)]
+ pub(crate) struct AfterTerminalNotice {
+     pub(crate) parent_id: Uuid,
+     pub(crate) document_id: Uuid,
+     pub(crate) version: u32,
+     pub(crate) sha256: String,
+     pub(crate) parser: String,
+ }
+ #[async_trait::async_trait]
+ pub(crate) trait AfterTerminal: Send + Sync {
+     fn notice(
+@@ -166,53 +169,77 @@ impl JobAdmissionFence {
+     pub(crate) fn run<T>(&self, operation: impl FnOnce() -> AppResult<T>) -> AppResult<T> {
+         let control = self.control.lock().unwrap();
+         if control.stopping || self.closed.load(Ordering::Acquire) {
+             return Err(error(IntelligenceErrorCode::Busy));
+         }
+         operation()
+     }
+ }
+ type Handlers = HashMap<JobKind, Arc<dyn JobHandler>>;
+ pub(crate) type OperationLease = Arc<dyn Send + Sync>;
++#[cfg(test)]
++pub(crate) type Oo1ClaimProbe = Arc<dyn Fn(&'static str, bool) + Send + Sync>;
++#[cfg(test)]
++pub(crate) type Oo1ClaimGate =
++    Arc<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>;
++#[cfg(test)]
++type Oo1StopPollProbe = Arc<dyn Fn(tests::StopPollPoint) + Send + Sync>;
+ #[derive(Default)]
+ struct Control {
+     stopping: bool,
+     active: HashMap<Uuid, watch::Sender<bool>>,
+ }
+ struct Generation {
+     id: Uuid,
+     cancel: watch::Sender<bool>,
+     completion: watch::Receiver<bool>,
+     control: Arc<Mutex<Control>>,
++    maintenance: Arc<Maintenance>,
+ }
+ #[derive(Default)]
+ struct State {
+     frozen: bool,
+     handlers: Handlers,
+     generation: Option<Generation>,
+     after_terminal: Option<Arc<dyn AfterTerminal>>,
+ }
+ pub struct JobScheduler {
+     store: Arc<LocalStore>,
++    #[cfg(test)]
++    pub(crate) oo1_claim_probe: Arc<Mutex<Option<Oo1ClaimProbe>>>,
++    #[cfg(test)]
++    pub(crate) oo1_claim_gate: Arc<Mutex<Option<Oo1ClaimGate>>>,
++    #[cfg(test)]
++    oo1_workers: Arc<Mutex<Vec<tokio::task::AbortHandle>>>,
++    #[cfg(test)]
++    oo1_stop_poll_probe: Arc<Mutex<Option<Oo1StopPollProbe>>>,
+     state: Mutex<State>,
+     wake: Arc<Notify>,
+     events: broadcast::Sender<IntelligenceEvent>,
+     parser: Arc<Semaphore>,
+     shutdown_timeout: Duration,
+     closed: Arc<AtomicBool>,
+     signal: watch::Sender<bool>,
+     reap: Arc<reap::Registry>,
+ }
+ impl JobScheduler {
+     pub fn new(store: Arc<LocalStore>) -> Self {
+         Self {
+             store,
++            #[cfg(test)]
++            oo1_claim_probe: Arc::new(Mutex::new(None)),
++            #[cfg(test)]
++            oo1_claim_gate: Arc::new(Mutex::new(None)),
++            #[cfg(test)]
++            oo1_workers: Arc::default(),
++            #[cfg(test)]
++            oo1_stop_poll_probe: Arc::default(),
+             state: Mutex::default(),
+             wake: Arc::default(),
+             events: broadcast::channel(64).0,
+             parser: Arc::new(Semaphore::new(1)),
+             shutdown_timeout: Duration::from_secs(5),
+             closed: Arc::new(AtomicBool::new(true)),
+             signal: watch::channel(false).0,
+             reap: reap::Registry::new(),
+         }
+     }
+@@ -266,82 +293,150 @@ impl JobScheduler {
+         self.closed.store(false, Ordering::Release);
+         self.signal.send_replace(false);
+         let cancel = self.signal.clone();
+         let stop = cancel.subscribe();
+         let (done, completion) = watch::channel(false);
+         let wake = self.wake.clone();
+         let store = self.store.clone();
+         let events = self.events.clone();
+         let worker_control = control.clone();
+         let closed = self.closed.clone();
++        #[cfg(test)]
++        let oo1_claim_probe = self.oo1_claim_probe.clone();
++        #[cfg(test)]
++        let oo1_claim_gate = self.oo1_claim_gate.clone();
++        #[cfg(test)]
++        let oo1_workers = self.oo1_workers.clone();
++        #[cfg(test)]
++        let oo1_stop_poll_probe = self.oo1_stop_poll_probe.clone();
++        #[cfg(test)]
++        oo1_workers.lock().unwrap().clear();
+         let children = ChildOperations::new(&lease);
++        let maintenance = Arc::new(Maintenance::default());
++        let maintenance_worker = maintenance.start(
++            store.clone(),
++            handlers.clone(),
++            events.clone(),
++            lease.clone(),
++        );
++        let generation_maintenance = maintenance.clone();
++        let generation_stop = cancel.clone();
+         runtime.spawn(async move {
+             let _lease = lease;
+             let (tx, rx) = mpsc::channel(2);
+             let rx = Arc::new(tokio::sync::Mutex::new(rx));
+             let mut workers = tokio::task::JoinSet::new();
+-            for _ in 0..2 {
+-                workers.spawn(worker(
++            let sql: [Arc<SqlSlot>; 2] = std::array::from_fn(|_| Arc::default());
++            for slot in &sql {
++                let _abort_handle = workers.spawn(worker(
+                     store.clone(),
+                     handlers.clone(),
+                     worker_control.clone(),
+                     rx.clone(),
+                     wake.clone(),
+                     events.clone(),
+                     stop.clone(),
+                     closed.clone(),
+                     children.clone(),
+                     after_terminal.clone(),
+                     reap.clone(),
++                    slot.clone(),
++                    _lease.clone(),
++                    #[cfg(test)]
++                    oo1_claim_probe.clone(),
++                    #[cfg(test)]
++                    oo1_claim_gate.clone(),
+                 ));
++                #[cfg(test)]
++                oo1_workers.lock().unwrap().push(_abort_handle);
+             }
+             let mut stop = stop;
++            let mut failed = false;
+             loop {
++                let stopping = cancelled(&mut stop);
++                #[cfg(test)]
++                let stopping = tests::observe_stop_poll(stopping, &oo1_stop_poll_probe);
++                let joining = workers.join_next();
++                #[cfg(test)]
++                let joining = tests::observe_worker_join(joining, &oo1_stop_poll_probe);
+                 tokio::select! {
+-                                                  biased;
+-                                                  _ = cancelled(&mut stop) => break,
+-                                                  _ = wake.notified() => {
+-                                                      for _ in 0..2 {
+-                let _ = tx.try_send(());
+-                               }
+-                                                  }
+-                                              }
++                    biased;
++                    _ = stopping => break,
++                    joined = joining => {
++                        // Stop can arrive after its branch returned Pending
++                        // in this same select poll. Classify the genuine join
++                        // before sending our own stop; all remaining owners
++                        // still have to complete their actual drains below.
++                        let stop_requested = *generation_stop.borrow();
++                        #[cfg(test)]
++                        {
++                            let probe = oo1_stop_poll_probe.lock().unwrap().clone();
++                            if let Some(probe) = probe {
++                                probe(tests::StopPollPoint::Joined {
++                                    normal: matches!(&joined, Some(Ok(Ok(())))),
++                                });
++                            }
++                        }
++                        failed = !stop_requested || !matches!(joined, Some(Ok(Ok(()))));
++                        closed.store(true, Ordering::Release);
++                        generation_stop.send_replace(true);
++                        break;
++                    },
++                    _ = wake.notified() => {
++                        for _ in 0..2 {
++                            let _ = tx.try_send(());
++                        }
++                    }
++                }
+             }
++            generation_maintenance.request_queued();
+             {
+                 let mut control = worker_control.lock().unwrap();
+                 control.stopping = true;
+                 for cancel in control.active.values() {
+                     cancel.send_replace(true);
+                 }
+             }
+             drop(tx);
+-            while workers.join_next().await.is_some() {}
++            while let Some(joined) = workers.join_next().await {
++                failed |= !matches!(joined, Ok(Ok(())));
++            }
++            for slot in &sql {
++                failed |= slot.drain().await.is_err();
++            }
++            generation_maintenance.finish();
++            failed |= !matches!(maintenance_worker.await, Ok(Ok(())));
++            failed |= generation_maintenance.drain().await.is_err();
+             for handler in handlers.values() {
+                 while handler.cleanup_after_stop().await.is_err() {
+                     tokio::time::sleep(Duration::from_millis(20)).await;
+                 }
+             }
+             children.drain().await;
+             if reap.quiesce(generation_id).await.is_err() {
+                 return;
+             }
++            if failed {
++                return;
++            }
+             drop(_lease);
+             if reap.joined(generation_id).is_err() {
+                 return;
+             }
+             done.send_replace(true);
+         });
+         s.generation = Some(Generation {
+             id: generation_id,
+             cancel,
+             completion,
+             control,
++            maintenance,
+         });
+         self.wake();
+         Ok(())
+     }
+     pub(crate) fn reconcile(&self) -> AppResult<()> {
+         let handlers = self.state.lock().unwrap().handlers.clone();
+         interrupt(&self.store, &handlers)?;
+         for handler in handlers.values() {
+             handler.reconcile_startup()?;
+         }
+@@ -499,90 +594,69 @@ impl JobScheduler {
+         let s = self.state.lock().unwrap();
+         if let Some(g) = &s.generation {
+             {
+                 let mut c = g.control.lock().unwrap();
+                 c.stopping = true;
+                 g.cancel.send_replace(true);
+                 for cancel in c.active.values() {
+                     cancel.send_replace(true);
+                 }
+             }
+-            // Never wait for SQLite while holding generation control: snapshot callbacks
+-            // already own SQLite before they acquire that control fence.
+-            let ids = self
+-                .store
+-                .transaction(|tx| {
+-                    let ids = tx
+-                        .prepare("SELECT id FROM intelligence_jobs WHERE status='queued' LIMIT 32")?
+-                        .query_map([], |row| row.get::<_, String>(0))?
+-                        .collect::<Result<Vec<_>, _>>()?;
+-                    for id in &ids {
+-                        transition_tx(
+-                            tx,
+-                            Uuid::parse_str(id)
+-                                .map_err(|_| error(IntelligenceErrorCode::Storage))?,
+-                            "queued",
+-                            JobStatus::Cancelled,
+-                            Some(IntelligenceErrorCode::Cancelled),
+-                            &s.handlers,
+-                            false,
+-                        )?;
+-                    }
+-                    Ok(ids)
+-                })
+-                .map_err(store::safe_store_error)?;
+-            for id in ids {
+-                if let Ok(id) = Uuid::parse_str(&id) {
+-                    if let Some(job) = self.store.get_job(id)? {
+-                        self.publish(job);
+-                    }
+-                }
+-            }
++            // This only coalesces work for the existing generation owner.
++            // Neither callers nor Drop acquire SQLite or submit another task.
++            g.maintenance.request_queued();
+         }
+         Ok(())
+     }
+     pub async fn shutdown(&self) -> AppResult<()> {
+         self.request_shutdown()?;
+         let completion = self
+             .state
+             .lock()
+             .unwrap()
+             .generation
+             .as_ref()
+-            .map(|g| (g.id, g.completion.clone()));
+-        if let Some((id, mut completion)) = completion {
++            .map(|g| (g.id, g.completion.clone(), g.maintenance.clone()));
++        if let Some((id, mut completion, maintenance)) = completion {
+             let result = tokio::time::timeout(self.shutdown_timeout, async {
+                 loop {
+                     if *completion.borrow_and_update() {
+                         return Ok::<(), AppError>(());
+                     }
+                     completion
+                         .changed()
+                         .await
+                         .map_err(|_| error(IntelligenceErrorCode::Interrupted))?;
+                 }
+             })
+             .await;
+-            let mut state = self.state.lock().unwrap();
+-            // A delayed second observer cannot retire or interrupt a newer generation.
+-            if state.generation.as_ref().is_none_or(|g| g.id != id) {
+-                return Ok(());
+-            }
+-            match result {
+-                Ok(Ok(())) => state.generation = None,
+-                _ => {
+-                    for job in interrupt(&self.store, &state.handlers)? {
+-                        self.publish(job);
+-                    }
+-                    return Err(error(IntelligenceErrorCode::Interrupted));
++            {
++                let mut state = self.state.lock().unwrap();
++                // A delayed observer cannot retire or interrupt a newer generation.
++                if state.generation.as_ref().is_none_or(|g| g.id != id) {
++                    return Ok(());
++                }
++                if matches!(result, Ok(Ok(()))) {
++                    state.generation = None;
++                    return Ok(());
+                 }
+             }
++            let round = maintenance.request_interrupt()?;
++            // Keep the original join deadline. A separate bounded flush gives
++            // a free store time to commit Interrupted, while held SQL remains
++            // pending under the same owner and never stalls the executor.
++            let _ = tokio::time::timeout(
++                self.shutdown_timeout.min(Duration::from_millis(50)),
++                maintenance.observe_interrupt(round),
++            )
++            .await;
++            return Err(error(IntelligenceErrorCode::Interrupted));
+         }
+         Ok(())
+     }
+     pub fn parser_gate(&self) -> Arc<Semaphore> {
+         self.parser.clone()
+     }
+     pub fn subscribe(&self) -> broadcast::Receiver<IntelligenceEvent> {
+         self.events.subscribe()
+     }
+     pub(crate) fn event_port(&self) -> JobEvents {
+@@ -624,37 +698,66 @@ async fn worker(
+     handlers: Arc<Handlers>,
+     control: Arc<Mutex<Control>>,
+     rx: Arc<tokio::sync::Mutex<mpsc::Receiver<()>>>,
+     wake: Arc<Notify>,
+     events: broadcast::Sender<IntelligenceEvent>,
+     mut stop: watch::Receiver<bool>,
+     closed: Arc<AtomicBool>,
+     children: ChildOperations,
+     after_terminal: Option<Arc<dyn AfterTerminal>>,
+     reap: Arc<reap::Registry>,
+-) {
++    sql: Arc<SqlSlot>,
++    owner: OperationLease,
++    #[cfg(test)] oo1_claim_probe: Arc<Mutex<Option<Oo1ClaimProbe>>>,
++    #[cfg(test)] oo1_claim_gate: Arc<Mutex<Option<Oo1ClaimGate>>>,
++) -> AppResult<()> {
+     use futures_util::FutureExt;
+     loop {
+         tokio::select! {
+         biased;
+-                _=cancelled(&mut stop)=>return,
++                _=cancelled(&mut stop)=>return Ok(()),
+         token=async{
+         rx.lock().await.recv().await}
+         =>if token.is_none(){
+-        return;
++        return Ok(());
+                 }
+         }
+-        let claimed = match claim(&store, &control, &closed, &reap) {
++        #[cfg(test)]
++        {
++            let gate = oo1_claim_gate.lock().unwrap().clone();
++            if let Some(gate) = gate {
++                gate().await;
++            }
++        }
++        let storage = store.clone();
++        let claim_control = control.clone();
++        let claim_closed = closed.clone();
++        let claim_reap = reap.clone();
++        #[cfg(test)]
++        let probe = oo1_claim_probe.clone();
++        let claimed = match sql
++            .run(owner.clone(), move || {
++                claim(
++                    &storage,
++                    &claim_control,
++                    &claim_closed,
++                    &claim_reap,
++                    #[cfg(test)]
++                    &probe,
++                )
++            })
++            .await
++        {
+             Ok(v) => v,
+-            Err(_) => {
++            Err(error) => {
+                 control.lock().unwrap().stopping = true;
+-                return;
++                return Err(error);
+             }
+         };
+         let Some((job, payload, cancel, frame)) = claimed else {
+             continue;
+         };
+         let job_children = children.for_job(frame.clone());
+         let _ = events.send(IntelligenceEvent::JobChanged { job: job.clone() });
+         let result = match handlers.get(&job.kind) {
+             Some(handler) => std::panic::AssertUnwindSafe(handler.run(
+                 JobContext {
+@@ -668,119 +771,156 @@ async fn worker(
+                     children: job_children.clone(),
+                 },
+                 payload,
+             ))
+             .catch_unwind()
+             .await
+             .unwrap_or(Err(IntelligenceErrorCode::Interrupted)),
+             None => Err(IntelligenceErrorCode::Configuration),
+         };
+         let notice = if result.is_ok() {
+-            after_terminal
+-                .as_ref()
+-                .and_then(|hook| store.transaction(|tx| hook.notice(tx, &job)).ok().flatten())
++            if let Some(hook) = after_terminal.clone() {
++                let storage = store.clone();
++                let noticed_job = job.clone();
++                sql.run(owner.clone(), move || {
++                    storage.transaction(|tx| hook.notice(tx, &noticed_job))
++                })
++                .await
++                .ok()
++                .flatten()
++            } else {
++                None
++            }
+         } else {
+             None
+         };
++        if sql.failed() {
++            return Err(error(IntelligenceErrorCode::Interrupted));
++        }
+         // Reservation happens while this context is still active and Running.
+         // ConfigIo never acquires an owner from a terminal context.
+         let continuation = notice.as_ref().and_then(|_| {
+             JobContext {
+                 id: job.id,
+                 cancel: cancel.clone(),
+                 fence: JobAdmissionFence {
+                     control: control.clone(),
+                     closed: closed.clone(),
+                     cancel: stop.clone(),
+                 },
+                 children: job_children,
+             }
+             .operation_owner()
+             .ok()
+         });
+         frame.close_handler();
+-        let finished = store.transaction(|tx| {
+-            let mut c = control.lock().unwrap();
+-            let was_running = store::job_in_transaction(tx, job.id)?
+-                .is_some_and(|job| job.status == JobStatus::Running);
+-            let is_cancelled = *cancel.borrow();
+-            let (status, code) = if is_cancelled {
+-                (JobStatus::Cancelled, Some(IntelligenceErrorCode::Cancelled))
+-            } else {
+-                match result {
+-                    Ok(()) => (JobStatus::Succeeded, None),
+-                    Err(IntelligenceErrorCode::Cancelled) => {
++        let storage = store.clone();
++        let finish_control = control.clone();
++        let finish_handlers = handlers.clone();
++        let finish_hook = after_terminal.clone();
++        let finish_notice = notice.clone();
++        let finish_cancel = cancel.clone();
++        let has_continuation = continuation.is_some();
++        let id = job.id;
++        let finished = sql
++            .run(owner.clone(), move || {
++                storage.transaction(|tx| {
++                    let mut c = finish_control.lock().unwrap();
++                    let was_running = store::job_in_transaction(tx, id)?
++                        .is_some_and(|job| job.status == JobStatus::Running);
++                    let is_cancelled = *finish_cancel.borrow();
++                    let (status, code) = if is_cancelled {
+                         (JobStatus::Cancelled, Some(IntelligenceErrorCode::Cancelled))
++                    } else {
++                        match result {
++                            Ok(()) => (JobStatus::Succeeded, None),
++                            Err(IntelligenceErrorCode::Cancelled) => {
++                                (JobStatus::Cancelled, Some(IntelligenceErrorCode::Cancelled))
++                            }
++                            Err(IntelligenceErrorCode::Interrupted) => (
++                                JobStatus::Interrupted,
++                                Some(IntelligenceErrorCode::Interrupted),
++                            ),
++                            Err(e) => (JobStatus::Failed, Some(e)),
++                        }
++                    };
++                    transition_tx(tx, id, "running", status, code, &finish_handlers, false)?;
++                    c.active.remove(&id);
++                    let succeeded = was_running && status == JobStatus::Succeeded;
++                    if succeeded && !has_continuation {
++                        if let (Some(hook), Some(notice)) = (&finish_hook, &finish_notice) {
++                            hook.deferred(tx, notice)?;
++                        }
+                     }
+-                    Err(IntelligenceErrorCode::Interrupted) => (
+-                        JobStatus::Interrupted,
+-                        Some(IntelligenceErrorCode::Interrupted),
+-                    ),
+-                    Err(e) => (JobStatus::Failed, Some(e)),
+-                }
+-            };
+-            transition_tx(tx, job.id, "running", status, code, &handlers, false)?;
+-            c.active.remove(&job.id);
+-            let succeeded = was_running && status == JobStatus::Succeeded;
+-            if succeeded && continuation.is_none() {
+-                if let (Some(hook), Some(notice)) = (&after_terminal, &notice) {
+-                    hook.deferred(tx, notice)?;
+-                }
+-            }
+-            Ok(succeeded)
+-        });
++                    Ok(succeeded)
++                })
++            })
++            .await;
+         if finished.is_ok() {
+-            if let Ok(Some(job)) = store.get_job(job.id) {
++            let storage = store.clone();
++            if let Ok(Some(job)) = sql.run(owner.clone(), move || storage.get_job(id)).await {
+                 let _ = events.send(IntelligenceEvent::JobChanged { job });
+             }
+         }
++        if sql.failed() {
++            return Err(error(IntelligenceErrorCode::Interrupted));
++        }
+         if matches!(finished, Ok(true)) {
+             if let (Some(hook), Some(notice), Some(owner)) = (&after_terminal, notice, continuation)
+             {
+                 hook.succeeded(
+                     notice,
+                     owner,
+                     JobAdmissionFence {
+                         control: control.clone(),
+                         closed: closed.clone(),
+                         cancel: stop.clone(),
+                     },
+                 )
+                 .await;
+             }
+         }
+         if let Some(handler) = handlers.get(&job.kind) {
+             let _ = handler.cleanup(Some(job.id)).await;
+         }
+-        if reap.prune().is_err() {
+-            return;
+-        }
++        reap.prune()?;
+         wake.notify_one();
+     }
+ }
+ fn claim(
+     store: &LocalStore,
+     control: &Mutex<Control>,
+     closed: &AtomicBool,
+     reap: &Arc<reap::Registry>,
++    #[cfg(test)] oo1_claim_probe: &Mutex<Option<Oo1ClaimProbe>>,
+ ) -> AppResult<
+     Option<(
+         JobView,
+         serde_json::Value,
+         watch::Receiver<bool>,
+         Arc<reap::Frame>,
+     )>,
+ > {
+     use rusqlite::OptionalExtension;
+     let mut attempted = None;
++    #[cfg(test)]
++    let oo1_observer = oo1_claim_probe.lock().unwrap().clone();
++    #[cfg(test)]
++    if let Some(observer) = &oo1_observer {
++        observer("before_sql_lock", closed.load(Ordering::Acquire));
++    }
+     let claimed = store
+         .transaction(|tx| {
++            #[cfg(test)]
++            if let Some(observer) = &oo1_observer {
++                observer("after_sql_lock", closed.load(Ordering::Acquire));
++            }
+             let mut control = control.lock().unwrap();
+             if control.stopping || closed.load(Ordering::Acquire) {
+                 return Ok(None);
+             }
+             let row: Option<(String, String)> = tx
+                 .query_row(
+                     "SELECT id,payload_json FROM \
+                     intelligence_jobs WHERE status='queued' \
+                     ORDER BY rowid LIMIT 1",
+                     [],
+diff --git a/src-tauri/src/intelligence/jobs/maintenance.rs b/src-tauri/src/intelligence/jobs/maintenance.rs
+new file mode 100644
+index 0000000..e5f53b1
+--- /dev/null
++++ b/src-tauri/src/intelligence/jobs/maintenance.rs
+@@ -0,0 +1,208 @@
++//! One coalesced local SQL owner per scheduler generation.
++use super::*;
++use crate::storage::SqlSlot;
++
++#[derive(Default)]
++struct Requests {
++    queued: bool,
++    queued_complete: bool,
++    interrupt: u64,
++    interrupted: u64,
++    finish: bool,
++    finished: bool,
++    failed: bool,
++}
++
++#[derive(Default)]
++pub(super) struct Maintenance {
++    requests: Mutex<Requests>,
++    changed: Notify,
++    sql: SqlSlot,
++}
++
++enum Work {
++    Queued,
++    Interrupt(u64),
++    Finish,
++    Wait,
++}
++
++impl Maintenance {
++    pub(super) fn request_queued(&self) {
++        let mut requests = self.requests.lock().unwrap();
++        if !requests.finished && !requests.queued_complete {
++            requests.queued = true;
++        }
++        drop(requests);
++        self.changed.notify_waiters();
++    }
++
++    pub(super) fn request_interrupt(&self) -> AppResult<u64> {
++        let mut requests = self.requests.lock().unwrap();
++        if requests.failed {
++            return Err(error(IntelligenceErrorCode::Interrupted));
++        }
++        if !requests.finished && requests.interrupt == requests.interrupted {
++            requests.interrupt = requests
++                .interrupt
++                .checked_add(1)
++                .ok_or_else(|| error(IntelligenceErrorCode::ResourceLimit))?;
++        }
++        let round = requests.interrupt;
++        drop(requests);
++        self.changed.notify_waiters();
++        Ok(round)
++    }
++
++    pub(super) async fn observe_interrupt(&self, round: u64) -> AppResult<()> {
++        loop {
++            let changed = self.changed.notified();
++            tokio::pin!(changed);
++            changed.as_mut().enable();
++            {
++                let requests = self.requests.lock().unwrap();
++                if requests.failed {
++                    return Err(error(IntelligenceErrorCode::Interrupted));
++                }
++                if requests.interrupted >= round {
++                    return Ok(());
++                }
++            }
++            changed.await;
++        }
++    }
++
++    pub(super) fn finish(&self) {
++        let mut requests = self.requests.lock().unwrap();
++        requests.finish = true;
++        if !requests.queued_complete {
++            requests.queued = true;
++        }
++        drop(requests);
++        self.changed.notify_waiters();
++    }
++
++    pub(super) async fn drain(&self) -> AppResult<()> {
++        self.sql.drain().await
++    }
++
++    pub(super) fn start(
++        self: &Arc<Self>,
++        store: Arc<LocalStore>,
++        handlers: Arc<Handlers>,
++        events: broadcast::Sender<IntelligenceEvent>,
++        owner: OperationLease,
++    ) -> tokio::task::JoinHandle<AppResult<()>> {
++        let maintenance = self.clone();
++        tokio::spawn(async move {
++            loop {
++                let changed = maintenance.changed.notified();
++                tokio::pin!(changed);
++                changed.as_mut().enable();
++                let work = {
++                    let requests = maintenance.requests.lock().unwrap();
++                    if requests.queued {
++                        Work::Queued
++                    } else if requests.interrupt > requests.interrupted {
++                        Work::Interrupt(requests.interrupt)
++                    } else if requests.finish {
++                        Work::Finish
++                    } else {
++                        Work::Wait
++                    }
++                };
++                let round = match work {
++                    Work::Wait => {
++                        changed.await;
++                        continue;
++                    }
++                    Work::Finish => {
++                        maintenance.sql.drain().await?;
++                        let mut requests = maintenance.requests.lock().unwrap();
++                        // A timeout observer may request interruption while
++                        // drain yields. Retire only after that exact round.
++                        if requests.queued || requests.interrupt > requests.interrupted {
++                            continue;
++                        }
++                        requests.finished = true;
++                        drop(requests);
++                        maintenance.changed.notify_waiters();
++                        return Ok(());
++                    }
++                    Work::Queued => None,
++                    Work::Interrupt(round) => Some(round),
++                };
++                let storage = store.clone();
++                let callbacks = handlers.clone();
++                let result = maintenance
++                    .sql
++                    .run(owner.clone(), move || {
++                        if round.is_some() {
++                            interrupt(&storage, &callbacks)
++                        } else {
++                            cancel_queued(&storage, &callbacks)
++                        }
++                    })
++                    .await;
++                match result {
++                    Ok(jobs) => {
++                        for job in jobs {
++                            let _ = events.send(IntelligenceEvent::JobChanged { job });
++                        }
++                        let mut requests = maintenance.requests.lock().unwrap();
++                        if let Some(round) = round {
++                            requests.interrupted = round;
++                        } else {
++                            requests.queued = false;
++                            requests.queued_complete = true;
++                        }
++                        drop(requests);
++                        maintenance.changed.notify_waiters();
++                    }
++                    Err(error) => {
++                        if maintenance.sql.failed() {
++                            maintenance.requests.lock().unwrap().failed = true;
++                            maintenance.changed.notify_waiters();
++                            return Err(error);
++                        }
++                        // Local retry retains this exact owner and one actual
++                        // slot. An observer deadline does not submit a new task.
++                        tokio::time::sleep(Duration::from_millis(20)).await;
++                    }
++                }
++            }
++        })
++    }
++}
++
++fn cancel_queued(store: &LocalStore, handlers: &Handlers) -> AppResult<Vec<JobView>> {
++    store
++        .transaction(|tx| {
++            let ids = tx
++                .prepare("SELECT id FROM intelligence_jobs WHERE status='queued' LIMIT 33")?
++                .query_map([], |row| row.get::<_, String>(0))?
++                .collect::<Result<Vec<_>, _>>()?;
++            if ids.len() > store::MAX_UNFINISHED {
++                return Err(error(IntelligenceErrorCode::ResourceLimit));
++            }
++            let mut changed = Vec::with_capacity(ids.len());
++            for raw in ids {
++                let id =
++                    Uuid::parse_str(&raw).map_err(|_| error(IntelligenceErrorCode::Storage))?;
++                transition_tx(
++                    tx,
++                    id,
++                    "queued",
++                    JobStatus::Cancelled,
++                    Some(IntelligenceErrorCode::Cancelled),
++                    handlers,
++                    false,
++                )?;
++                if let Some(job) = store::job_in_transaction(tx, id)? {
++                    changed.push(job);
++                }
++            }
++            Ok(changed)
++        })
++        .map_err(store::safe_store_error)
++}
+diff --git a/src-tauri/src/intelligence/jobs/tests.rs b/src-tauri/src/intelligence/jobs/tests.rs
+index aae40a2..b61c4e3 100644
+--- a/src-tauri/src/intelligence/jobs/tests.rs
++++ b/src-tauri/src/intelligence/jobs/tests.rs
+@@ -1,20 +1,72 @@
+ use super::*;
+ mod child_operations;
+ mod continuations;
+ mod documents;
++mod oo1_storage;
+ mod reap;
++mod stop_race;
+ use crate::intelligence::test_support::*;
+ use std::{
+     sync::atomic::{AtomicUsize, Ordering},
+     time::Duration,
+ };
++
++// Test arrangement only: pause after the real stop future returned Pending,
++// before the same select invocation observes an actual worker join.
++pub(super) enum StopPollPoint {
++    Pending,
++    Joined { normal: bool },
++}
++
++pub(super) async fn observe_stop_poll(
++    future: impl std::future::Future<Output = ()>,
++    probe: &Arc<Mutex<Option<Oo1StopPollProbe>>>,
++) {
++    let mut future = std::pin::pin!(future);
++    std::future::poll_fn(|cx| {
++        let poll = std::future::Future::poll(future.as_mut(), cx);
++        if poll.is_pending() {
++            let probe = probe.lock().unwrap().clone();
++            if let Some(probe) = probe {
++                probe(StopPollPoint::Pending);
++            }
++        }
++        poll
++    })
++    .await;
++}
++
++// Completion flags can precede JoinSet's ready notification. In this single
++// controlled poll window, await only the real join future's Ready receipt;
++// never fabricate one or consume a replacement handle. Outside the fixture
++// this is precisely the original join future with no extra polling.
++pub(super) async fn observe_worker_join<T>(
++    future: impl std::future::Future<Output = T>,
++    probe: &Arc<Mutex<Option<Oo1StopPollProbe>>>,
++) -> T {
++    if probe.lock().unwrap().is_none() {
++        return future.await;
++    }
++    let mut future = std::pin::pin!(future);
++    let deadline = std::time::Instant::now() + Duration::from_secs(2);
++    std::future::poll_fn(|cx| {
++        loop {
++            let poll = std::future::Future::poll(future.as_mut(), cx);
++            if poll.is_ready() || std::time::Instant::now() >= deadline {
++                return poll;
++            }
++            std::thread::yield_now();
++        }
++    })
++    .await
++}
+ struct Handler {
+     calls: Arc<AtomicUsize>,
+     release: Arc<tokio::sync::Notify>,
+     fail: bool,
+ }
+ #[async_trait::async_trait]
+ impl JobHandler for Handler {
+     async fn run(
+         &self,
+         mut context: JobContext,
+diff --git a/src-tauri/src/intelligence/jobs/tests/oo1_storage.rs b/src-tauri/src/intelligence/jobs/tests/oo1_storage.rs
+new file mode 100644
+index 0000000..ed8034d
+--- /dev/null
++++ b/src-tauri/src/intelligence/jobs/tests/oo1_storage.rs
+@@ -0,0 +1,318 @@
++use super::*;
++use std::{
++    future::{Future, poll_fn},
++    sync::mpsc as thread_channel,
++    task::Poll,
++    time::Instant,
++};
++use tokio::sync::oneshot;
++
++struct HeldHandler {
++    contexts: mpsc::Sender<JobContext>,
++    ended: thread_channel::Sender<()>,
++    release: Semaphore,
++    interrupted: AtomicUsize,
++    cancelled: AtomicUsize,
++}
++#[async_trait::async_trait]
++impl JobHandler for HeldHandler {
++    async fn run(
++        &self,
++        context: JobContext,
++        _: serde_json::Value,
++    ) -> Result<(), IntelligenceErrorCode> {
++        self.contexts.send(context).await.unwrap();
++        self.release.acquire().await.unwrap().forget();
++        let _ = self.ended.send(());
++        Ok(())
++    }
++    fn terminal_tx(
++        &self,
++        _: &rusqlite::Transaction<'_>,
++        _: Uuid,
++        status: JobStatus,
++        _: Option<IntelligenceErrorCode>,
++        _: bool,
++    ) -> AppResult<()> {
++        match status {
++            JobStatus::Interrupted => {
++                self.interrupted.fetch_add(1, Ordering::SeqCst);
++            }
++            JobStatus::Cancelled => {
++                self.cancelled.fetch_add(1, Ordering::SeqCst);
++            }
++            _ => {}
++        }
++        Ok(())
++    }
++}
++fn fixture() -> (
++    IntelligenceHarness,
++    Arc<HeldHandler>,
++    mpsc::Receiver<JobContext>,
++    thread_channel::Receiver<()>,
++    std::sync::Weak<std::fs::File>,
++) {
++    let mut h = IntelligenceHarness::new();
++    Arc::get_mut(&mut h.jobs).unwrap().shutdown_timeout = Duration::from_millis(30);
++    let (contexts, receiver) = mpsc::channel(2);
++    let (ended, finished) = thread_channel::channel();
++    let handler = Arc::new(HeldHandler {
++        contexts,
++        ended,
++        release: Semaphore::new(0),
++        interrupted: AtomicUsize::new(0),
++        cancelled: AtomicUsize::new(0),
++    });
++    h.jobs.register(JobKind::Import, handler.clone()).unwrap();
++    let file = std::fs::File::options()
++        .read(true)
++        .write(true)
++        .create_new(true)
++        .open(h.temp_dir.path().join("oo1-scheduler-process.lock"))
++        .unwrap();
++    fs2::FileExt::try_lock_exclusive(&file).unwrap();
++    let process = Arc::new(file);
++    let weak = Arc::downgrade(&process);
++    h.jobs.start_owned(process).unwrap();
++    (h, handler, receiver, finished, weak)
++}
++
++// Two real, nonempty original handlers end while SQLite is held. Their
++// terminal writes must yield just as empty claims do, then actually join.
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn nonempty_worker_terminal_sql_keeps_timers_pollable_and_joins_before_retirement() {
++    let (h, handler, mut contexts, ended, process) = fixture();
++    let first = enqueue(&h.jobs, Uuid::new_v4()).await.unwrap();
++    let second = enqueue(&h.jobs, Uuid::new_v4()).await.unwrap();
++    let a = contexts.recv().await.unwrap();
++    let b = contexts.recv().await.unwrap();
++    assert_ne!(a.id, b.id);
++    let count = Arc::new(AtomicUsize::new(0));
++    let (stop, mut stopping) = watch::channel(false);
++    let (ready, waiting) = oneshot::channel();
++    let heartbeat = tokio::spawn({
++        let count = count.clone();
++        async move {
++            let mut tick = tokio::time::interval(Duration::from_millis(25));
++            let mut ready = Some(ready);
++            loop {
++                tokio::select! {
++                    biased;
++                    _ = stopping.changed() => break,
++                    _ = tick.tick() => {
++                        count.fetch_add(1, Ordering::SeqCst);
++                        if let Some(ready) = ready.take() { let _ = ready.send(()); }
++                    }
++                }
++            }
++        }
++    });
++    waiting.await.unwrap();
++    let (done, observed) = oneshot::channel();
++    let blocker = std::thread::spawn({
++        let store = h.store.clone();
++        let handler = handler.clone();
++        let count = count.clone();
++        move || {
++            let result = store.transaction(|_| {
++                handler.release.add_permits(2);
++                let returned = ended.recv_timeout(Duration::from_secs(2)).is_ok()
++                    && ended.recv_timeout(Duration::from_secs(2)).is_ok();
++                let start = Instant::now();
++                let before = count.load(Ordering::SeqCst);
++                let mut samples = Vec::new();
++                for at in [150, 300, 450] {
++                    std::thread::sleep(
++                        (start + Duration::from_millis(at))
++                            .saturating_duration_since(Instant::now()),
++                    );
++                    samples.push(count.load(Ordering::SeqCst));
++                }
++                Ok((returned, before, samples))
++            });
++            let _ = done.send(());
++            result
++        }
++    });
++    observed.await.unwrap();
++    let (returned, before, samples) = blocker.join().unwrap().unwrap();
++    status(&h, first.id, JobStatus::Succeeded).await;
++    status(&h, second.id, JobStatus::Succeeded).await;
++    let stopped = h.jobs.shutdown().await;
++    stop.send_replace(true);
++    let heartbeat_joined = heartbeat.await.is_ok();
++    assert!(returned && heartbeat_joined && stopped.is_ok());
++    assert!(process.upgrade().is_none());
++    assert!(
++        samples[0] > before && samples.windows(2).all(|pair| pair[1] > pair[0]),
++        "nonempty worker terminal SQL starved the original two-worker executor: {samples:?}"
++    );
++}
++
++// Repeated/dropped shutdown observations share actual queued/interruption
++// work; an old observer cannot interrupt a later generation after real joins.
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn held_sql_shutdown_observer_loss_coalesces_durable_work_and_fences_old_generation() {
++    let (h, handler, mut contexts, _ended, process) = fixture();
++    let first = enqueue(&h.jobs, Uuid::new_v4()).await.unwrap();
++    let second = enqueue(&h.jobs, Uuid::new_v4()).await.unwrap();
++    let a = contexts.recv().await.unwrap();
++    let b = contexts.recv().await.unwrap();
++    let queued = enqueue(&h.jobs, Uuid::new_v4()).await.unwrap();
++    assert_eq!(
++        h.store.get_job(queued.id).unwrap().unwrap().status,
++        JobStatus::Queued
++    );
++    let held = Arc::new(AtomicBool::new(false));
++    let (entered, waiting) = oneshot::channel();
++    let (done, released) = oneshot::channel();
++    let blocker = std::thread::spawn({
++        let store = h.store.clone();
++        let held = held.clone();
++        move || {
++            let result = store.transaction(|_| {
++                held.store(true, Ordering::Release);
++                let _ = entered.send(());
++                std::thread::sleep(Duration::from_millis(450));
++                held.store(false, Ordering::Release);
++                Ok(())
++            });
++            let _ = done.send(());
++            result
++        }
++    });
++    waiting.await.unwrap();
++    let mut lost = Box::pin(h.jobs.shutdown());
++    let lost_pending = poll_fn(|cx| Poll::Ready(lost.as_mut().poll(cx)))
++        .await
++        .is_pending();
++    drop(lost);
++    let mut late = Box::pin(h.jobs.shutdown());
++    let late_pending = poll_fn(|cx| Poll::Ready(late.as_mut().poll(cx)))
++        .await
++        .is_pending();
++    let fenced = *a.cancel.borrow()
++        && *b.cancel.borrow()
++        && a.operation_owner().is_err()
++        && b.operation_owner().is_err();
++    let mut observations = Vec::new();
++    for _ in 0..3 {
++        let result = h.jobs.shutdown().await;
++        observations.push((
++            result.is_err(),
++            held.load(Ordering::Acquire),
++            process.upgrade().is_some(),
++        ));
++    }
++    released.await.unwrap();
++    blocker.join().unwrap().unwrap();
++    status(&h, first.id, JobStatus::Interrupted).await;
++    status(&h, second.id, JobStatus::Interrupted).await;
++    status(&h, queued.id, JobStatus::Cancelled).await;
++    let no_rearm = h.jobs.start().is_err();
++    handler.release.add_permits(2);
++    h.jobs.shutdown().await.unwrap();
++    let prior_released = process.upgrade().is_none();
++    h.jobs.start().unwrap();
++    let new = enqueue(&h.jobs, Uuid::new_v4()).await.unwrap();
++    let current = contexts.recv().await.unwrap();
++    let old_result = late.await;
++    let new_status = h.store.get_job(new.id).unwrap().unwrap().status;
++    h.jobs.request_shutdown().unwrap();
++    handler.release.add_permits(1);
++    h.jobs.shutdown().await.unwrap();
++    assert!(lost_pending && late_pending && fenced && no_rearm && prior_released);
++    assert!(
++        observations
++            .iter()
++            .all(|&(error, held, retained)| error && held && retained),
++        "held SQLite stalled a shutdown observer or lost actual ownership: {observations:?}"
++    );
++    assert_eq!(handler.interrupted.load(Ordering::SeqCst), 2);
++    assert_eq!(handler.cancelled.load(Ordering::SeqCst), 2);
++    assert!(old_result.is_ok());
++    assert_eq!(current.id, new.id);
++    assert_eq!(new_status, JobStatus::Running);
++}
++
++// Abort one original worker while its actual claim waits on SQLite. The
++// generation must retain and drain that genuine handle, then fail closed.
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn original_worker_loss_retains_claim_sql_and_never_publishes_joined_or_rearm() {
++    let mut h = IntelligenceHarness::new();
++    Arc::get_mut(&mut h.jobs).unwrap().shutdown_timeout = Duration::from_millis(30);
++    let handler = handler();
++    h.jobs.register(JobKind::Import, handler.clone()).unwrap();
++    let file = std::fs::File::options()
++        .read(true)
++        .write(true)
++        .create_new(true)
++        .open(h.temp_dir.path().join("oo1-aborted-worker.lock"))
++        .unwrap();
++    fs2::FileExt::try_lock_exclusive(&file).unwrap();
++    let process = Arc::new(file);
++    let weak = Arc::downgrade(&process);
++    let (entered, waiting) = oneshot::channel();
++    let (done, released) = oneshot::channel();
++    let held = Arc::new(AtomicBool::new(false));
++    let blocker = std::thread::spawn({
++        let store = h.store.clone();
++        let held = held.clone();
++        move || {
++            let result = store.transaction(|_| {
++                held.store(true, Ordering::Release);
++                let _ = entered.send(());
++                std::thread::sleep(Duration::from_millis(450));
++                held.store(false, Ordering::Release);
++                Ok(())
++            });
++            let _ = done.send(());
++            result
++        }
++    });
++    waiting.await.unwrap();
++    let (claims, issued) = oneshot::channel();
++    let claims = Arc::new(Mutex::new(Some(claims)));
++    let count = Arc::new(AtomicUsize::new(0));
++    *h.jobs.oo1_claim_probe.lock().unwrap() = Some(Arc::new(move |phase, _| {
++        if phase == "before_sql_lock" && count.fetch_add(1, Ordering::SeqCst) == 1 {
++            if let Some(claims) = claims.lock().unwrap().take() {
++                let _ = claims.send(());
++            }
++        }
++    }));
++    h.jobs.start_owned(process).unwrap();
++    let both_issued = matches!(
++        tokio::time::timeout(Duration::from_secs(2), issued).await,
++        Ok(Ok(()))
++    );
++    let abort = h.jobs.oo1_workers.lock().unwrap()[0].clone();
++    abort.abort();
++    let observer = h.jobs.shutdown().await;
++    let pending_owned =
++        observer.is_err() && held.load(Ordering::Acquire) && weak.upgrade().is_some();
++    released.await.unwrap();
++    blocker.join().unwrap().unwrap();
++    let final_observer = h.jobs.shutdown().await;
++    let actually_released = tokio::time::timeout(Duration::from_secs(2), async {
++        while weak.upgrade().is_some() {
++            tokio::task::yield_now().await;
++        }
++    })
++    .await
++    .is_ok();
++    let joined_published = *h
++        .jobs
++        .state
++        .lock()
++        .unwrap()
++        .generation
++        .as_ref()
++        .unwrap()
++        .completion
++        .borrow();
++    assert!(both_issued && pending_owned && actually_released && abort.is_finished());
++    assert!(final_observer.is_err() && !joined_published && h.jobs.start().is_err());
++    assert_eq!(handler.calls.load(Ordering::SeqCst), 0);
++}
+diff --git a/src-tauri/src/intelligence/jobs/tests/reap.rs b/src-tauri/src/intelligence/jobs/tests/reap.rs
+index c5d2154..6e5f745 100644
+--- a/src-tauri/src/intelligence/jobs/tests/reap.rs
++++ b/src-tauri/src/intelligence/jobs/tests/reap.rs
+@@ -307,23 +307,29 @@ async fn intelligence_reap_claim_before_handler_entry_is_not_terminal_authority(
+     let control = h
+         .jobs
+         .state
+         .lock()
+         .unwrap()
+         .generation
+         .as_ref()
+         .unwrap()
+         .control
+         .clone();
+-    let (job, _, _, frame) = claim(&h.store, &control, &h.jobs.closed, &h.jobs.reap)
+-        .unwrap()
+-        .unwrap();
++    let (job, _, _, frame) = claim(
++        &h.store,
++        &control,
++        &h.jobs.closed,
++        &h.jobs.reap,
++        &h.jobs.oo1_claim_probe,
++    )
++    .unwrap()
++    .unwrap();
+     assert_eq!(job.id, id);
+     h.store
+         .transaction(|tx| {
+             tx.execute(
+                 "UPDATE intelligence_jobs SET status='interrupted' WHERE id=?1",
+                 [id.to_string()],
+             )?;
+             Ok(())
+         })
+         .unwrap();
+@@ -355,21 +361,30 @@ async fn intelligence_reap_claim_rollback_keeps_ledger_complete_and_allows_retry
+         .clone();
+     h.store
+         .transaction(|tx| {
+             tx.execute_batch(
+                 "CREATE TRIGGER reject_claim BEFORE UPDATE OF status ON intelligence_jobs \
+             WHEN NEW.status='running' BEGIN SELECT RAISE(ABORT,'claim rollback'); END;",
+             )?;
+             Ok(())
+         })
+         .unwrap();
+-    assert!(claim(&h.store, &control, &h.jobs.closed, &h.jobs.reap).is_err());
++    assert!(
++        claim(
++            &h.store,
++            &control,
++            &h.jobs.closed,
++            &h.jobs.reap,
++            &h.jobs.oo1_claim_probe
++        )
++        .is_err()
++    );
+     assert!(!proved(&h, id).unwrap());
+     assert!(!control.lock().unwrap().active.contains_key(&id));
+     h.store
+         .transaction(|tx| {
+             tx.execute_batch("DROP TRIGGER reject_claim")?;
+             Ok(())
+         })
+         .unwrap();
+     h.jobs.wake();
+     let context = tokio::time::timeout(Duration::from_secs(2), receiver.recv())
+@@ -470,23 +485,29 @@ async fn intelligence_reap_shutdown_rejects_unfinished_factory_without_waiting_f
+     let control = h
+         .jobs
+         .state
+         .lock()
+         .unwrap()
+         .generation
+         .as_ref()
+         .unwrap()
+         .control
+         .clone();
+-    let (_, _, _, frame) = claim(&h.store, &control, &h.jobs.closed, &h.jobs.reap)
+-        .unwrap()
+-        .unwrap();
++    let (_, _, _, frame) = claim(
++        &h.store,
++        &control,
++        &h.jobs.closed,
++        &h.jobs.reap,
++        &h.jobs.oo1_claim_probe,
++    )
++    .unwrap()
++    .unwrap();
+     let completion = frame.child().unwrap();
+     let stopped = tokio::time::timeout(Duration::from_millis(20), h.jobs.shutdown()).await;
+     assert!(
+         matches!(stopped, Ok(Err(_))),
+         "an unfinished factory must fail closed instead of waiting for an impossible handler end"
+     );
+     assert!(!proved(&h, id).unwrap());
+     assert!(h.jobs.start().is_err());
+     // This fixture owns the unentered claim; no handler was issued.
+     drop(completion);
+@@ -539,23 +560,29 @@ async fn summary_reap_claim_before_handler_entry_keeps_delete_and_recovery_fence
+         let control = h
+             .jobs
+             .state
+             .lock()
+             .unwrap()
+             .generation
+             .as_ref()
+             .unwrap()
+             .control
+             .clone();
+-        let (job, _, _, frame) = claim(&h.store, &control, &h.jobs.closed, &h.jobs.reap)
+-            .unwrap()
+-            .unwrap();
++        let (job, _, _, frame) = claim(
++            &h.store,
++            &control,
++            &h.jobs.closed,
++            &h.jobs.reap,
++            &h.jobs.oo1_claim_probe,
++        )
++        .unwrap()
++        .unwrap();
+         assert_eq!(job.id, stored.id);
+         h.store.transaction(|tx| {tx.execute("UPDATE intelligence_jobs SET status='interrupted',error_code='interrupted' WHERE id=?1",[job.id.to_string()])?;if recovery {tx.execute("UPDATE session_summaries SET deleting=1 WHERE id=?1",[stored.object_id.unwrap().to_string()])?;}Ok(())}).unwrap();
+         assert!(!proved(&h, job.id).unwrap());
+         let id = stored.object_id.unwrap();
+         let mut operation = Box::pin(async {
+             if recovery {
+                 summary
+                     .reconcile_local_owned(owner.clone(), 1, h.jobs.reap_port())
+                     .await
+                     .map(|_| ())
+diff --git a/src-tauri/src/intelligence/jobs/tests/stop_race.rs b/src-tauri/src/intelligence/jobs/tests/stop_race.rs
+new file mode 100644
+index 0000000..66b7b8d
+--- /dev/null
++++ b/src-tauri/src/intelligence/jobs/tests/stop_race.rs
+@@ -0,0 +1,155 @@
++use super::*;
++use std::time::Instant;
++
++// Regression: a requested, genuinely joined normal worker exit may win after
++// stop returned Pending in the same select poll. It must not poison close.
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn requested_stop_between_stop_poll_and_worker_join_closes_and_rearms() {
++    stop_at_pending_poll(false).await;
++}
++
++// The same window cannot turn a genuinely aborted worker into a successful
++// join merely because stop was requested. Actual leases still drain first.
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn requested_stop_between_stop_poll_and_worker_join_keeps_abnormal_exit_failed() {
++    stop_at_pending_poll(true).await;
++}
++
++async fn stop_at_pending_poll(abort_worker: bool) {
++    let h = IntelligenceHarness::new();
++    let handler = handler();
++    h.jobs.register(JobKind::Import, handler.clone()).unwrap();
++    let path = h.temp_dir.path().join("stop-poll-process.lock");
++    let process = Arc::new(
++        std::fs::File::options()
++            .read(true)
++            .write(true)
++            .create_new(true)
++            .open(&path)
++            .unwrap(),
++    );
++    fs2::FileExt::try_lock_exclusive(&*process).unwrap();
++    let retained = Arc::downgrade(&process);
++    let polls = Arc::new(AtomicUsize::new(0));
++    let original_workers = Arc::new(AtomicUsize::new(0));
++    let initially_open = Arc::new(AtomicBool::new(false));
++    let ready_to_join = Arc::new(AtomicBool::new(false));
++    let probe_finished = Arc::new(AtomicBool::new(false));
++    let joined_observed = Arc::new(AtomicBool::new(false));
++    let joined_normally = Arc::new(AtomicBool::new(false));
++    let aborted_before_stop = Arc::new(AtomicBool::new(false));
++    *h.jobs.oo1_stop_poll_probe.lock().unwrap() = Some(Arc::new({
++        let jobs = Arc::downgrade(&h.jobs);
++        let polls = polls.clone();
++        let original_workers = original_workers.clone();
++        let initially_open = initially_open.clone();
++        let ready_to_join = ready_to_join.clone();
++        let probe_finished = probe_finished.clone();
++        let joined_observed = joined_observed.clone();
++        let joined_normally = joined_normally.clone();
++        let aborted_before_stop = aborted_before_stop.clone();
++        move |point| {
++            if let StopPollPoint::Joined { normal } = point {
++                joined_normally.store(normal, Ordering::Release);
++                joined_observed.store(true, Ordering::Release);
++                return;
++            }
++            if polls.fetch_add(1, Ordering::SeqCst) != 0 {
++                return;
++            }
++            let jobs = jobs.upgrade().unwrap();
++            initially_open.store(!*jobs.signal.borrow(), Ordering::Release);
++            let workers = jobs.oo1_workers.lock().unwrap().clone();
++            original_workers.store(workers.len(), Ordering::Release);
++            if abort_worker {
++                workers[0].abort();
++                // abort() is a request, and a running poll can still return
++                // normally after stop. Finish abortion while stop is false;
++                // this idle worker has no normal exit available in that window.
++                let deadline = Instant::now() + Duration::from_secs(2);
++                while !workers[0].is_finished() && Instant::now() < deadline {
++                    std::thread::yield_now();
++                }
++                aborted_before_stop.store(
++                    workers[0].is_finished() && !*jobs.signal.borrow(),
++                    Ordering::Release,
++                );
++            }
++            jobs.signal_shutdown();
++            // Only this test's supervisor is paused. An original worker runs
++            // on the other thread, so join_next can observe its real handle
++            // before stop is repolled. The remaining worker drains normally
++            // after this supervisor poll resumes.
++            let deadline = Instant::now() + Duration::from_secs(2);
++            while !workers.iter().any(|worker| worker.is_finished()) && Instant::now() < deadline {
++                std::thread::yield_now();
++            }
++            ready_to_join.store(
++                workers.iter().any(|worker| worker.is_finished()),
++                Ordering::Release,
++            );
++            probe_finished.store(true, Ordering::Release);
++        }
++    }));
++    h.jobs.start_owned(process).unwrap();
++    let completion = h
++        .jobs
++        .state
++        .lock()
++        .unwrap()
++        .generation
++        .as_ref()
++        .unwrap()
++        .completion
++        .clone();
++    // The probe issues the stop. Await its actual generation completion rather
++    // than racing the test's first shutdown call against the initial poll.
++    let observed = tokio::time::timeout(Duration::from_secs(5), async {
++        while !probe_finished.load(Ordering::Acquire) {
++            tokio::task::yield_now().await;
++        }
++    })
++    .await;
++    let close = h.jobs.shutdown().await;
++    let actual_process_join = tokio::time::timeout(Duration::from_secs(2), async {
++        while retained.upgrade().is_some() {
++            tokio::task::yield_now().await;
++        }
++    })
++    .await;
++    let process_lock = std::fs::File::options()
++        .read(true)
++        .write(true)
++        .open(path)
++        .unwrap();
++    let unlocked = fs2::FileExt::try_lock_exclusive(&process_lock).is_ok();
++
++    // All actual task/SQL/maintenance/resource cleanup precedes assertions,
++    // including the failing pre-fix run. is_finished above is an arrangement
++    // guard; only the production joins release the process and publish done.
++    assert!(observed.is_ok() && actual_process_join.is_ok() && unlocked);
++    assert!(initially_open.load(Ordering::Acquire));
++    assert_eq!(original_workers.load(Ordering::Acquire), 2);
++    assert!(ready_to_join.load(Ordering::Acquire));
++    assert!(joined_observed.load(Ordering::Acquire));
++    assert_eq!(handler.calls.load(Ordering::SeqCst), 0);
++    if abort_worker {
++        assert!(aborted_before_stop.load(Ordering::Acquire));
++        assert!(
++            close.is_err() && !*completion.borrow(),
++            "genuine original worker abortion did not fail close: {close:?}"
++        );
++        assert!(h.jobs.start().is_err());
++        assert!(h.jobs.shutdown().await.is_err());
++    } else {
++        assert!(joined_normally.load(Ordering::Acquire));
++        assert!(
++            close.is_ok(),
++            "normal requested worker exit poisoned close: {close:?}"
++        );
++        assert!(*completion.borrow());
++        *h.jobs.oo1_stop_poll_probe.lock().unwrap() = None;
++        h.jobs.start().unwrap();
++        h.jobs.shutdown().await.unwrap();
++    }
++}
+diff --git a/src-tauri/src/knowledge/document_tests/admission.rs b/src-tauri/src/knowledge/document_tests/admission.rs
+index 1f994fd..66b90fd 100644
+--- a/src-tauri/src/knowledge/document_tests/admission.rs
++++ b/src-tauri/src/knowledge/document_tests/admission.rs
+@@ -1,14 +1,14 @@
+ use super::*;
+ use crate::intelligence::{
+     test_support::IntelligenceHarness,
+-    types::{IntelligenceErrorCode as Code, JobKind, JobStatus},
++    types::{IntelligenceErrorCode as Code, IntelligenceEvent, JobKind, JobStatus},
+ };
+ use crate::knowledge::{
+     documents::DocumentService,
+     parser::DocumentParser,
+     types::{DocumentKind, DocumentStatus, TextBlock, TextLocation},
+ };
+ use std::{path::PathBuf, sync::Arc, time::Duration};
+ use tokio::sync::watch;
+ 
+ struct TextParser;
+@@ -298,38 +298,56 @@ async fn documents_completion_same_content_noop_at_maximum_document_version() {
+     assert_eq!(docs.get(id).unwrap().unwrap().summary.version, u32::MAX);
+     assert_eq!(files(&h), 1);
+     h.jobs.shutdown().await.unwrap();
+ }
+ 
+ #[tokio::test]
+ async fn documents_completion_admission_rollback_publishes_no_job_and_preserves_old_metadata() {
+     let h = IntelligenceHarness::new();
+     let docs = service(&h);
+     docs.register_import_handler().unwrap();
++    let mut original_events = h.jobs.subscribe();
+     h.jobs.start().unwrap();
+     let old = docs
+         .import(source(&h, "source.txt", "old text"))
+         .await
+         .unwrap();
+     wait(&h, old.id, JobStatus::Succeeded).await;
++    // The committed status precedes the original worker's terminal event.
++    // Establish that publication before observing the replacement rollback.
++    tokio::time::timeout(Duration::from_secs(3), async {
++        loop {
++            if matches!(original_events.recv().await.unwrap(), IntelligenceEvent::JobChanged { job }
++                if job.id == old.id && job.status == JobStatus::Succeeded)
++            {
++                break;
++            }
++        }
++    })
++    .await
++    .unwrap();
+     let id = old.object_id.unwrap();
+     let before = docs.get(id).unwrap().unwrap();
+     h.store.transaction(|tx|{tx.execute_batch("CREATE TRIGGER reject_version BEFORE UPDATE OF version ON documents BEGIN SELECT RAISE(ABORT,'fixture rollback'); END;")?;Ok(())}).unwrap();
+     let mut events = h.jobs.subscribe();
+     assert!(matches!(
+         docs.replace(id, source(&h, "new.txt", "new text")).await,
+         Err(crate::error::AppError::Intelligence(Code::Storage))
+     ));
+     assert_eq!(docs.get(id).unwrap(), Some(before));
+     assert_eq!(h.store.list_jobs(None, 200).unwrap().rows.len(), 1);
+     assert_eq!(files(&h), 1);
+-    assert!(events.try_recv().is_err());
++    let rollback_event = events.try_recv();
++    assert!(
++        rollback_event.is_err(),
++        "rollback published an unexpected job event: {rollback_event:?}"
++    );
+     h.store
+         .transaction(|tx| {
+             let text: String = tx.query_row(
+                 "SELECT text FROM document_chunks WHERE document_id=?1",
+                 [id.to_string()],
+                 |r| r.get(0),
+             )?;
+             assert_eq!(text, "old text");
+             Ok(())
+         })
+diff --git a/src-tauri/src/session/direction.rs b/src-tauri/src/session/direction.rs
+index 74beac1..d3fa461 100644
+--- a/src-tauri/src/session/direction.rs
++++ b/src-tauri/src/session/direction.rs
+@@ -1018,29 +1018,39 @@ impl DirectionActor {
+         self.store
+             .append_diagnostic(&diagnostic)
+             .map_err(|_| RuntimeFailureCode::Storage)?;
+         let _ = self
+             .bus
+             .publish(self.session_id, SessionEvent::Diagnostic { diagnostic });
+         Ok(())
+     }
+ 
+     async fn publish(&self, phase: DirectionPhase, failure: Option<RuntimeFailureCode>) {
+-        let _ = self
++        let (applied, observed) = tokio::sync::oneshot::channel();
++        if self
+             .updates
+-            .send(ActorUpdate::Snapshot(DirectionSnapshot {
+-                direction: self.plan.direction,
+-                phase,
+-                stream_epoch: self.epoch,
+-                failure,
+-            }))
+-            .await;
++            .send(ActorUpdate::Snapshot {
++                direction: DirectionSnapshot {
++                    direction: self.plan.direction,
++                    phase,
++                    stream_epoch: self.epoch,
++                    failure,
++                },
++                applied,
++            })
++            .await
++            .is_ok()
++        {
++            // Apply the snapshot before a following resource transition or
++            // transcript write can become visible from the blocking actor.
++            let _ = observed.await;
++        }
+     }
+ }
+ 
+ enum ConnectedExit {
+     Stopped(Option<RuntimeFailureCode>),
+     Paused(RuntimeFailureCode),
+ }
+ pub(crate) const MAX_PROVIDER_OUTPUT_SAMPLES: usize = 48_000;
+ pub(crate) const PLAYBACK_FRAME_SAMPLES: usize = 1_920;
+ 
+diff --git a/src-tauri/src/session/orchestrator.rs b/src-tauri/src/session/orchestrator.rs
+index 104e8d4..538d55f 100644
+--- a/src-tauri/src/session/orchestrator.rs
++++ b/src-tauri/src/session/orchestrator.rs
+@@ -12,21 +12,21 @@ use crate::{
+     domain::{
+         launch::{
+             DirectionPhase, DirectionSnapshot, RuntimeOutcome, RuntimePhase, RuntimeSnapshot,
+             SessionContext, SessionLaunch,
+         },
+         session::{SessionDirection, SessionMode},
+         transcript::RuntimeFailureCode,
+     },
+     error::{AppError, AppResult},
+     events::{EventBus, SessionEvent},
+-    storage::{LocalStore, StoredSession, StoredSessionLifecycle},
++    storage::{LocalStore, SqlSlot, StoredSession, StoredSessionLifecycle},
+ };
+ 
+ #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+ #[serde(rename_all = "snake_case")]
+ pub enum SessionStatus {
+     Created,
+     Starting,
+     Running,
+     Stopping,
+     Paused,
+@@ -127,23 +127,26 @@ impl SessionRecord {
+     }
+ }
+ 
+ // A single short-held mutex governs admission and stop election. Preparation and
+ // cleanup are never performed while holding it.
+ type ActiveState = Arc<Mutex<Option<SessionOperation>>>;
+ type SessionCompletion = Option<Result<SessionRecord, String>>;
+ 
+ struct SessionActualOwner {
+     slot: Mutex<Option<tokio::sync::OwnedSemaphorePermit>>,
++    sql: SqlSlot,
++    runtime: Mutex<Option<super::RunningSession>>,
+ }
+ impl SessionActualOwner {
+     fn complete(&self) {
++        self.runtime.lock().unwrap().take();
+         self.slot.lock().unwrap().take();
+     }
+ }
+ struct SessionActualControl {
+     slots: Arc<tokio::sync::Semaphore>,
+     closing: Mutex<Option<crate::audio::join::AudioCloseKey>>,
+     owner: Mutex<Option<Arc<SessionActualOwner>>>,
+     finalization: Mutex<Option<TerminalFinalization>>,
+ }
+ struct TerminalFinalization {
+@@ -402,20 +405,22 @@ impl SessionOrchestrator {
+             if self.actual.finalization.lock().unwrap().is_some() {
+                 return Err(AppError::InvalidRequest(
+                     "prior terminal persistence requires close recovery".into(),
+                 ));
+             }
+             let slot = self.actual.slots.clone().try_acquire_owned().map_err(|_| {
+                 AppError::InvalidRequest("prior terminal producer remains owned".into())
+             })?;
+             let actual = Arc::new(SessionActualOwner {
+                 slot: Mutex::new(Some(slot)),
++                sql: SqlSlot::default(),
++                runtime: Mutex::new(None),
+             });
+             *self.actual.owner.lock().unwrap() = Some(actual.clone());
+             drop(closing);
+             let id = Uuid::new_v4();
+             *active = Some(SessionOperation {
+                 id,
+                 provider_config_id: launch.provider_config_id,
+                 attached: None,
+             });
+             Reservation {
+@@ -463,20 +468,21 @@ impl SessionOrchestrator {
+             .create_runtime_session(&record.to_storage(), prepared.context())?;
+         // No await from durable admission through runtime attachment and observer
+         // spawn: dropping a caller can only drop the reservation or the result.
+         self.event_bus.open_session(id);
+         let _ = self
+             .event_bus
+             .publish(id, SessionEvent::status(id, "starting"));
+         let (stop, stop_rx) = watch::channel(false);
+         let (completion, completion_rx) = watch::channel(None);
+         let running = self.runtime.start(prepared);
++        *reservation.actual.runtime.lock().unwrap() = Some(running.clone());
+         {
+             let mut active = self.active.lock().unwrap();
+             active.as_mut().expect("reserved session").attached = Some(ActiveSession {
+                 record: record.clone(),
+                 runtime: running.clone(),
+                 stop,
+                 completion: completion_rx,
+             });
+         }
+         let owner = self.clone();
+@@ -532,42 +538,47 @@ impl SessionOrchestrator {
+         actual: Arc<SessionActualOwner>,
+     ) {
+         let mut status = running.status();
+         let mut storage_failed = false;
+         let outcome = loop {
+             if *stop.borrow_and_update() {
+                 if let Some(snapshot) = &mut record.runtime {
+                     snapshot.phase = RuntimePhase::Stopping;
+                 }
+                 if self
+-                    .persist_phase(&mut record, SessionStatus::Stopping)
++                    .persist_phase(&mut record, SessionStatus::Stopping, &actual)
++                    .await
+                     .is_err()
+                 {
+                     storage_failed = true;
+                 }
+                 break running.stop().await;
+             }
+             let snapshot = status.borrow_and_update().clone();
+             if snapshot.phase == RuntimePhase::Stopped {
+                 break snapshot.outcome.unwrap_or(RuntimeOutcome::Failed {
+                     codes: vec![RuntimeFailureCode::CleanupTimeout],
+                 });
+             }
+             let phase = match snapshot.phase {
+                 RuntimePhase::Starting => SessionStatus::Starting,
+                 RuntimePhase::Running => SessionStatus::Running,
+                 RuntimePhase::Paused => SessionStatus::Paused,
+                 RuntimePhase::Stopping => SessionStatus::Stopping,
+                 RuntimePhase::Stopped => unreachable!(),
+             };
+             record.runtime = Some(snapshot);
+-            if self.persist_phase(&mut record, phase).is_err() {
++            if self
++                .persist_phase(&mut record, phase, &actual)
++                .await
++                .is_err()
++            {
+                 storage_failed = true;
+                 break running.stop().await;
+             }
+             tokio::select! {
+                 biased;
+                 _ = stop.changed() => {},
+                 changed = status.changed() => {
+                     if changed.is_err() { break running.stop().await; }
+                 }
+             }
+@@ -580,48 +591,70 @@ impl SessionOrchestrator {
+             SessionStatus::Failed
+         } else {
+             SessionStatus::Completed
+         };
+         let lifecycle = StoredSessionLifecycle {
+             session_id: record.id,
+             status: record.status.as_str().into(),
+             ended_at: record.ended_at,
+         };
+         let reservation = terminal.try_reserve();
+-        let persisted = self
+-            .store
+-            .commit_terminal_lifecycle(&lifecycle, reservation.intent())
+-            .is_ok();
++        let storage = self.store.clone();
++        let terminal_lifecycle = lifecycle.clone();
++        let terminal_result = actual
++            .sql
++            .run(actual.clone(), move || {
++                let persisted = storage
++                    .commit_terminal_lifecycle(&terminal_lifecycle, reservation.intent())
++                    .is_ok();
++                Ok((persisted, reservation))
++            })
++            .await;
++        let (persisted, reservation) = match terminal_result {
++            Ok((persisted, reservation)) => (persisted, Some(reservation)),
++            Err(_) => (false, None),
++        };
+         storage_failed |= !persisted;
+         let failure = if storage_failed {
+             Some(RuntimeFailureCode::Storage)
+         } else if let RuntimeOutcome::Failed { codes } = outcome {
+             codes.into_iter().next()
+         } else {
+             None
+         };
+         let mut final_diagnostic = None;
+         let final_event = if let Some(code) = failure {
+             let event = runtime_failure_event(record.id, code);
+             let SessionEvent::Diagnostic { diagnostic } = &event else {
+                 unreachable!("runtime failure is a diagnostic");
+             };
+             final_diagnostic = Some(diagnostic.clone());
+-            if self.store.append_diagnostic(diagnostic).is_err() {
++            let stored_diagnostic = diagnostic.clone();
++            let storage = self.store.clone();
++            if actual
++                .sql
++                .run(actual.clone(), move || {
++                    storage.append_diagnostic(&stored_diagnostic)
++                })
++                .await
++                .is_err()
++            {
+                 storage_failed = true;
+                 runtime_failure_event(record.id, RuntimeFailureCode::Storage)
+             } else {
+                 event
+             }
+         } else {
+             SessionEvent::status(record.id, record.status.as_str())
+         };
++        let sql_joined = actual.sql.drain().await.is_ok();
++        storage_failed |= !sql_joined;
+         self.event_bus.close_with_final(record.id, final_event);
+         if storage_failed {
+             *self.actual.finalization.lock().unwrap() = Some(TerminalFinalization {
+                 lifecycle,
+                 lifecycle_written: persisted,
+                 diagnostic: final_diagnostic,
+                 terminal: terminal.clone(),
+             });
+         }
+         let result = if storage_failed {
+@@ -631,45 +664,58 @@ impl SessionOrchestrator {
+         };
+         // Publish before removing the operation. Attached receivers retain this
+         // result; later calls consult durable state rather than an error cache.
+         let mut active = self.active.lock().unwrap();
+         completion.send_replace(Some(result));
+         if active.as_ref().is_some_and(|op| op.id == record.id) {
+             *active = None;
+         }
+         drop(active);
+         if persisted {
+-            reservation.committed(record.id);
++            if let Some(reservation) = reservation {
++                reservation.committed(record.id);
++            }
+         }
+-        if joined {
++        if joined && sql_joined {
+             actual.complete();
+         }
+     }
+ 
+-    fn persist_phase(&self, record: &mut SessionRecord, status: SessionStatus) -> AppResult<()> {
++    async fn persist_phase(
++        &self,
++        record: &mut SessionRecord,
++        status: SessionStatus,
++        actual: &Arc<SessionActualOwner>,
++    ) -> AppResult<()> {
+         let status_changed = record.status != status;
+         if status_changed {
++            let storage = self.store.clone();
++            let lifecycle = StoredSessionLifecycle {
++                session_id: record.id,
++                status: status.as_str().into(),
++                ended_at: None,
++            };
+             #[cfg(test)]
+-            if status == SessionStatus::Running {
+-                let gate = self.phase_write_gate.lock().unwrap().take();
+-                if let Some(gate) = gate {
+-                    gate.wait();
+-                }
+-            }
+-            // SQLite may block, so stop admission stays available during this
+-            // write. The observed phase is not published until the fence below.
+-            self.store
+-                .update_session_lifecycle(&StoredSessionLifecycle {
+-                    session_id: record.id,
+-                    status: status.as_str().into(),
+-                    ended_at: None,
+-                })?;
++            let gate = self.phase_write_gate.clone();
++            actual
++                .sql
++                .run(actual.clone(), move || {
++                    #[cfg(test)]
++                    if status == SessionStatus::Running {
++                        let gate = gate.lock().unwrap().take();
++                        if let Some(gate) = gate {
++                            gate.wait();
++                        }
++                    }
++                    storage.update_session_lifecycle(&lifecycle)
++                })
++                .await?;
+             record.status = status;
+         }
+         let mut active = self.active.lock().unwrap();
+         if let Some(session) = active
+             .as_mut()
+             .filter(|op| op.id == record.id)
+             .and_then(|op| op.attached.as_mut())
+         {
+             // This check, active snapshot update and event publication share
+             // stop_session's election mutex. If stop won during persistence,
+@@ -682,20 +728,35 @@ impl SessionOrchestrator {
+             if status_changed {
+                 let _ = self
+                     .event_bus
+                     .publish(record.id, SessionEvent::status(record.id, status.as_str()));
+             }
+         }
+         Ok(())
+     }
+ 
+     pub async fn get(&self, id: Uuid) -> AppResult<Option<SessionRecord>> {
++        // The attached observer publishes only after its durable write and
++        // stop fence. A yielding terminal write can already be visible in SQL
++        // while its diagnostic/bus close is still pending; keep callers on the
++        // last committed observer view until that original producer retires.
++        if let Some(record) = self
++            .active
++            .lock()
++            .unwrap()
++            .as_ref()
++            .filter(|operation| operation.id == id)
++            .and_then(|operation| operation.attached.as_ref())
++            .map(|session| session.record.clone())
++        {
++            return Ok(Some(record));
++        }
+         let Some(session) = self.store.get_session(id)? else {
+             return Ok(None);
+         };
+         let lifecycle = self
+             .store
+             .get_session_lifecycle(id)?
+             .ok_or(AppError::SessionNotFound(id))?;
+         let mut record = SessionRecord::from_storage(session, lifecycle)?;
+         record.context = self.store.session_context(id)?;
+         if !matches!(
+diff --git a/src-tauri/src/session/runtime.rs b/src-tauri/src/session/runtime.rs
+index 9fb1092..6723704 100644
+--- a/src-tauri/src/session/runtime.rs
++++ b/src-tauri/src/session/runtime.rs
+@@ -23,26 +23,29 @@ use crate::{
+     error::{AppError, AppResult},
+     events::EventBus,
+     providers::{
+         ProviderError,
+         factory::{PreparedProviderSession, ProviderFactory},
+     },
+     storage::LocalStore,
+ };
+ use std::{
+     collections::BTreeMap,
+-    sync::{Arc, Mutex},
++    sync::{
++        Arc, Mutex,
++        atomic::{AtomicBool, Ordering},
++    },
+     time::{Duration, SystemTime, UNIX_EPOCH},
+ };
+ use tokio::{
+     sync::{mpsc, oneshot, watch},
+-    task::JoinSet,
++    task::{JoinHandle, JoinSet},
+     time::Instant,
+ };
+ use uuid::Uuid;
+ 
+ pub struct TranslationRuntime {
+     factory: Arc<ProviderFactory>,
+     audio: Arc<dyn AudioBackend>,
+     store: Arc<LocalStore>,
+     bus: EventBus,
+ }
+@@ -62,46 +65,94 @@ pub(super) struct DirectionPlan {
+     pub(super) endpoints: Vec<RuntimeEndpoint>,
+ }
+ 
+ #[derive(Clone)]
+ pub struct RunningSession {
+     stop: watch::Sender<bool>,
+     resume: mpsc::Sender<ResumeRequest>,
+     status: watch::Receiver<RuntimeSnapshot>,
+     completion: watch::Receiver<Option<RuntimeOutcome>>,
+     pending_resumes: Arc<Mutex<[bool; 2]>>,
+-    actual: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
++    actual: Arc<tokio::sync::Mutex<Option<JoinHandle<()>>>>,
++    actors: Arc<ActorTasks>,
++}
++
++#[derive(Default)]
++struct ActorTasks {
++    tasks: [tokio::sync::Mutex<Option<JoinHandle<ActorExit>>>; 2],
++    failed: AtomicBool,
++}
++
++impl ActorTasks {
++    async fn join(&self, key: usize) -> Option<ActorExit> {
++        let mut task = self.tasks[key].lock().await;
++        let joined = task.as_mut()?.await;
++        // Await the borrowed genuine handle. Cancellation leaves it in its
++        // slot, while completion consumes it before another observer retries.
++        task.take();
++        match joined {
++            Ok(exit) => Some(exit),
++            Err(_) => {
++                self.failed.store(true, Ordering::Release);
++                None
++            }
++        }
++    }
++
++    async fn drain(&self) -> AppResult<()> {
++        for key in 0..self.tasks.len() {
++            self.join(key).await;
++        }
++        if self.failed.load(Ordering::Acquire) {
++            Err(AppError::Internal("runtime actual owner stopped".into()))
++        } else {
++            Ok(())
++        }
++    }
+ }
+ 
+ pub(super) struct ResumeRequest {
+     direction: SessionDirection,
+     result: oneshot::Sender<AppResult<()>>,
+ }
+ 
+ pub(super) enum DirectionControl {
+     Resume(oneshot::Sender<AppResult<()>>),
+ }
+ 
+ pub(super) enum ActorUpdate {
+-    Snapshot(DirectionSnapshot),
++    Snapshot {
++        direction: DirectionSnapshot,
++        applied: oneshot::Sender<()>,
++    },
+     ResumeComplete {
+         direction: SessionDirection,
+         result: oneshot::Sender<AppResult<()>>,
+         response: AppResult<()>,
+     },
+ }
+ 
+ pub(super) struct ActorExit {
+     pub(super) direction: SessionDirection,
+     pub(super) failures: Vec<RuntimeFailureCode>,
+ }
+ 
++struct StopActors(watch::Sender<bool>);
++impl Drop for StopActors {
++    fn drop(&mut self) {
++        // Started blocking actors cannot be aborted with their JoinSet. If
++        // their supervisor is lost, retain ordinary stop intent so those real
++        // actors settle rather than keeping runtime destruction waiting.
++        self.0.send_replace(true);
++    }
++}
++
+ impl TranslationRuntime {
+     pub fn new(
+         factory: Arc<ProviderFactory>,
+         audio: Arc<dyn AudioBackend>,
+         store: Arc<LocalStore>,
+         bus: EventBus,
+     ) -> Self {
+         Self {
+             factory,
+             audio,
+@@ -167,61 +218,68 @@ impl TranslationRuntime {
+             .collect::<Vec<_>>();
+         let (status_tx, status) = watch::channel(RuntimeSnapshot {
+             phase: RuntimePhase::Starting,
+             directions,
+             outcome: None,
+         });
+         let (completion_tx, completion) = watch::channel(None);
+         let (stop, stop_rx) = watch::channel(false);
+         let (resume, resume_rx) = mpsc::channel(2);
+         let pending_resumes = Arc::new(Mutex::new([false; 2]));
++        let actors = Arc::new(ActorTasks::default());
+         let audio = self.audio.clone();
+         let store = self.store.clone();
+         let bus = self.bus.clone();
+         let task = tokio::spawn(supervise(
+             prepared,
+             audio,
+             store,
+             bus,
+             stop.clone(),
+             stop_rx,
+             resume_rx,
+             status_tx,
+             completion_tx,
+             pending_resumes.clone(),
++            actors.clone(),
+         ));
+         RunningSession {
+             stop,
+             resume,
+             status,
+             completion,
+             pending_resumes,
+             actual: Arc::new(tokio::sync::Mutex::new(Some(task))),
++            actors,
+         }
+     }
+ }
+ 
+ impl PreparedRuntime {
+     pub fn context(&self) -> &SessionContext {
+         &self.context
+     }
+ }
+ 
+ impl RunningSession {
+     pub(crate) async fn join_actual(&self) -> AppResult<()> {
+-        let mut actual = self.actual.lock().await;
+-        if let Some(task) = actual.as_mut() {
+-            task.await
+-                .map_err(|_| AppError::Internal("runtime actual owner stopped".into()))?;
+-            actual.take();
++        {
++            let mut actual = self.actual.lock().await;
++            if let Some(task) = actual.as_mut() {
++                let joined = task.await;
++                actual.take();
++                if joined.is_err() {
++                    self.actors.failed.store(true, Ordering::Release);
++                }
++            }
+         }
+-        Ok(())
++        self.actors.drain().await
+     }
+     pub fn status(&self) -> watch::Receiver<RuntimeSnapshot> {
+         self.status.clone()
+     }
+ 
+     /// Cancellation request only. The existing runtime owner still performs and
+     /// acknowledges all cleanup through the shared completion receiver.
+     pub(crate) fn request_stop(&self) {
+         self.stop.send_replace(true);
+     }
+@@ -289,73 +347,102 @@ async fn supervise(
+     prepared: PreparedRuntime,
+     audio: Arc<dyn AudioBackend>,
+     store: Arc<LocalStore>,
+     bus: EventBus,
+     stop_tx: watch::Sender<bool>,
+     mut stop: watch::Receiver<bool>,
+     mut resumes: mpsc::Receiver<ResumeRequest>,
+     status: watch::Sender<RuntimeSnapshot>,
+     completion: watch::Sender<Option<RuntimeOutcome>>,
+     pending_resumes: Arc<Mutex<[bool; 2]>>,
++    actors: Arc<ActorTasks>,
+ ) {
+     let (updates_tx, mut updates) = mpsc::channel(32);
+     let mut controls = BTreeMap::new();
+     let mut tasks = JoinSet::new();
++    let _stop_actors = StopActors(stop_tx.clone());
+     let mut failures = Vec::new();
+     let health = RuntimeRouteHealth::default();
+     let router = Arc::new(crate::audio::router::AudioRouter::paused_unbound(
+         prepared.graph,
+         health.clone(),
+     ));
+     let provider_id = prepared.provider.provider_id();
+     for plan in prepared.directions {
+         let (control_tx, controls_rx) = mpsc::channel(1);
+         controls.insert(direction_key(plan.direction), control_tx);
+         let config = prepared
+             .provider
+             .configs()
+             .iter()
+             .find(|config| config.direction == plan.direction)
+             .expect("prepared direction config")
+             .clone();
+-        let sink =
+-            match TranscriptSink::new(store.clone(), bus.clone(), config, provider_id.clone()) {
+-                Ok(sink) => sink,
+-                Err(_) => {
+-                    if !failures.contains(&RuntimeFailureCode::Storage) {
+-                        failures.push(RuntimeFailureCode::Storage);
+-                    }
+-                    stop_tx.send_replace(true);
+-                    continue;
++        let runtime = tokio::runtime::Handle::current();
++        let session_id = prepared.session_id;
++        let route = router_direction(prepared.context.launch.config.mode(), plan.direction)
++            .expect("validated direction");
++        let provider_id = provider_id.clone();
++        let provider = prepared.provider.clone();
++        let audio = audio.clone();
++        let storage = store.clone();
++        let bus = bus.clone();
++        let actor_stop = stop.clone();
++        let router = router.clone();
++        let health = health.clone();
++        let updates = updates_tx.clone();
++        let key = direction_key(plan.direction) as usize;
++        // Acquire ownership before submission. No await separates the genuine
++        // blocking handle's creation from saving it outside the supervisor.
++        let mut actual = actors.tasks[key].lock().await;
++        // The two original actors each occupy one retained blocking-pool task.
++        // Drive their existing future on the original runtime handle so their
++        // synchronous transcript/cleanup callbacks never block Tokio workers.
++        // Cancelling the supervisor's observers cannot discard those handles.
++        *actual = Some(tokio::task::spawn_blocking(move || {
++            runtime.block_on(async move {
++                let sink =
++                    match TranscriptSink::new(storage.clone(), bus.clone(), config, provider_id) {
++                        Ok(sink) => sink,
++                        Err(_) => {
++                            return ActorExit {
++                                direction: plan.direction,
++                                failures: vec![RuntimeFailureCode::Storage],
++                            };
++                        }
++                    };
++                DirectionActor {
++                    session_id,
++                    route,
++                    router,
++                    health,
++                    plan,
++                    prepared: provider,
++                    audio,
++                    store: storage,
++                    bus,
++                    stop: actor_stop,
++                    controls: controls_rx,
++                    updates,
++                    sink,
++                    epoch: 0,
++                    failures: Vec::new(),
++                    transition_failures: Vec::new(),
++                    diagnostics: DiagnosticAccumulator::new(Instant::now()),
+                 }
+-            };
+-        let actor = DirectionActor {
+-            session_id: prepared.session_id,
+-            route: router_direction(prepared.context.launch.config.mode(), plan.direction)
+-                .expect("validated direction"),
+-            router: router.clone(),
+-            health: health.clone(),
+-            plan,
+-            prepared: prepared.provider.clone(),
+-            audio: audio.clone(),
+-            store: store.clone(),
+-            bus: bus.clone(),
+-            stop: stop.clone(),
+-            controls: controls_rx,
+-            updates: updates_tx.clone(),
+-            sink,
+-            epoch: 0,
+-            failures: Vec::new(),
+-            transition_failures: Vec::new(),
+-            diagnostics: DiagnosticAccumulator::new(Instant::now()),
+-        };
+-        tasks.spawn(actor.run());
++                .run()
++                .await
++            })
++        }));
++        drop(actual);
++        let owner = actors.clone();
++        tasks.spawn(async move { owner.join(key).await });
+     }
+     drop(updates_tx);
+     let startup_deadline = Instant::now() + Duration::from_secs(30);
+     let mut startup = true;
+     let mut stopping = false;
+     while !tasks.is_empty() {
+         if *stop.borrow() && !stopping {
+             stopping = true;
+             status.send_modify(|snapshot| snapshot.phase = RuntimePhase::Stopping);
+         }
+@@ -380,40 +467,44 @@ async fn supervise(
+                 } else {
+                     pending_resumes.lock().unwrap()[key as usize] = false;
+                     let _ = request.result.send(Err(AppError::InvalidRequest("direction is not part of runtime".into())));
+                 }
+             }
+             Some(update) = updates.recv() => match update {
+                 ActorUpdate::ResumeComplete { direction, result, response } => {
+                     pending_resumes.lock().unwrap()[direction_key(direction) as usize] = false;
+                     let _ = result.send(response);
+                 },
+-                ActorUpdate::Snapshot(direction) => {
++                ActorUpdate::Snapshot { direction, applied } => {
+                     if startup && (direction.failure.is_some() || matches!(direction.phase, DirectionPhase::Paused | DirectionPhase::Stopped)) {
+                         stop_tx.send_replace(true);
+                     }
+                     status.send_modify(|snapshot| {
+                         if let Some(current) = snapshot.directions.iter_mut().find(|current| current.direction == direction.direction) { *current = direction; }
+                         if startup && snapshot.directions.iter().all(|d| d.phase == DirectionPhase::Running) { startup = false; }
+                         if !stopping { snapshot.phase = if startup { RuntimePhase::Starting } else { aggregate_phase(&snapshot.directions) }; }
+                     });
++                    let _ = applied.send(());
+                 }
+             },
+             joined = tasks.join_next() => {
+                 match joined {
+-                    Some(Ok(exit)) => {
++                    Some(Ok(Some(exit))) => {
+                         for code in exit.failures { if !failures.contains(&code) { failures.push(code); } }
+                         status.send_modify(|snapshot| {
+                             if let Some(direction) = snapshot.directions.iter_mut().find(|d| d.direction == exit.direction) { direction.phase = DirectionPhase::Stopped; }
+                         });
+                     }
+-                    Some(Err(_)) => if !failures.contains(&RuntimeFailureCode::CleanupTimeout) { failures.push(RuntimeFailureCode::CleanupTimeout); },
++                    Some(Ok(None)) | Some(Err(_)) => {
++                        actors.failed.store(true, Ordering::Release);
++                        if !failures.contains(&RuntimeFailureCode::CleanupTimeout) { failures.push(RuntimeFailureCode::CleanupTimeout); }
++                    },
+                     None => break,
+                 }
+                 if startup { stop_tx.send_replace(true); }
+             }
+         }
+     }
+     resumes.close();
+     let outcome = if failures.is_empty() {
+         RuntimeOutcome::Completed
+     } else {
+@@ -616,10 +707,13 @@ fn direction_key(direction: SessionDirection) -> u8 {
+     }
+ }
+ 
+ pub(super) fn now_ms() -> i64 {
+     SystemTime::now()
+         .duration_since(UNIX_EPOCH)
+         .ok()
+         .and_then(|duration| i64::try_from(duration.as_millis()).ok())
+         .unwrap_or(i64::MAX)
+ }
++
++#[cfg(test)]
++mod actual_actor_tests;
+diff --git a/src-tauri/src/session/runtime/actual_actor_tests.rs b/src-tauri/src/session/runtime/actual_actor_tests.rs
+new file mode 100644
+index 0000000..7f33c39
+--- /dev/null
++++ b/src-tauri/src/session/runtime/actual_actor_tests.rs
+@@ -0,0 +1,92 @@
++use super::*;
++use crate::{
++    providers::{
++        ProviderEvent,
++        fixture::{FixtureScript, FixtureStep},
++    },
++    session::test_support::{RuntimeHarness, final_text, metadata, wait_phase},
++};
++
++// Losing the supervisor does not end the actor's issued SQLite write. Even
++// the error observer must wait for its real actor handle before returning.
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn lost_supervisor_keeps_actual_actor_sql_join_owned_until_external_release() {
++    let script = FixtureScript::with_output_audio(
++        PcmSpec::pcm16_mono(24_000),
++        [
++            FixtureStep::Emit(ProviderEvent::SessionStarted {
++                metadata: metadata(),
++            }),
++            FixtureStep::Emit(ProviderEvent::SourceFinal {
++                metadata: metadata(),
++                text: final_text("en", "owned final"),
++            }),
++            FixtureStep::WaitForFinish,
++        ],
++    )
++    .unwrap();
++    let h = RuntimeHarness::live(script).unwrap();
++    let final_event = h.provider.delay_final(SessionDirection::SourceToTarget);
++    let (native_done, release_native) = h.audio.delay_actual_join("live-input");
++    let run = h
++        .runtime
++        .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
++    wait_phase(&run, RuntimePhase::Running).await;
++    let event_entered =
++        tokio::time::timeout(Duration::from_secs(2), final_event.wait_entered()).await;
++    let (entered, waiting) = oneshot::channel();
++    let (released, release_observed) = oneshot::channel();
++    let blocker = std::thread::spawn({
++        let store = h.store.clone();
++        move || {
++            let result = store.transaction(|_| {
++                let _ = entered.send(());
++                std::thread::sleep(Duration::from_millis(450));
++                Ok(())
++            });
++            let _ = released.send(());
++            result
++        }
++    });
++    waiting.await.unwrap();
++    let (sql_entered, sql_waiting) = oneshot::channel();
++    *h.store.oo1_transcript_entry.lock().unwrap() = Some(sql_entered);
++    final_event.release();
++    let sql_issued = tokio::time::timeout(Duration::from_secs(2), sql_waiting).await;
++    run.actual.lock().await.as_ref().unwrap().abort();
++    let early = tokio::time::timeout(Duration::from_millis(30), run.join_actual()).await;
++    let waited_for_actual_sql = early.is_err();
++    release_observed.await.unwrap();
++    blocker.join().unwrap().unwrap();
++    let outcome = match early {
++        Ok(outcome) => outcome,
++        Err(_) => run.join_actual().await,
++    };
++    let native_leaf_joined = matches!(
++        tokio::time::timeout(Duration::from_secs(2), native_done).await,
++        Ok(Ok(()))
++    );
++    let released_parent = release_native.send(()).is_ok();
++    let key =
++        crate::audio::join::AudioCloseKey::new(0, Uuid::new_v4(), h.audio.actual_epoch().unwrap());
++    let close = h.audio.begin_close(key).unwrap();
++    let native_actual_joined = matches!(
++        tokio::time::timeout(Duration::from_secs(2), close.wait()).await,
++        Ok(Ok(_))
++    );
++    let repeated_join = tokio::time::timeout(Duration::from_secs(2), run.join_actual()).await;
++    assert!(matches!(event_entered, Ok(true)) && matches!(sql_issued, Ok(Ok(()))));
++    assert!(native_leaf_joined && released_parent && native_actual_joined);
++    assert!(
++        outcome.is_err(),
++        "lost supervisor cannot publish normal runtime completion"
++    );
++    assert!(
++        waited_for_actual_sql,
++        "supervisor error released its observer before the original actor SQL actually joined"
++    );
++    assert!(
++        matches!(repeated_join, Ok(Err(_))),
++        "retrying the actual join must retain the original supervisor failure"
++    );
++}
+diff --git a/src-tauri/src/session/runtime_tests.rs b/src-tauri/src/session/runtime_tests.rs
+index ad201e0..5ba20e3 100644
+--- a/src-tauri/src/session/runtime_tests.rs
++++ b/src-tauri/src/session/runtime_tests.rs
+@@ -426,20 +426,23 @@ async fn playback_overflow_replaces_only_audio_and_keeps_provider_stream() {
+             },
+             FixtureStep::Emit(ProviderEvent::TranslationFinal {
+                 metadata: metadata(),
+                 text: final_text("zh", "tail"),
+             }),
+             FixtureStep::WaitForFinish,
+         ],
+     )
+     .unwrap();
+     let h = RuntimeHarness::live(script).unwrap();
++    // Hold the actual ingress consumer so this case tests normalized queue
++    // rejection, independently of how fast a native worker is scheduled.
++    let _ingress = h.audio.hold_playback_ingress("live-input");
+     let run = h
+         .runtime
+         .start(h.runtime.prepare(h.id, &h.launch, &h.saved).await.unwrap());
+     wait_phase(&run, RuntimePhase::Running).await;
+     tokio::time::timeout(Duration::from_secs(1), async {
+         loop {
+             if h.store.transcript_page(h.id, None, 50).unwrap().rows.len() == 1 {
+                 break;
+             }
+             tokio::task::yield_now().await;
+diff --git a/src-tauri/src/session/test_support.rs b/src-tauri/src/session/test_support.rs
+index 1c6af11..ff0361f 100644
+--- a/src-tauri/src/session/test_support.rs
++++ b/src-tauri/src/session/test_support.rs
+@@ -93,20 +93,21 @@ struct FixtureAudioState {
+     captures: HashMap<String, BoundedAudioQueue>,
+     outputs: HashMap<String, Arc<PlaybackProbe>>,
+     input_outputs: HashMap<String, String>,
+     playback_observations: HashMap<String, AudioShared>,
+     health: HashMap<String, watch::Sender<AudioHealth>>,
+     leases: HashSet<String>,
+     quarantined: HashSet<String>,
+     delayed_opens: HashMap<String, oneshot::Receiver<Result<(), RuntimeFailureCode>>>,
+     delayed_closes: HashMap<String, CloseAcknowledgement>,
+     delayed_actual_joins: HashMap<String, (oneshot::Sender<()>, oneshot::Receiver<()>)>,
++    held_playback_ingress: HashMap<String, oneshot::Receiver<()>>,
+ }
+ 
+ struct PlaybackProbe {
+     // The worker owns ingress; callback waits never hold its receiver lock.
+     pending: Mutex<VecDeque<AudioFrame>>,
+     shared: AudioShared,
+     injected_normalized_loss: AtomicU64,
+     sealed: AtomicBool,
+     worker_done: AtomicBool,
+     failure: Mutex<Option<AudioFailure>>,
+@@ -132,21 +133,42 @@ impl PlaybackProbe {
+             tokio::pin!(changed);
+             changed.as_mut().enable();
+             if self.worker_done.load(Ordering::Acquire) {
+                 return;
+             }
+             changed.await;
+         }
+     }
+ }
+ 
+-async fn playback_worker(probe: Arc<PlaybackProbe>, mut receiver: mpsc::Receiver<AudioFrame>) {
++async fn playback_worker(
++    probe: Arc<PlaybackProbe>,
++    mut receiver: mpsc::Receiver<AudioFrame>,
++    ingress: Option<oneshot::Receiver<()>>,
++) {
++    if let Some(mut ingress) = ingress {
++        loop {
++            let changed = probe.shared.changed.notified();
++            tokio::pin!(changed);
++            changed.as_mut().enable();
++            if probe
++                .shared
++                .gates
++                .playback_suppressed
++                .load(Ordering::Acquire)
++                || probe.sealed.load(Ordering::Acquire)
++            {
++                break;
++            }
++            tokio::select! { _ = &mut ingress => break, _ = changed => {} }
++        }
++    }
+     loop {
+         let changed = probe.shared.changed.notified();
+         tokio::pin!(changed);
+         changed.as_mut().enable();
+         if probe
+             .shared
+             .gates
+             .playback_suppressed
+             .load(Ordering::Acquire)
+         {
+@@ -188,20 +210,24 @@ async fn playback_worker(probe: Arc<PlaybackProbe>, mut receiver: mpsc::Receiver
+             add(&probe.shared.counters.pre_conversion_discarded, samples);
+         } else {
+             // Synthetic native playback is identity conversion at 24 kHz.
+             add(&probe.shared.counters.native_generated, samples);
+             if pending.len() == 8 {
+                 let discarded = pending.pop_front().unwrap();
+                 add(
+                     &probe.shared.counters.native_discarded,
+                     discarded.samples().len() as u64,
+                 );
++                // Mirror the real PlaybackBuffer's overwrite side effect:
++                // native loss also signals a discontinuity to the actor.
++                add(&probe.shared.counters.playback_overflow_generation, 1);
++                probe.shared.changed.notify_waiters();
+             }
+             pending.push_back(frame);
+         }
+         drop(pending);
+         probe.changed.notify_waiters();
+     }
+     probe.worker_done.store(true, Ordering::Release);
+     probe.changed.notify_waiters();
+ }
+ 
+@@ -274,20 +300,21 @@ impl FixtureAudioBackend {
+                 captures: HashMap::new(),
+                 outputs: HashMap::new(),
+                 input_outputs: HashMap::new(),
+                 playback_observations: HashMap::new(),
+                 health: HashMap::new(),
+                 leases: HashSet::new(),
+                 quarantined: HashSet::new(),
+                 delayed_opens: HashMap::new(),
+                 delayed_closes: HashMap::new(),
+                 delayed_actual_joins: HashMap::new(),
++                held_playback_ingress: HashMap::new(),
+             })),
+             open_ports: Arc::new(AtomicUsize::new(0)),
+             total_opens: Arc::new(AtomicUsize::new(0)),
+             open_calls: Arc::new(AtomicUsize::new(0)),
+             inventory_calls: Arc::new(AtomicUsize::new(0)),
+             inventory_gate: Arc::new(Mutex::new(None)),
+         }
+     }
+ 
+     pub(crate) async fn send_capture(&self, input_id: &str, frame: AudioFrame) -> AppResult<()> {
+@@ -335,20 +362,30 @@ impl FixtureAudioBackend {
+                     return Some(frame);
+                 }
+                 if probe.worker_done.load(Ordering::Acquire) {
+                     return None;
+                 }
+             }
+             changed.await;
+         }
+     }
+ 
++    pub(crate) fn hold_playback_ingress(&self, input_id: &str) -> oneshot::Sender<()> {
++        let (release, held) = oneshot::channel();
++        self.state
++            .lock()
++            .unwrap()
++            .held_playback_ingress
++            .insert(input_id.into(), held);
++        release
++    }
++
+     pub(crate) fn lose(&self, id: &str) {
+         self.set_ready(id, false);
+         let state = self.state.lock().unwrap();
+         if let Some(health) = state.health.get(id) {
+             crate::audio::runtime::mark_lost(health);
+         }
+         let output_id = state.input_outputs.get(id).map_or(id, String::as_str);
+         let probe = state.outputs.get(output_id).cloned();
+         if let Some(capture) = state.captures.get(id) {
+             capture.close();
+@@ -612,20 +649,40 @@ impl AudioControl for FixtureControl {
+ 
+     fn statistics(&self) -> AudioStatistics {
+         let mut statistics = self.probe.shared.statistics();
+         statistics.capture.dropped_normalized_frames = statistics
+             .capture
+             .dropped_normalized_frames
+             .saturating_add(self.probe.injected_normalized_loss.load(Ordering::Acquire));
+         statistics
+     }
+ 
++    fn playback_overflow_generation(&self) -> u64 {
++        self.probe
++            .shared
++            .counters
++            .playback_overflow_generation
++            .load(Ordering::Acquire)
++    }
++
++    async fn playback_overflow_changed(&self, observed: u64) {
++        loop {
++            let changed = self.probe.shared.changed.notified();
++            tokio::pin!(changed);
++            changed.as_mut().enable();
++            if self.playback_overflow_generation() != observed {
++                return;
++            }
++            changed.await;
++        }
++    }
++
+     async fn stop_capture(&self) -> AppResult<()> {
+         self.capture.close();
+         self.probe.shared.stop_capture();
+         self.probe
+             .shared
+             .counters
+             .capture_finalized
+             .store(true, Ordering::Release);
+         Ok(())
+     }
+@@ -862,20 +919,21 @@ impl FixtureAudioBackend {
+             shared,
+             injected_normalized_loss: AtomicU64::new(0),
+             sealed: AtomicBool::new(false),
+             worker_done: AtomicBool::new(false),
+             failure: Mutex::new(None),
+             changed: Notify::new(),
+         });
+         let worker = tokio::spawn(crate::session::test_support::playback_worker(
+             probe.clone(),
+             receiver,
++            state.held_playback_ingress.remove(&request.input_id),
+         ));
+         *playback_worker
+             .try_lock()
+             .expect("new fixture playback owner") = Some(worker);
+         let (health, receiver) = watch::channel(AudioHealth::Ready);
+         state
+             .captures
+             .insert(request.input_id.clone(), capture.clone());
+         state
+             .outputs
+diff --git a/src-tauri/src/storage/mod.rs b/src-tauri/src/storage/mod.rs
+index d3d76b0..f4fa8dc 100644
+--- a/src-tauri/src/storage/mod.rs
++++ b/src-tauri/src/storage/mod.rs
+@@ -1,10 +1,12 @@
+ mod models;
++mod owned;
+ mod sqlite;
+ pub use models::{
+     ExportData, SessionSummary, StoredSession, StoredSessionLifecycle, StoredTranscriptSegment,
+     SummaryVersion,
+ };
++pub(crate) use owned::SqlSlot;
+ pub use sqlite::LocalStore;
+ pub(crate) use sqlite::SummarySnapshotReadScope;
+ #[cfg(test)]
+ mod sqlite_tests;
+diff --git a/src-tauri/src/storage/owned.rs b/src-tauri/src/storage/owned.rs
+new file mode 100644
+index 0000000..b688895
+--- /dev/null
++++ b/src-tauri/src/storage/owned.rs
+@@ -0,0 +1,77 @@
++//! One retained blocking operation for an existing autonomous storage owner.
++use crate::error::{AppError, AppResult};
++use std::sync::{
++    Arc,
++    atomic::{AtomicBool, Ordering},
++};
++use tokio::{
++    sync::{Mutex, oneshot},
++    task::JoinHandle,
++};
++
++#[derive(Default)]
++pub(crate) struct SqlSlot {
++    task: Mutex<Option<JoinHandle<()>>>,
++    failed: Arc<AtomicBool>,
++}
++
++impl SqlSlot {
++    pub(crate) fn failed(&self) -> bool {
++        self.failed.load(Ordering::Acquire)
++    }
++
++    pub(crate) async fn run<T, G>(
++        &self,
++        guard: G,
++        operation: impl FnOnce() -> AppResult<T> + Send + 'static,
++    ) -> AppResult<T>
++    where
++        T: Send + 'static,
++        G: Send + 'static,
++    {
++        let mut task = self.task.lock().await;
++        // A lost observer leaves its real handle here. Only drain may consume
++        // that outstanding operation; a replacement cannot detach it.
++        if task.is_some() || self.failed.load(Ordering::Acquire) {
++            return Err(failure());
++        }
++        let (send, receive) = oneshot::channel();
++        let failed = self.failed.clone();
++        *task = Some(tokio::task::spawn_blocking(move || {
++            let _guard = guard;
++            let result = operation();
++            if send.send(result).is_err() {
++                failed.store(true, Ordering::Release);
++            }
++        }));
++        let joined = task.as_mut().expect("issued storage handle").await;
++        task.take();
++        if joined.is_err() {
++            self.failed.store(true, Ordering::Release);
++            return Err(failure());
++        }
++        receive.await.map_err(|_| failure())?
++    }
++
++    pub(crate) async fn drain(&self) -> AppResult<()> {
++        let mut task = self.task.lock().await;
++        if let Some(issued) = task.as_mut() {
++            if issued.await.is_err() {
++                self.failed.store(true, Ordering::Release);
++            }
++            task.take();
++        }
++        if self.failed.load(Ordering::Acquire) {
++            Err(failure())
++        } else {
++            Ok(())
++        }
++    }
++}
++
++fn failure() -> AppError {
++    AppError::Internal("owned storage operation did not complete normally".into())
++}
++
++#[cfg(test)]
++mod tests;
+diff --git a/src-tauri/src/storage/owned/tests.rs b/src-tauri/src/storage/owned/tests.rs
+new file mode 100644
+index 0000000..d91de4f
+--- /dev/null
++++ b/src-tauri/src/storage/owned/tests.rs
+@@ -0,0 +1,92 @@
++use super::*;
++use crate::storage::LocalStore;
++use fs2::FileExt;
++use std::sync::atomic::AtomicUsize;
++
++fn process(dir: &std::path::Path) -> Arc<std::fs::File> {
++    let file = std::fs::File::options()
++        .read(true)
++        .write(true)
++        .create_new(true)
++        .open(dir.join("owned-sql-process.lock"))
++        .unwrap();
++    file.try_lock_exclusive().unwrap();
++    Arc::new(file)
++}
++
++// Dropping the async observer must not detach the issued SQL, free its
++// process owner, or let another operation replace the retained join handle.
++#[tokio::test]
++async fn observer_loss_keeps_actual_sql_owned_and_rejects_replacement_until_join() {
++    let dir = tempfile::tempdir().unwrap();
++    let store = Arc::new(LocalStore::open(dir.path()).unwrap());
++    let sql = Arc::new(SqlSlot::default());
++    let owner = process(dir.path());
++    let weak = Arc::downgrade(&owner);
++    let (entered, waiting) = oneshot::channel();
++    let (release, held) = std::sync::mpsc::channel();
++    let observer = tokio::spawn({
++        let sql = sql.clone();
++        let store = store.clone();
++        async move {
++            sql.run(owner, move || store.transaction(|tx| {
++                entered.send(()).unwrap();
++                held.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
++                tx.execute_batch("CREATE TABLE actual_owned_sql(value INTEGER); INSERT INTO actual_owned_sql VALUES(7);")?;
++                Ok(7)
++            })).await
++        }
++    });
++    waiting.await.unwrap();
++    observer.abort();
++    assert!(observer.await.unwrap_err().is_cancelled());
++    let calls = Arc::new(AtomicUsize::new(0));
++    let refused = sql
++        .run((), {
++            let calls = calls.clone();
++            move || {
++                calls.fetch_add(1, Ordering::SeqCst);
++                Ok(())
++            }
++        })
++        .await
++        .is_err();
++    let retained = weak.upgrade().is_some();
++    release.send(()).unwrap();
++    let drained = sql.drain().await;
++    assert!(refused && retained);
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    assert!(
++        drained.is_err(),
++        "lost result must fail closed after the real SQL join"
++    );
++    assert!(weak.upgrade().is_none());
++    assert!(sql.task.lock().await.is_none());
++    assert_eq!(
++        store
++            .transaction(|tx| Ok(tx.query_row(
++                "SELECT value FROM actual_owned_sql",
++                [],
++                |row| row.get::<_, i64>(0)
++            )?))
++            .unwrap(),
++        7
++    );
++    assert!(sql.run((), || Ok(())).await.is_err());
++}
++
++#[tokio::test]
++async fn actual_sql_panic_is_joined_and_cannot_publish_normal_completion_or_rearm() {
++    let dir = tempfile::tempdir().unwrap();
++    let sql = SqlSlot::default();
++    let owner = process(dir.path());
++    let weak = Arc::downgrade(&owner);
++    let result = sql
++        .run::<(), _>(owner, || panic!("injected actual SQL panic"))
++        .await;
++    assert!(result.is_err());
++    assert!(sql.drain().await.is_err());
++    assert!(weak.upgrade().is_none());
++    assert!(sql.task.lock().await.is_none());
++    assert!(sql.run((), || Ok(())).await.is_err());
++}
+diff --git a/src-tauri/src/storage/sqlite.rs b/src-tauri/src/storage/sqlite.rs
+index e125e91..9ad073d 100644
+--- a/src-tauri/src/storage/sqlite.rs
++++ b/src-tauri/src/storage/sqlite.rs
+@@ -14,20 +14,22 @@ use crate::{
+     error::{AppError, AppResult},
+ };
+ use rusqlite::{Connection, OptionalExtension, params};
+ use std::{path::Path, sync::Mutex};
+ use uuid::Uuid;
+ 
+ #[derive(Debug)]
+ pub struct LocalStore {
+     connection: Mutex<Connection>,
+     summary_snapshot_scopes: std::sync::Arc<tokio::sync::Semaphore>,
++    #[cfg(test)]
++    pub(crate) oo1_transcript_entry: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+ }
+ pub(crate) struct SummarySnapshotReadScope {
+     deadline: std::time::Instant,
+     cancel: tokio::sync::watch::Receiver<bool>,
+ }
+ impl SummarySnapshotReadScope {
+     pub(crate) fn check(&self) -> AppResult<()> {
+         use crate::intelligence::types::IntelligenceErrorCode as Code;
+         if *self.cancel.borrow() || self.cancel.has_changed().is_err() {
+             return Err(AppError::Intelligence(Code::Cancelled));
+@@ -135,20 +137,22 @@ impl LocalStore {
+             let tx = conn.transaction()?;
+             for (index, migration) in MIGRATIONS.iter().enumerate().skip(version as usize) {
+                 tx.execute_batch(migration)?;
+                 tx.pragma_update(None, "user_version", index + 1)?;
+             }
+             tx.commit()?;
+         }
+         Ok(Self {
+             connection: Mutex::new(conn),
+             summary_snapshot_scopes: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
++            #[cfg(test)]
++            oo1_transcript_entry: Mutex::default(),
+         })
+     }
+     /// The existing SQLite owner is the only authority. The closure must never
+     /// call ConfigIo: cross-store operations acquire config before SQLite.
+     pub(crate) fn transaction<T>(
+         &self,
+         operation: impl FnOnce(&rusqlite::Transaction<'_>) -> AppResult<T>,
+     ) -> AppResult<T> {
+         let mut connection = self
+             .connection
+@@ -380,20 +384,24 @@ impl LocalStore {
+     pub fn append_transcript(&self, update: &TranscriptUpdate) -> AppResult<()> {
+         update.validate()?;
+         if !update.is_final {
+             return Err(AppError::InvalidRequest(
+                 "only final transcript events may be persisted".into(),
+             ));
+         }
+         let details = json(update.details.as_ref().expect("validated details"))?;
+         let sequence = i64::try_from(update.sequence)
+             .map_err(|_| crate::domain::transcript::invalid_transcript())?;
++        #[cfg(test)]
++        if let Some(entered) = self.oo1_transcript_entry.lock().unwrap().take() {
++            let _ = entered.send(());
++        }
+         self.connection.lock().unwrap().execute(
+             "INSERT INTO translation_segments (id,\
+                     session_id,direction,sequence,occurred_at,\
+                     language,text,is_final,details_json,\
+                     occurred_at_ms) VALUES (?1,?2,?3,?4,?5,?6,?7,\
+                     1,?8,?9)",
+             params![
+                 update.id.to_string(),
+                 update.session_id.to_string(),
+                 direction_name(update.direction),
+diff --git a/src-tauri/src/summary/terminal.rs b/src-tauri/src/summary/terminal.rs
+index 29c3494..f63cbfa 100644
+--- a/src-tauri/src/summary/terminal.rs
++++ b/src-tauri/src/summary/terminal.rs
+@@ -6,21 +6,21 @@ use super::{
+ };
+ use crate::{
+     audio::join::{AudioCloseAck, AudioCloseJoin, AudioCloseKey},
+     error::{AppError, AppResult},
+     intelligence::{
+         config::{ServiceConfigStore, SummarySelection},
+         jobs::{JobAdmissionFence, JobEvents, JobScheduler, OperationLease},
+         store::{JobAdmissionResult, permanent_job, safe_store_error},
+         types::{IntelligenceErrorCode as Code, JobKind},
+     },
+-    storage::LocalStore,
++    storage::{LocalStore, SqlSlot},
+ };
+ use futures_util::FutureExt;
+ use rusqlite::{OptionalExtension, Transaction, params};
+ use std::{
+     sync::{
+         Arc, Mutex, Weak,
+         atomic::{AtomicBool, Ordering},
+     },
+     time::Duration,
+ };
+@@ -138,20 +138,21 @@ struct State {
+     sender: Option<mpsc::Sender<Uuid>>,
+     rescan: Arc<Notify>,
+     seal: Option<watch::Sender<bool>>,
+     worker_done: Option<watch::Receiver<Option<Result<(), Code>>>>,
+     close_key: Option<AudioCloseKey>,
+     close_done: Option<watch::Receiver<Option<Result<(), Code>>>>,
+ }
+ pub(super) struct DeliveryControl {
+     state: Mutex<State>,
+     child: Arc<Semaphore>,
++    sql: SqlSlot,
+     worker: AsyncMutex<Option<JoinHandle<()>>>,
+     closer: AsyncMutex<Option<JoinHandle<()>>>,
+     actual_join_failed: AtomicBool,
+     #[cfg(test)]
+     publication: Arc<readiness_test_support::BoundaryControl>,
+     #[cfg(test)]
+     ready_issued: Arc<readiness_test_support::BoundaryControl>,
+     #[cfg(test)]
+     ready_published: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+ }
+@@ -189,20 +190,21 @@ impl DeliveryControl {
+                 stage: Stage::Dormant,
+                 live: Arc::new(AtomicBool::new(false)),
+                 sender: None,
+                 rescan: Arc::new(Notify::new()),
+                 seal: None,
+                 worker_done: None,
+                 close_key: None,
+                 close_done: None,
+             }),
+             child: Arc::new(Semaphore::new(1)),
++            sql: SqlSlot::default(),
+             worker: AsyncMutex::new(None),
+             closer: AsyncMutex::new(None),
+             actual_join_failed: AtomicBool::new(false),
+             #[cfg(test)]
+             publication: Arc::default(),
+             #[cfg(test)]
+             ready_issued: Arc::default(),
+             #[cfg(test)]
+             ready_published: Mutex::new(None),
+         })
+@@ -231,27 +233,31 @@ impl DeliveryControl {
+     }
+     fn fail(&self, id: Uuid) {
+         if let Ok(mut state) = self.state.lock() {
+             if state.id == id && !matches!(state.stage, Stage::Closing | Stage::Joined) {
+                 state.live.store(false, Ordering::Release);
+                 state.stage = Stage::Failed;
+             }
+         }
+     }
+     async fn child_barrier(&self) -> AppResult<()> {
++        let sql = self.sql.drain().await;
+         let _all = self
+             .child
+             .clone()
+             .acquire_owned()
+             .await
+             .map_err(|_| error(Code::Interrupted))?;
+-        Ok(())
++        if sql.is_err() {
++            self.actual_join_failed.store(true, Ordering::Release);
++        }
++        sql
+     }
+     async fn worker_outcome(&self) -> AppResult<()> {
+         let completion = self
+             .state
+             .lock()
+             .map_err(|_| storage())?
+             .worker_done
+             .clone();
+         if let Some(completion) = completion {
+             observed(completion).await
+@@ -282,21 +288,21 @@ impl DeliveryControl {
+         }
+         self.actual_join_result()
+     }
+     fn record_actual_join(&self, joined: Result<(), tokio::task::JoinError>) -> AppResult<()> {
+         if joined.is_err() {
+             self.actual_join_failed.store(true, Ordering::Release);
+         }
+         self.actual_join_result()
+     }
+     fn actual_join_result(&self) -> AppResult<()> {
+-        if self.actual_join_failed.load(Ordering::Acquire) {
++        if self.actual_join_failed.load(Ordering::Acquire) || self.sql.failed() {
+             return Err(error(Code::Interrupted));
+         }
+         Ok(())
+     }
+     async fn join_final_actual(&self, outcome: AppResult<()>) -> AppResult<FinalDeliveryJoin> {
+         let closer = self.join_closer_actual().await;
+         let worker = self.join_worker_actual().await;
+         let child = self.child_barrier().await;
+         closer?;
+         worker?;
+@@ -500,21 +506,21 @@ impl AutomaticPort {
+     async fn admit(
+         &self,
+         session_id: Uuid,
+         attempt: AutomaticAttempt,
+         owner: OperationLease,
+         bootstrap: bool,
+     ) -> AppResult<Decision> {
+         let control = self.control.clone();
+         let events = self.events.clone();
+         let wake = self.wake.clone();
+-        let result = self.config.scoped(owner).with_summary_selection_completion(
++        let result = self.config.scoped(owner.clone()).with_summary_selection_completion(
+             SummarySelection::Automatic,
+             move |tx, snapshot| {
+                 let Some(journal) = LocalStore::summary_terminal_in_tx(tx, session_id)? else { return Ok(Decision::Skipped); };
+                 if journal.deleting || !journal.terminal || (!bootstrap && !journal.pending) { return Ok(Decision::Skipped); }
+                 let run = |initial_failure| {
+                     // The permanent marker is authoritative before settings,
+                     // counters or version allocation, including deleted output.
+                     if let Some(existing) = permanent_job(tx, &format!("auto-summary:{session_id}"))? {
+                         LocalStore::consume_summary_terminal_in_tx(tx, session_id)?;
+                         return Ok(Decision::Job(JobAdmissionResult::Existing(existing)));
+@@ -554,46 +560,68 @@ impl AutomaticPort {
+                         local_fence.run(*reason, |reason| run(Some(reason.code())))
+                     }
+                 }
+             },
+             move |decision| {
+                 if let Decision::Job(JobAdmissionResult::Created(job)) = decision { events.publish(job.clone()); wake.notify_one(); }
+             },
+         ).await;
+         match result {
+             Err(AppError::Intelligence(Code::Configuration)) | Err(AppError::Configuration(_)) => {
+-                self.store
+-                    .transaction(|tx| {
+-                        let Some(journal) = LocalStore::summary_terminal_in_tx(tx, session_id)?
+-                        else {
+-                            return Ok(Decision::Skipped);
+-                        };
+-                        if journal.deleting || !journal.terminal || (!bootstrap && !journal.pending)
+-                        {
+-                            return Ok(Decision::Skipped);
+-                        }
+-                        if permanent_job(tx, &format!("auto-summary:{session_id}"))?.is_some() {
+-                            Ok(Decision::ReadOnlyExisting)
+-                        } else {
+-                            Err(error(Code::Configuration))
+-                        }
++                let storage = self.store.clone();
++                self.control
++                    .sql
++                    .run(owner, move || {
++                        storage
++                            .transaction(|tx| {
++                                let Some(journal) =
++                                    LocalStore::summary_terminal_in_tx(tx, session_id)?
++                                else {
++                                    return Ok(Decision::Skipped);
++                                };
++                                if journal.deleting
++                                    || !journal.terminal
++                                    || (!bootstrap && !journal.pending)
++                                {
++                                    return Ok(Decision::Skipped);
++                                }
++                                if permanent_job(tx, &format!("auto-summary:{session_id}"))?
++                                    .is_some()
++                                {
++                                    Ok(Decision::ReadOnlyExisting)
++                                } else {
++                                    Err(error(Code::Configuration))
++                                }
++                            })
++                            .map_err(safe_store_error)
+                     })
+-                    .map_err(safe_store_error)
++                    .await
+             }
+             result => result,
+         }
+     }
+-    fn attempt(&self, session_id: Uuid, bootstrap: bool) -> AppResult<AutomaticAttempt> {
++    async fn attempt(
++        &self,
++        session_id: Uuid,
++        bootstrap: bool,
++        owner: OperationLease,
++    ) -> AppResult<AutomaticAttempt> {
++        let attempt_store = self.store.clone();
+         let journal = self
+-            .store
+-            .transaction(|tx| LocalStore::summary_terminal_in_tx(tx, session_id))
+-            .map_err(safe_store_error)?;
++            .control
++            .sql
++            .run(owner, move || {
++                attempt_store
++                    .transaction(|tx| LocalStore::summary_terminal_in_tx(tx, session_id))
++                    .map_err(safe_store_error)
++            })
++            .await?;
+         let state = self.control.state.lock().map_err(|_| storage())?;
+         let id = state.id;
+         let live = !bootstrap
+             && state.stage == Stage::Live
+             && state.live.load(Ordering::Acquire)
+             && journal
+                 .as_ref()
+                 .is_some_and(|j| j.generation == Some(id) && j.local_error.is_none());
+         let reason = if !bootstrap
+             && state.stage == Stage::Live
+@@ -618,56 +646,69 @@ impl AutomaticPort {
+                 });
+             }
+         }
+         Ok(AutomaticAttempt::LocalRetry {
+             delivery_id: id,
+             reason,
+             local_fence: self.control.local(id),
+         })
+     }
+     async fn one(&self, id: Uuid, factory: &ChildFactory, bootstrap: bool) -> AppResult<()> {
+-        let attempt = self.attempt(id, bootstrap)?;
+-        let result = self
+-            .admit(id, attempt, factory.enter().await?, bootstrap)
+-            .await;
++        let child = factory.enter().await?;
++        let attempt = self.attempt(id, bootstrap, child.clone()).await?;
++        let result = self.admit(id, attempt, child, bootstrap).await;
+         // Observer timeout does not release the entered config/SQL child. No
+         // next admission is dispatched before its real release and late read.
+         self.control.child_barrier().await?;
+         if result.is_err() {
+-            self.store
+-                .transaction(|tx| {
+-                    if let Some(journal) = LocalStore::summary_terminal_in_tx(tx, id)? {
+-                        if journal.terminal {
+-                            let _ = permanent_job(tx, &format!("auto-summary:{id}"))?;
+-                        }
+-                    }
+-                    Ok(())
++            let storage = self.store.clone();
++            self.control
++                .sql
++                .run(factory.enter().await?, move || {
++                    storage
++                        .transaction(|tx| {
++                            if let Some(journal) = LocalStore::summary_terminal_in_tx(tx, id)? {
++                                if journal.terminal {
++                                    let _ = permanent_job(tx, &format!("auto-summary:{id}"))?;
++                                }
++                            }
++                            Ok(())
++                        })
++                        .map_err(safe_store_error)
+                 })
+-                .map_err(safe_store_error)?;
++                .await?;
+         }
+         result?.result()
+     }
+     async fn scan(&self, factory: &ChildFactory, bootstrap: bool) -> AppResult<()> {
+         for status in if bootstrap {
+             vec![Some("completed"), Some("failed")]
+         } else {
+             vec![None]
+         } {
+             let mut after = None;
+             loop {
+                 if bootstrap
+                     && self.control.state.lock().map_err(|_| storage())?.stage
+                         != Stage::Bootstrapping
+                 {
+                     return Err(error(Code::Interrupted));
+                 }
+-                let page = self.store.summary_terminal_page(status, after.as_deref())?;
++                let storage = self.store.clone();
++                let page_after = after.clone();
++                let page = self
++                    .control
++                    .sql
++                    .run(factory.enter().await?, move || {
++                        storage.summary_terminal_page(status, page_after.as_deref())
++                    })
++                    .await?;
+                 if page.is_empty() {
+                     break;
+                 }
+                 after = page.last().map(Uuid::to_string);
+                 let more = page.len() == PAGE;
+                 for id in page {
+                     self.one(id, factory, bootstrap).await?;
+                 }
+                 if !more {
+                     break;
+diff --git a/src-tauri/src/summary/terminal/tests.rs b/src-tauri/src/summary/terminal/tests.rs
+index 5312397..c846c02 100644
+--- a/src-tauri/src/summary/terminal/tests.rs
++++ b/src-tauri/src/summary/terminal/tests.rs
+@@ -340,21 +340,25 @@ async fn terminal_closing_overrides_unadmitted_full_queue_busy_with_interrupted(
+                 session_id: id,
+                 status: "completed".into(),
+                 ended_at: Some(2),
+             },
+             reservation.intent(),
+         )
+         .unwrap();
+     delivery.elect_closing(1, 0).unwrap();
+     drop(reservations);
+     reservation.committed(id);
+-    let attempt = delivery.port.attempt(id, false).unwrap();
++    let attempt = delivery
++        .port
++        .attempt(id, false, h.process.clone())
++        .await
++        .unwrap();
+     h.service
+         .after_terminal_owned(id, attempt, h.process.clone())
+         .await
+         .unwrap();
+     let versions = h.native_versions(id).unwrap();
+     close(&h, &delivery).await;
+     assert_eq!(
+         versions[0].error,
+         Some(Code::Interrupted),
+         "after Closing a not-yet-admitted notice is local Interrupted"
+diff --git a/src-tauri/src/summary/tests/harness.rs b/src-tauri/src/summary/tests/harness.rs
+index bd46684..f798e36 100644
+--- a/src-tauri/src/summary/tests/harness.rs
++++ b/src-tauri/src/summary/tests/harness.rs
+@@ -182,32 +182,35 @@ impl SummaryHarness {
+                 details: None,
+                 occurred_at_ms: None,
+             })
+             .unwrap();
+         id
+     }
+     pub async fn generate(&self, session: Uuid, profile: Option<Uuid>) -> AppResult<JobView> {
+         generate_local_owned(&self.service, session, profile, self.process.clone()).await
+     }
+     pub async fn run_jobs(&self, id: Uuid) -> JobView {
++        self.wait_with_timeout(id, Duration::from_secs(5)).await
++    }
++    pub async fn wait_with_timeout(&self, id: Uuid, timeout: Duration) -> JobView {
+         self.jobs.wake();
+-        tokio::time::timeout(Duration::from_secs(5), async {
++        tokio::time::timeout(timeout, async {
+             loop {
+                 let row = self.store.get_job(id).unwrap().unwrap();
+                 if !matches!(row.status, JobStatus::Queued | JobStatus::Running) {
+                     return row;
+                 }
+                 tokio::time::sleep(Duration::from_millis(5)).await;
+             }
+         })
+         .await
+-        .expect("actual scheduler must finish the admitted summary")
++        .expect("admitted summary must reach durable terminal status within the fixture deadline")
+     }
+     pub async fn wait(&self, id: Uuid) -> JobView {
+         self.run_jobs(id).await
+     }
+     pub async fn llm_entered(&self) {
+         let entered =
+             tokio::time::timeout(Duration::from_secs(2), self.llm.entered.notified()).await;
+         if entered.is_err() {
+             self.llm.release.notify_one();
+             self.jobs.shutdown().await.unwrap();
+diff --git a/src-tauri/src/summary/tests/pipeline.rs b/src-tauri/src/summary/tests/pipeline.rs
+index 8237264..225364c 100644
+--- a/src-tauri/src/summary/tests/pipeline.rs
++++ b/src-tauri/src/summary/tests/pipeline.rs
+@@ -1,13 +1,14 @@
+ use super::harness::*;
+ use crate::intelligence::types::*;
+ use sha2::{Digest, Sha256};
++use std::time::Duration;
+ fn large_summary(len: usize) -> String {
+     serde_json::json!({"summary":"x".repeat(len),"participants":[],"companies":[],"requirements":[],"action_items":[],"risks":[],"terms":[]}).to_string()
+ }
+ #[tokio::test]
+ async fn summary_pipeline_all_maps_and_invalid_reduce_keep_raw_hash_and_complete_actual_coverage() {
+     let h = SummaryHarness::new().await;
+     let input = "x".repeat(1400);
+     let session = h.completed_session(&[&input, &input, &input]).await;
+     for _ in 0..3 {
+         h.llm.push(VALID);
+@@ -168,21 +169,23 @@ async fn summary_pipeline_single_raw_and_total_raw_breaches_keep_prior_committed
+         if aggregate {
+             let raw = format!("{VALID}{}", " ".repeat(2 * 1024 * 1024 - VALID.len()));
+             for _ in 0..20 {
+                 h.llm.push(&raw);
+             }
+         } else {
+             h.llm.push(VALID);
+             h.llm.push(&"x".repeat(2 * 1024 * 1024 + 1));
+         }
+         let job = h.generate(session, None).await.unwrap();
+-        let done = h.wait(job.id).await;
++        // This case persists up to 32 MiB in a debug build. Its fixture wait
++        // must allow shared test load; it is not a product request deadline.
++        let done = h.wait_with_timeout(job.id, Duration::from_secs(30)).await;
+         let raw = h.raw_responses(job.object_id.unwrap()).unwrap();
+         let coverage = h.coverage(job.object_id.unwrap()).unwrap();
+         let bytes = h
+             .store
+             .transaction(|tx| {
+                 Ok(tx.query_row(
+                     "SELECT raw_response_bytes FROM session_summaries WHERE id=?1",
+                     [job.object_id.unwrap().to_string()],
+                     |r| r.get::<_, u64>(0),
+                 )?)

@@ -1,0 +1,30 @@
+{
+  "started_utc": "2026-11-10T09:41:04.441099+00:00",
+  "argv": [
+    "cargo",
+    "test",
+    "--offline",
+    "--locked",
+    "--manifest-path",
+    "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/source/src-tauri/Cargo.toml",
+    "--lib",
+    "app::intelligence::tests::oo1::actual_scheduler_keeps_timer_and_capture_stop_pollable_while_sqlite_claims_wait",
+    "--",
+    "--exact",
+    "--nocapture"
+  ],
+  "cwd": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/source",
+  "environment_overrides_verbatim": {
+    "CARGO_HOME": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-writable-20261106",
+    "CARGO_TARGET_DIR": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/cargo-target-intelligence-20261107",
+    "TMPDIR": "/dev/shm/voxbridge-intelligence-20261109.q7xaof9u",
+    "PKG_CONFIG_PATH": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig",
+    "PKG_CONFIG_SYSROOT_DIR": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot",
+    "LIBRARY_PATH": "/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/.superpowers/toolchain/alsa/sysroot/usr/lib/x86_64-linux-gnu"
+  },
+  "ambient_tokio_worker_threads": null,
+  "fixture_configured_tokio_workers": 2,
+  "timeout_seconds": 600,
+  "tmpdir_task_owned_probe_passed": true,
+  "scope": "Only the focused source-copy unit fixture; no original-source mutation"
+}

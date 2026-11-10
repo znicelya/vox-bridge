@@ -1,0 +1,19 @@
+{
+  "base_tree": "d1dd2c7aa27501ac817c24f3ada28778dfd1cb86",
+  "candidate_live_hashes": {
+    "src-tauri/src/storage/owned.rs": "b8be5599997ec31447ee0c7004ee43a06d6a94507df178b32fbc5c5b796ccb7e",
+    "src-tauri/src/intelligence/jobs.rs": "67d6be53d1c32d9bf641e08e295a9c073381764997ba97cea38f40e8f85a9924",
+    "src-tauri/src/intelligence/jobs/maintenance.rs": "1723764c9bc1e127677331bd6a378d0461db0105e3deaec6deaa0fb8eebf1453",
+    "src-tauri/src/intelligence/jobs/reap.rs": "7ee138f5ee90079815d0be297658c102986ce95448de15f9edac0d6def6e0d4e",
+    "src-tauri/src/summary/terminal.rs": "6c3a35d05998fa4b219ecbdfa2add5aa52ec91debb192be8918116643fd0fb14",
+    "src-tauri/src/session/runtime.rs": "77a32bdadffcede38ea1c2e28db0aaf0132ef05d1e5df8cc90854ff5ede72f50",
+    "src-tauri/src/session/orchestrator.rs": "30bfdc102d00b133a32a410194cd40f8754f3051970b2797c400b92ba5183044",
+    "src-tauri/src/app/lifecycle.rs": "23ec853257d29ff5323a13fb0f1835eca4135d2a39dd3fabd7f895e2923384cf",
+    "src-tauri/src/app/subscription_tests.rs": "d9bcef16a3b646be430af2992aa042aa818786820ed71b91485e39fb76f76a82",
+    "src-tauri/src/app/intelligence/tests/summary/readiness.rs": "97cd5c525c92042bb748b96c9c7b662e8c4cf3996c1fba3f3aaa63613b5eb141",
+    "src-tauri/src/summary/tests/harness.rs": "6c5600f54e3409b1bc021e3dd891817ff4444d235c5323920e90bfe86609c255"
+  },
+  "created_utc": "2026-11-10T14:51:33.320514+00:00",
+  "source_diff_sha256": "c779cae513a4b52a4afc84b93eb53f6f48cbc91763d757ec2f6a0069b2d61776",
+  "no_source_or_index_or_refs_changed": true
+}

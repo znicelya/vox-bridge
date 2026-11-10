@@ -1,0 +1,14 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 25.32s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 2 tests
+stop-race first actual worker join: Some(Ok(Ok(()))), requested stop: true
+OO1 scheduler ed504695-ecb0-4d75-90aa-24ddbed7aea7 shutdown join result: Ok(Err(Intelligence(Interrupted)))
+OO1 scheduler ed504695-ecb0-4d75-90aa-24ddbed7aea7 shutdown join result: Ok(Err(Intelligence(Interrupted)))
+test intelligence::jobs::tests::stop_race::requested_stop_between_stop_poll_and_worker_join_keeps_abnormal_exit_failed ... ok
+stop-race first actual worker join: Some(Ok(Ok(()))), requested stop: true
+test intelligence::jobs::tests::stop_race::requested_stop_between_stop_poll_and_worker_join_closes_and_rearms ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 900 filtered out; finished in 0.05s
+

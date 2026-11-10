@@ -1,0 +1,577 @@
+{
+  "archived_utc": "2026-11-10T17:16:08.833796+00:00",
+  "source_commit": "d260d593a86d006d1f99262a5293222da397dafe",
+  "source_tree": "8b82dbdf849918487b59b3eb9e9130c6124ddef5",
+  "manual_source_commit": "00d54bf",
+  "plan_start_commit": "73760d609a050eaddcd8002cec572fbc73c65164",
+  "task2_pre_oo1_tree": "d1dd2c7aa27501ac817c24f3ada28778dfd1cb86",
+  "status": "Task6 manual and automatic source accepted; complete integration Spec PASS, final OO1 HOLD resolved by independent scoped Spec PASS/Quality PASS",
+  "review_sha256": "de149039851099863fe961f96c4e59bb935612196cb6b9a56411cc50baa7127a",
+  "final_tests": {
+    "passed": 918,
+    "failed": 0,
+    "paid_ignored": 1
+  },
+  "original_reports_and_failed_attempts_preserved": true,
+  "no_capacity_rebenchmark": true,
+  "limits": [
+    "Historical 045 document-worker timeout attribution remains unestablished and nonblocking in the scoped review",
+    "CV-1 successful ceiling recovery remains unproven (availability=false)",
+    "Real three-platform audio, signing/distribution and paid-service acceptance remain external",
+    "Task7 research and Tasks8–10 frontend/history/smoke remain incomplete"
+  ],
+  "archived_files": [
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/final-candidate/scoped-review-brief.md",
+      "archive_path": "evidence/task-6-oo1-validation/repair/final-candidate/scoped-review-brief.md",
+      "bytes": 5191,
+      "sha256": "ab6363beca3fd000bea2b154bc5d9329e023b606bc3b56ada28671e480ccce95"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/final-candidate/source-freeze.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/final-candidate/source-freeze.json",
+      "bytes": 72934,
+      "sha256": "3507d7547c1843bf8f9cb4c313158adda95a7d263d97acb9aa9e0d8b44b30c0e"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/final-candidate/final-verification.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/final-candidate/final-verification.json",
+      "bytes": 4167,
+      "sha256": "4d109b0cd2143de75c45e8b320240f8cb0c36f6b279ca9f93129c56984c0f1a5"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/final-candidate/oo1-repair-review.diff",
+      "archive_path": "evidence/task-6-oo1-validation/repair/final-candidate/oo1-repair-review.diff",
+      "bytes": 162699,
+      "sha256": "3e3ee3da53391414e18e6a76da6ae2bb0e57abda7c86ac9730a216d360bf01d6"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/final-candidate/progress-at-scoped-review.md",
+      "archive_path": "evidence/task-6-oo1-validation/repair/final-candidate/progress-at-scoped-review.md",
+      "bytes": 141639,
+      "sha256": "38c3e06efd4c5cf9f7a325254b2ea371f5b8c4898963f0a2ba1277c6188f73e6"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/oo1-repair-report.md",
+      "archive_path": "evidence/task-6-oo1-validation/repair/oo1-repair-report.md",
+      "bytes": 8432,
+      "sha256": "89a93bdfe355f73747e750e8096d3724a895c9eaff04bdd91732b753e03c99cc"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-independent-integration-review.md",
+      "archive_path": "evidence/task-6-independent-integration-review.md",
+      "bytes": 25435,
+      "sha256": "f1aea3cfe4e36741df4828936cadccc8cce9f7f3fd9a1fdd3a9c4c2727a1977b"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/global-constraints.md",
+      "archive_path": "evidence/global-constraints.md",
+      "bytes": 5184,
+      "sha256": "fb99cbd2228012398b1d46cc3cc8896ebcd06c360bab33d29bc008495c83e510"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-2-controller-decisions.md",
+      "archive_path": "evidence/task-2-controller-decisions.md",
+      "bytes": 15283,
+      "sha256": "3626b9bbad3189005c41644af1314538a67cec82e082bdb12d982a0f7b15f27a"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/oo1-repair-brief.md",
+      "archive_path": "evidence/task-6-oo1-validation/oo1-repair-brief.md",
+      "bytes": 8248,
+      "sha256": "25d41d51a4b68d0428aacdc39435d3f734b71fb1b90ad9d40f4deb63732bf5ba"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/oo1-investigation-report.md",
+      "archive_path": "evidence/task-6-oo1-validation/oo1-investigation-report.md",
+      "bytes": 13263,
+      "sha256": "7dc8f21e6a778484b809668987bc47f8870c0af1b707a6d9628a1f89a5eeb76a"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/oo1-minimal-fix-preflight-report.md",
+      "archive_path": "evidence/task-6-oo1-validation/oo1-minimal-fix-preflight-report.md",
+      "bytes": 24420,
+      "sha256": "eea73c41c0935582b88ed6fdee1ee99363860515ebe37fae33dd0356b3e9da5f"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/run-002-command.json",
+      "archive_path": "evidence/task-6-oo1-validation/run-002-command.json",
+      "bytes": 1811,
+      "sha256": "4d2b3e07597c8a51771d85f5bfffb26060de260593f68876523a226eb74753cf"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/close-investigation/report.md",
+      "archive_path": "evidence/task-6-oo1-validation/repair/close-investigation/report.md",
+      "bytes": 21395,
+      "sha256": "b63f1ae52b041c8d89ea009fa08ecdc40f5d9327bd9ad6ee24645328f0715ced"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/close-investigation/brief.md",
+      "archive_path": "evidence/task-6-oo1-validation/repair/close-investigation/brief.md",
+      "bytes": 2536,
+      "sha256": "26fcbbc16d6224f41d8d0a1431064ebe0fde3eaee034fcf203d93f07fa542b3a"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/close-investigation/inputs.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/close-investigation/inputs.json",
+      "bytes": 1537,
+      "sha256": "8dc3a86314ee3d9a3eb78cf85b31b405f5c513e68b4b1b69496e64156247f972"
+    },
+    {
+      "original_path": "docs/superpowers/plans/2026-11-09-session-summary-continuation.md",
+      "archive_path": "evidence/repository-inputs/docs/superpowers/plans/2026-11-09-session-summary-continuation.md",
+      "bytes": 40258,
+      "sha256": "b09c176b1f85d3737707d30e6e2a629625f7678b2bd716d4b3aaea82f2837fbc"
+    },
+    {
+      "original_path": "docs/superpowers/specs/2026-11-04-live-translation-workbench-design.md",
+      "archive_path": "evidence/repository-inputs/docs/superpowers/specs/2026-11-04-live-translation-workbench-design.md",
+      "bytes": 13335,
+      "sha256": "c5149d53d735ef12ce0eb07ace350b4a52b52abf8dcc7aeca0b38b8867cbdf5a"
+    },
+    {
+      "original_path": "docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-6-interface-amendments.md",
+      "archive_path": "evidence/repository-inputs/docs/superpowers/handoffs/2026-11-09-knowledge-repair/evidence/task-6-interface-amendments.md",
+      "bytes": 18375,
+      "sha256": "3e3720c10e3d1bea900be0b4da4379e30c927a8287ad8d5dbabe9562464b5f4a"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/002-stronger-availability-red.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/002-stronger-availability-red.json",
+      "bytes": 69625,
+      "sha256": "b5a1744a480cb36f3d3f13bf1cde3405792e404e7c089568c30d73503e9c8c2d"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/002-stronger-availability-red.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/002-stronger-availability-red.log",
+      "bytes": 12452,
+      "sha256": "4ed72f4712c4976c6ff8345a5a58e258720ff90af6ba65a4965a6122e237922e"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/006-ownership-red.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/006-ownership-red.json",
+      "bytes": 69865,
+      "sha256": "1fcbec9a28ade4f16449035c9cdff2b34e52687649d785b6eb5a92e7fc040b25"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/006-ownership-red.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/006-ownership-red.log",
+      "bytes": 1832,
+      "sha256": "3162538f9756a456d4f2eebe8facc9e852348822ffbc583a55fed09d0e128c6a"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/007-ownership-green.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/007-ownership-green.json",
+      "bytes": 70631,
+      "sha256": "c91d028eaa42a270745aa35187052ddb142493545cfefbe22ddbf8c0a986a11b"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/007-ownership-green.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/007-ownership-green.log",
+      "bytes": 18018,
+      "sha256": "746cf30c021ffad95cee9337fd195d74f2840772963389d003d26104e4ce25c5"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/011-actor-owner-red.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/011-actor-owner-red.json",
+      "bytes": 71140,
+      "sha256": "29712f7f56c3731174c77149ef39aed2c9a00d5b5a1c00fe422e0a35ff9ffc0f"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/011-actor-owner-red.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/011-actor-owner-red.log",
+      "bytes": 1208,
+      "sha256": "f07b9933356a912a8f23d1c85a73ceba80f8fb6e433a549fdc3bc13d14b8d00d"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/012-actor-retry-red.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/012-actor-retry-red.json",
+      "bytes": 71029,
+      "sha256": "bd41290502a62050c45c3c494ebe4a5656110e99512f850433c226fd2925c359"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/012-actor-retry-red.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/012-actor-retry-red.log",
+      "bytes": 1223,
+      "sha256": "f81ebf111afae54ccb8f1a2ed0369c33dcdb703780b3dc8c4b7fa7add81ef737"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/013-actor-owner-green.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/013-actor-owner-green.json",
+      "bytes": 71025,
+      "sha256": "5ea52b2f6093a18a8c11a8eaebcd9a717fe39fcc568747167c5057fad33f6052"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/013-actor-owner-green.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/013-actor-owner-green.log",
+      "bytes": 566,
+      "sha256": "f8c8423e8b940c3c3ad62c2c2b037597daab43e53e0cda0a4f11bd74da704407"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/015-ownership-availability-green.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/015-ownership-availability-green.json",
+      "bytes": 71065,
+      "sha256": "63d4f3f7edce66f9937480eb8c2d1527532db777dcf8b3fecee59a2501272a41"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/015-ownership-availability-green.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/015-ownership-availability-green.log",
+      "bytes": 18141,
+      "sha256": "525abe276a0391f8c178629b72dc0c8a6532022570002af25e542abc97fb1f50"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/016-publication-overflow-green.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/016-publication-overflow-green.json",
+      "bytes": 71322,
+      "sha256": "633e0eaf3b49d793f20eb37637c57780ba924e3dcd2e08c6ac7cd3c15e1618c9"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/016-publication-overflow-green.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/016-publication-overflow-green.log",
+      "bytes": 757,
+      "sha256": "de2063c296cda59ad75c12ec8c03dfadd0ff0cab8f45aa06e53d0f0b1a18317c"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/017-affected-lifecycle-gate.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/017-affected-lifecycle-gate.json",
+      "bytes": 71151,
+      "sha256": "d8b39a55b854e1e6bc841e72b5837ed34f5dfca71973f88c2b0694497c6a464a"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/017-affected-lifecycle-gate.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/017-affected-lifecycle-gate.log",
+      "bytes": 24290,
+      "sha256": "d5949be8af90292842b2c7498b895e7dacc827b9eecc41e755f4634311b2986e"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/025-document-subscription-gate.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/025-document-subscription-gate.json",
+      "bytes": 70984,
+      "sha256": "cb85f4678d239217189e00c139a3dd8c453760ea85f1ad6d69e6434f9b1c2c82"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/025-document-subscription-gate.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/025-document-subscription-gate.log",
+      "bytes": 2583,
+      "sha256": "77b9525eb5f90f46d66d2fa397aad01efb47cd46540fac5334d4559fea46ec9b"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/034-close-branch-all-targets.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/034-close-branch-all-targets.json",
+      "bytes": 70891,
+      "sha256": "d915dfa40f3fb86fa923f48f8adc968ff60f326cfbf84ff602900706bec5911c"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/034-close-branch-all-targets.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/034-close-branch-all-targets.log",
+      "bytes": 101734,
+      "sha256": "3eeb5b36eaf7343b07eb346a40eb8b6b2bbbc41e334185dcd8d2296590422e6c"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/038-controlled-stop-window-red.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/038-controlled-stop-window-red.json",
+      "bytes": 71219,
+      "sha256": "01698524fdaf6f0c702ccba5a06b4331a1580b0dfe11ef0ea3d36ea84433fbf2"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/038-controlled-stop-window-red.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/038-controlled-stop-window-red.log",
+      "bytes": 1703,
+      "sha256": "2d8a56e4444c57cbcfa62fabbb88ba6257b9bd9f6cf3593aa1b5c26113c4c656"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/039-controlled-stop-window-green.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/039-controlled-stop-window-green.json",
+      "bytes": 71216,
+      "sha256": "afae6a9bc7cf5bdc5312435612ec6cf0085757d27e4c1f20f7a8994b5c38a3ca"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/039-controlled-stop-window-green.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/039-controlled-stop-window-green.log",
+      "bytes": 1053,
+      "sha256": "bb64452292a14d3b29d3c77dce3eafa0c539937af25def2620e596c91ab60bf3"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/041-final-affected-ownership-gate.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/041-final-affected-ownership-gate.json",
+      "bytes": 71628,
+      "sha256": "2850d1e9344a774e076f32a57d3f4ac24632a9e40342a1cd7530f25073e0324e"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/041-final-affected-ownership-gate.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/041-final-affected-ownership-gate.log",
+      "bytes": 44858,
+      "sha256": "eab960d0d8d8e7c0d37da93972af09868fe4f5bb72ee7de14d332a60dbd886df"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/042-controlled-stop-window-guard-green.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/042-controlled-stop-window-guard-green.json",
+      "bytes": 71217,
+      "sha256": "a59f1d14c616fb81ce7fd73e2183e09914a1edf7e9a36d574a04a6baf9f20ff9"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/042-controlled-stop-window-guard-green.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/042-controlled-stop-window-guard-green.log",
+      "bytes": 687,
+      "sha256": "156cece2d2e193d81c776c7e2f144e6a202ef4c7e5cb967cc3e593ee9b15f798"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/044-final-affected-ownership-gate.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/044-final-affected-ownership-gate.json",
+      "bytes": 71626,
+      "sha256": "edc195dd1836b8c85d7294adb203fab56409a173bc978943950b89b4f83a0ec1"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/044-final-affected-ownership-gate.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/044-final-affected-ownership-gate.log",
+      "bytes": 44273,
+      "sha256": "a4f0aaf5eea0852aeef89a200ce2b75c36c4c79885a0eabe8367ba68bb20c40a"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/045-final-all-targets.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/045-final-all-targets.json",
+      "bytes": 71143,
+      "sha256": "655c2e0173cc2399ace1b48775d86a4cde92bad8fef4eeebab72f4b4058f541c"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/045-final-all-targets.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/045-final-all-targets.log",
+      "bytes": 104506,
+      "sha256": "a1dd01e6091b3c62917232a681a90602ac8e37a36966ed34119e12897e9f3db0"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/049-document-worker-focused-reproduction.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/049-document-worker-focused-reproduction.json",
+      "bytes": 71270,
+      "sha256": "d5477cdc202368a23538271762a2d5358556fbdeb33dfdb600a2b303875a92cb"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/049-document-worker-focused-reproduction.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/049-document-worker-focused-reproduction.log",
+      "bytes": 445,
+      "sha256": "0c7eeb534331ab5fe989d1e9ad4a03dd99b7886c9aaa212820a2e8375f10c9ce"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/050-doc-worker-process-observation.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/050-doc-worker-process-observation.json",
+      "bytes": 130,
+      "sha256": "630ffe0941ca6dc690bdac90f79bb29dcdf7bab9c9a9316e7f8f6fb2a9c74495"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/050-document-worker-default-parallel-reproduction.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/050-document-worker-default-parallel-reproduction.json",
+      "bytes": 71186,
+      "sha256": "4697dcab1cdfdebe25c88ce4bf9a43a3fc33c6fca473c619a6ee310889dba69e"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/050-document-worker-default-parallel-reproduction.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/050-document-worker-default-parallel-reproduction.log",
+      "bytes": 926,
+      "sha256": "f9b6fec7bb985250045ae67875a0ca08cd44415c38c1688339d517049f40d585"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/051-final-all-targets.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/051-final-all-targets.json",
+      "bytes": 71139,
+      "sha256": "c20b8bc9fa37d12ea6a0cb2010558783a2e1842c75f4ff742aed171ef54d0a88"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/051-final-all-targets.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/051-final-all-targets.log",
+      "bytes": 103568,
+      "sha256": "4a4efb9ad7b91ef9ae999743a9cf65b937824ebe4e3a21cd22c387b1bd1b6d82"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/052-final-lib-check.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/052-final-lib-check.json",
+      "bytes": 71134,
+      "sha256": "0c941a4d7bb7cb9e94088d1840cb732d5a961e811da3abddf3efa72fd7975642"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/052-final-lib-check.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/052-final-lib-check.log",
+      "bytes": 191,
+      "sha256": "3c3ca0c98b2b123f458f40a7f616f0404591d56057435c4b029c6a900ac5f372"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/053-final-desktop-build.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/053-final-desktop-build.json",
+      "bytes": 71152,
+      "sha256": "b71d77e21f5726cd2cc4981ab1dc86604f4967db92cfd8666557f8f84514720d"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/053-final-desktop-build.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/053-final-desktop-build.log",
+      "bytes": 191,
+      "sha256": "402cd6be6febac5ffcb6bf0c081dceccae7a3bf5a081fe70dea2cb2da15894ba"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/054-final-format-check.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/054-final-format-check.json",
+      "bytes": 71111,
+      "sha256": "f2a8b80ccd682e3e0e0c0075fe925ff28f0c8cc25c2e3fa0d3f6c396fabe42b2"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/054-final-format-check.log",
+      "archive_path": "evidence/task-6-oo1-validation/repair/054-final-format-check.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/final-candidate/scoped-review-inputs.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/final-candidate/scoped-review-inputs.json",
+      "bytes": 17097,
+      "sha256": "9a35508564be4c3a2ad7793524fde8dd7814c0b5a7cb77163a9830d0a9553fd2"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/final-candidate/independent-scoped-review.md",
+      "archive_path": "evidence/task-6-oo1-validation/repair/final-candidate/independent-scoped-review.md",
+      "bytes": 23538,
+      "sha256": "de149039851099863fe961f96c4e59bb935612196cb6b9a56411cc50baa7127a"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/final-candidate/controller-acceptance-20261111.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/final-candidate/controller-acceptance-20261111.json",
+      "bytes": 8017,
+      "sha256": "871f82329d6c31cf978f230b8474fef2f4d594147dcaab15786420f069d327ed"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-oo1-validation/repair/final-candidate/source-integration-20261111.json",
+      "archive_path": "evidence/task-6-oo1-validation/repair/final-candidate/source-integration-20261111.json",
+      "bytes": 447,
+      "sha256": "35044230c2dab885e84ab972ec1678203ce1bddfa5ace02392d5e8dd15677b49"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-2-round1-independent-rereview.md",
+      "archive_path": "evidence/task-2-round1-independent-rereview.md",
+      "bytes": 10812,
+      "sha256": "72522034d1ddd69553903bc76bdc5e51d22524f4c258c274b0dd0371fe22a73b"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-2-report.md",
+      "archive_path": "evidence/task-2-report.md",
+      "bytes": 61278,
+      "sha256": "efc3dec8739f049e9f9297f09969b101ae9f4c594b7c3f52717264872bce70cd"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-2-close-retry-ruling.md",
+      "archive_path": "evidence/task-2-close-retry-ruling.md",
+      "bytes": 3280,
+      "sha256": "d391616463e1c89660ba5e0d1510ea5c8d4354023e9eced97dff4d6c74a072c5"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-summary-ui-handoff-round1.md",
+      "archive_path": "evidence/task-6-summary-ui-handoff-round1.md",
+      "bytes": 7627,
+      "sha256": "8d425ca862080ea3d16ee107e1c8b1166db4da837a30a63aff9ffb280b772d08"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-6-summary-ui-handoff-round1-inputs.json",
+      "archive_path": "evidence/task-6-summary-ui-handoff-round1-inputs.json",
+      "bytes": 2041,
+      "sha256": "606d0ad9a8e53d83a9517d0202ccbe7bc85851a38afa22f0a32fd5655c766a68"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-7-current-owned-producers-preparation.md",
+      "archive_path": "evidence/task-7-current-owned-producers-preparation.md",
+      "bytes": 7905,
+      "sha256": "f93238ad013264174ab3ceb7a49041c9b33409958f8253bba1866c9d74f5f4fc"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/task-7-execution-boundaries-candidate.md",
+      "archive_path": "evidence/task-7-execution-boundaries-candidate.md",
+      "bytes": 8931,
+      "sha256": "04e560830f17b70bb6893eaa6a1b7641a71a998cccf3b9eacae7be9e30a414db"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/final-automatic-task2-round1-repaired/complete-task6-source-review.diff",
+      "archive_path": "evidence/final-automatic-task2-round1-repaired/complete-task6-source-review.diff",
+      "bytes": 796983,
+      "sha256": "615b9fabaa56d51b197f90ad8f1c64304a3722d1157515715db37349bce1766a"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/final-automatic-task2-round1-repaired/complete-task6-review-inputs.json",
+      "archive_path": "evidence/final-automatic-task2-round1-repaired/complete-task6-review-inputs.json",
+      "bytes": 5524,
+      "sha256": "f6dc8b4d84b88d6c375fe777129fcde94f7c9e1275c6054ddd44cdcd840f7885"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/final-automatic-task2-round1-repaired/source-freeze.json",
+      "archive_path": "evidence/final-automatic-task2-round1-repaired/source-freeze.json",
+      "bytes": 178123,
+      "sha256": "708d950e56c57ab913b6bf224ce130a8c400aa92d61d6d44f20ac73448aec01f"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/final-automatic-task2-round1-repaired/final-verification.json",
+      "archive_path": "evidence/final-automatic-task2-round1-repaired/final-verification.json",
+      "bytes": 4822,
+      "sha256": "2c873a01e6dca08e4064ad1df5d705e99ddc6f52b28432ed823bfb522af9cdd0"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/final-automatic-task2-round1-repaired/task-2-round1-review-inputs.json",
+      "archive_path": "evidence/final-automatic-task2-round1-repaired/task-2-round1-review-inputs.json",
+      "bytes": 5312,
+      "sha256": "fd9b4a7580f6b55b1ea29aa3c53b1bd39270dc86b19d20a8ed676b20dddc0699"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/final-automatic-task2-round1-repaired/task-2-round1-fix-review.diff",
+      "archive_path": "evidence/final-automatic-task2-round1-repaired/task-2-round1-fix-review.diff",
+      "bytes": 121182,
+      "sha256": "71d14fdd4426a4112ff14fcf8f525e027de3bca658fe05a769999315c83297af"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/final-automatic-task2-round1-repaired/task-6-integration-review-inputs.json",
+      "archive_path": "evidence/final-automatic-task2-round1-repaired/task-6-integration-review-inputs.json",
+      "bytes": 8097,
+      "sha256": "394796ad1980f6b76b23a5e80a545c2ca7ef7b216d4c385089c7503ab6a35190"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/final-automatic-task2-round1-repaired/controller-final-gate-audit.json",
+      "archive_path": "evidence/final-automatic-task2-round1-repaired/controller-final-gate-audit.json",
+      "bytes": 885,
+      "sha256": "507ab796ea08caf39ed3939991fcb2c64f92fa11500b27d51c0d356c4432dde0"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/final-automatic-task2-round1-repaired/final-all-targets.log",
+      "archive_path": "evidence/final-automatic-task2-round1-repaired/final-all-targets.log",
+      "bytes": 102802,
+      "sha256": "bf4791c1aa30b47c4c1e9b08e190be9e0a2e0fd4e3cbc7ab7b7477e1c5f95786"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/final-automatic-task2-round1-repaired/final-production-check.log",
+      "archive_path": "evidence/final-automatic-task2-round1-repaired/final-production-check.log",
+      "bytes": 190,
+      "sha256": "7ba881762eb5c5f34babb65e62004f214d84038b5a51ae3f2292e3c80e5a8e88"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/final-automatic-task2-round1-repaired/final-desktop-build.log",
+      "archive_path": "evidence/final-automatic-task2-round1-repaired/final-desktop-build.log",
+      "bytes": 191,
+      "sha256": "cb2c11ec30eba8bd25dd78c90ef69186d0c54b64606e7dd91c329b91d789935e"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/final-automatic-task2-round1-repaired/final-rustfmt.log",
+      "archive_path": "evidence/final-automatic-task2-round1-repaired/final-rustfmt.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/final-automatic-task2-round1-repaired/final-frozen-diff-check.log",
+      "archive_path": "evidence/final-automatic-task2-round1-repaired/final-frozen-diff-check.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/final-automatic-task2-round1-repaired/final-frontend-contracts.log",
+      "archive_path": "evidence/final-automatic-task2-round1-repaired/final-frontend-contracts.log",
+      "bytes": 343,
+      "sha256": "9626a85623b8f94492bf4763a49ddf4d3c6b580c17767c39579e42b56ef2c7dc"
+    },
+    {
+      "original_path": ".superpowers/sdd/2026-11-09-session-summary-continuation/final-automatic-task2-round1-repaired/final-frontend-build.log",
+      "archive_path": "evidence/final-automatic-task2-round1-repaired/final-frontend-build.log",
+      "bytes": 1282,
+      "sha256": "091e3bb997f901e3a446964a4ebec031a35dd7671871aec33c197943efc273dc"
+    }
+  ]
+}

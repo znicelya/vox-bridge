@@ -1,0 +1,10 @@
+$ vitest run src/lib/wire.test.ts src/lib/intelligence-wire.test.ts src/lib/desktop.test.ts
+
+ RUN  v5.1.0 /mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation
+
+
+ Test Files  3 passed (3)
+      Tests  15 passed (15)
+   Start at  11:58:26
+   Duration  1.19s (environment 77%, setup 18%, transform 3%, import 1%, tests 1%)
+

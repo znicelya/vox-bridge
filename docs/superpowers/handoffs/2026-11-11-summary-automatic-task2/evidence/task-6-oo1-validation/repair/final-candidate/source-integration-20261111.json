@@ -1,0 +1,10 @@
+{
+  "committed_utc": "2026-11-10T17:11:19.198869+00:00",
+  "old_head": "85eda3a8bca3ddabd72edad0763b4d5776166f9a",
+  "source_commit": "d260d593a86d006d1f99262a5293222da397dafe",
+  "exact_reviewed_tree": "8b82dbdf849918487b59b3eb9e9130c6124ddef5",
+  "source_path_count": 68,
+  "protected_gitignore_sha256": "1e708ede61f6522d88e4bea58f5c55e70831f404fd00f7a6710d424446e57a3a",
+  "only_remaining_staged_path": ".gitignore",
+  "main_unchanged": true
+}

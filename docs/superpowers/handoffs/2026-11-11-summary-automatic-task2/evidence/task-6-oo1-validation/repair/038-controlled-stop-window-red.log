@@ -1,0 +1,25 @@
+   Compiling vox-bridge v0.1.0 (/mnt/data/workspack/github/vox-bridge/.worktrees/vox-bridge-implementation/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 35.33s
+     Running unittests src/lib.rs (.superpowers/toolchain/cargo-target-intelligence-20261107/debug/deps/vox_bridge_lib-c923e116beb4374a)
+
+running 2 tests
+stop-race first actual worker join: Some(Err(JoinError::Cancelled(Id(9)))), requested stop: true
+stop-race first actual worker join: Some(Ok(Ok(()))), requested stop: true
+OO1 scheduler 1148f326-8f95-4ff5-b3f6-8d8bcc50176e shutdown join result: Ok(Err(Intelligence(Interrupted)))
+OO1 scheduler d3cdd7d3-f240-4d65-b8ec-02cc55159fe7 shutdown join result: Ok(Err(Intelligence(Interrupted)))
+OO1 scheduler 1148f326-8f95-4ff5-b3f6-8d8bcc50176e
+thread 'intelligence::jobs::tests::stop_race::requested_stop_between_stop_poll_and_worker_join_closes_and_rearms' (1857388) panicked at src/intelligence/jobs/tests/stop_race.rs:127:9:
+normal requested worker exit poisoned close: Err(Intelligence(Interrupted))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+ shutdown join result: Ok(Err(Intelligence(Interrupted)))
+test intelligence::jobs::tests::stop_race::requested_stop_between_stop_poll_and_worker_join_closes_and_rearms ... FAILED
+test intelligence::jobs::tests::stop_race::requested_stop_between_stop_poll_and_worker_join_keeps_abnormal_exit_failed ... ok
+
+failures:
+
+failures:
+    intelligence::jobs::tests::stop_race::requested_stop_between_stop_poll_and_worker_join_closes_and_rearms
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 900 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `--lib`
